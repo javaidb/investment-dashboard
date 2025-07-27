@@ -113,6 +113,15 @@ timeout /t 5 /nobreak >nul
 start http://localhost:3000
 
 echo Starting both frontend and backend servers...
+echo.
+echo Frontend will be available at: http://localhost:3000
+echo Backend API will be available at: http://localhost:5000
+echo.
+echo Starting servers with concurrent execution...
 call "C:\Program Files\nodejs\npm.cmd" run dev
 
+echo.
+echo If the servers don't start properly, try running manually:
+echo npm run dev
+echo.
 pause 
