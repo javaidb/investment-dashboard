@@ -406,12 +406,34 @@ async function getCurrentPrices(holdings) {
         console.warn(`⚠️ Unknown type '${holding.type}' for ${holding.symbol}, skipping price fetch`);
       }
 
+      // Get company name for stocks
+      let companyName = holding.symbol;
+      if (holding.type === 's') {
+        try {
+          const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
+          companyName = stockResponse.data.name || holding.symbol;
+        } catch (nameError) {
+          console.warn(`Could not fetch company name for ${holding.symbol}:`, nameError.message);
+        }
+      } else if (holding.type === 'c') {
+        // For crypto, use a simple mapping or fetch from crypto API
+        const cryptoNames = {
+          'BTC': 'Bitcoin',
+          'ETH': 'Ethereum',
+          'ADA': 'Cardano',
+          'SOL': 'Solana',
+          'DOGE': 'Dogecoin'
+        };
+        companyName = cryptoNames[holding.symbol] || holding.symbol;
+      }
+
       const currentValue = currentPrice ? currentPrice * holding.quantity : null;
       const unrealizedPnL = currentValue ? currentValue - holding.totalInvested : null;
       const totalPnL = unrealizedPnL ? unrealizedPnL + holding.realizedPnL : holding.realizedPnL;
 
       holdingsWithPrices.push({
         ...holding,
+        companyName: companyName,
         currentPrice: currentPrice,
         currentValue: currentValue,
         unrealizedPnL: unrealizedPnL,

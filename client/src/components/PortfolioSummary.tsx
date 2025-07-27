@@ -16,6 +16,7 @@ interface Holding {
   realizedPnL: number;
   type: string; // 's' for stock, 'c' for crypto
   currency: string; // 'CAD' for Canadian dollars
+  companyName?: string;
   currentPrice?: number;
   currentValue?: number;
   unrealizedPnL?: number;
@@ -77,6 +78,7 @@ const PortfolioSummary: React.FC = () => {
            realizedPnL: holding.realizedPnL || 0,
            type: holding.type || 's', // Default to stock if type is missing
            currency: holding.currency || 'CAD', // Default to CAD
+           companyName: holding.companyName || holding.symbol || 'UNKNOWN',
            currentPrice: holding.currentPrice || null,
            currentValue: holding.currentValue || null,
            unrealizedPnL: holding.unrealizedPnL || null,
@@ -171,30 +173,7 @@ const PortfolioSummary: React.FC = () => {
     return value.toFixed(decimals);
   };
 
-  const getCompanyName = (symbol: string) => {
-    switch (symbol) {
-      case 'AAPL':
-        return 'Apple Inc.';
-      case 'MSFT':
-        return 'Microsoft Corporation';
-      case 'GOOGL':
-        return 'Alphabet Inc. (Google)';
-      case 'TSLA':
-        return 'Tesla, Inc.';
-      case 'BTC':
-        return 'Bitcoin';
-      case 'ETH':
-        return 'Ethereum';
-      case 'ADA':
-        return 'Cardano';
-      case 'SOL':
-        return 'Solana';
-      case 'DOGE':
-        return 'Dogecoin';
-      default:
-        return symbol;
-    }
-  };
+
 
   if (loading) {
     return (
@@ -471,7 +450,7 @@ const PortfolioSummary: React.FC = () => {
                           color: '#6b7280',
                           fontStyle: 'italic'
                         }}>
-                          {getCompanyName(holding.symbol)}
+                          {holding.companyName}
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>

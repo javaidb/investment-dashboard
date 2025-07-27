@@ -64,6 +64,7 @@ router.get('/quote/:symbol', async (req, res) => {
           const latestIndex = timestamps.length - 1;
           const stockData = {
             symbol: symbol.toUpperCase(),
+            name: meta.shortName || meta.longName || symbol.toUpperCase(),
             price: parseFloat(meta.regularMarketPrice || 0),
             change: parseFloat(meta.regularMarketPrice - meta.previousClose || 0),
             changePercent: parseFloat(((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100) || 0),
@@ -92,6 +93,7 @@ router.get('/quote/:symbol', async (req, res) => {
     // Fallback: Return mock data
     const mockData = {
       symbol: symbol.toUpperCase(),
+      name: symbol.toUpperCase(), // Fallback to symbol if no name available
       price: 150.00 + Math.random() * 50,
       change: (Math.random() - 0.5) * 10,
       changePercent: (Math.random() - 0.5) * 5,
