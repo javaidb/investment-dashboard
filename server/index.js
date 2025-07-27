@@ -20,6 +20,9 @@ const PORT = process.env.PORT || 5000;
 // Security middleware
 app.use(helmet());
 
+// Trust proxy for proper IP detection
+app.set('trust proxy', 1);
+
 // CORS configuration
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
@@ -28,13 +31,29 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
+// Rate limiting with error handling
+try {
+  const limiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    trustProxy: true,
+    skipSuccessfulRequests: false,
+    skipFailedRequests: false,
+    handler: (req, res) => {
+      res.status(429).json({
+        error: 'Too many requests',
+        message: 'Please try again later',
+        retryAfter: Math.ceil(parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000 / 1000)
+      });
+    }
+  });
+  app.use('/api/', limiter);
+} catch (error) {
+  console.warn('Rate limiter configuration failed, continuing without rate limiting:', error.message);
+}
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
