@@ -57,13 +57,26 @@ const StockChart: React.FC<StockChartProps> = ({ defaultSymbol = 'AAPL' }) => {
     }
   );
 
-  // Fetch historical data
+  // Fetch historical data using Yahoo Finance
   const { data: historicalData, isLoading, error } = useQuery(
     ['stockHistorical', selectedSymbol, timeRange],
     async () => {
-      const response = await axios.get(`/api/stocks/historical/${selectedSymbol}`, {
+      // Map time range to Yahoo Finance range parameter
+      const rangeMap: { [key: string]: string } = {
+        '1D': '1d',
+        '1W': '5d',
+        '1M': '1mo',
+        '3M': '3mo',
+        '1Y': '1y',
+        'ALL': '5y'
+      };
+      
+      const range = rangeMap[timeRange] || '1mo';
+      
+      const response = await axios.get(`/api/stocks/yahoo/historical/${selectedSymbol}`, {
         params: {
-          outputsize: timeRange === 'ALL' ? 'full' : 'compact'
+          range: range,
+          interval: '1d'
         }
       });
       return response.data;
