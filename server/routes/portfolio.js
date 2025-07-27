@@ -244,17 +244,27 @@ async function getCurrentPrices(holdings) {
       // Try to get stock price first, then crypto
       let currentPrice = null;
       
-      try {
-        // Try stock API
-        const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
-        currentPrice = stockResponse.data.price;
-      } catch (stockError) {
+      // Check if it's a crypto symbol
+      const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB', 'TRX', 'ETC', 'FIL', 'NEAR', 'ALGO'];
+      const isCrypto = cryptoSymbols.includes(holding.symbol.toUpperCase());
+      
+      if (isCrypto) {
         try {
-          // Try crypto API (convert symbol to lowercase for CoinGecko)
+          // Try crypto API first for known crypto symbols
           const cryptoResponse = await axios.get(`http://localhost:5000/api/crypto/price/${holding.symbol.toLowerCase()}`);
           currentPrice = cryptoResponse.data.price;
+          console.log(`✅ Fetched crypto price for ${holding.symbol}: $${currentPrice}`);
         } catch (cryptoError) {
-          console.warn(`Could not fetch price for ${holding.symbol}`);
+          console.warn(`❌ Could not fetch crypto price for ${holding.symbol}:`, cryptoError.message);
+        }
+      } else {
+        try {
+          // Try stock API for non-crypto symbols
+          const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
+          currentPrice = stockResponse.data.price;
+          console.log(`✅ Fetched stock price for ${holding.symbol}: $${currentPrice}`);
+        } catch (stockError) {
+          console.warn(`❌ Could not fetch stock price for ${holding.symbol}:`, stockError.message);
         }
       }
 
