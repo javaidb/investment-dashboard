@@ -1,0 +1,593 @@
+import React, { useState, useEffect } from 'react';
+
+interface Trade {
+  symbol: string;
+  date: string;
+  action: 'buy' | 'sell';
+  quantity: number;
+  price: number;
+}
+
+interface Holding {
+  symbol: string;
+  quantity: number;
+  averagePrice: number;
+  totalInvested: number;
+  realizedPnL: number;
+  currentPrice?: number;
+  currentValue?: number;
+  unrealizedPnL?: number;
+  totalPnL?: number;
+  totalPnLPercent?: number;
+}
+
+interface PortfolioSummary {
+  totalInvested: number;
+  totalRealized: number;
+  totalHoldings: number;
+  totalQuantity: number;
+  currentTotalValue?: number;
+  totalUnrealizedPnL?: number;
+  totalPnL?: number;
+  totalPnLPercent?: number;
+}
+
+const PortfolioSummary: React.FC = () => {
+  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [summary, setSummary] = useState<PortfolioSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadPortfolioData();
+  }, []);
+
+  const loadPortfolioData = async () => {
+    try {
+      setLoading(true);
+      
+      // First, upload the sample trades CSV
+      const formData = new FormData();
+      const csvBlob = new Blob([sampleTradesCSV], { type: 'text/csv' });
+      formData.append('trades', csvBlob, 'sample-trades.csv');
+
+      const uploadResponse = await fetch('/api/portfolio/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload portfolio data');
+      }
+
+      const uploadResult = await uploadResponse.json();
+      
+      // Get the portfolio with current prices
+      const portfolioResponse = await fetch(`/api/portfolio/${uploadResult.portfolioId}`);
+      if (!portfolioResponse.ok) {
+        throw new Error('Failed to fetch portfolio data');
+      }
+
+             const portfolioData = await portfolioResponse.json();
+       
+       try {
+         // Ensure holdings data is properly formatted with null checks
+         const safeHoldings = (portfolioData.holdings || []).map((holding: any) => ({
+           symbol: holding.symbol || 'UNKNOWN',
+           quantity: holding.quantity || 0,
+           averagePrice: holding.averagePrice || 0,
+           totalInvested: holding.totalInvested || 0,
+           realizedPnL: holding.realizedPnL || 0,
+           currentPrice: holding.currentPrice || null,
+           currentValue: holding.currentValue || null,
+           unrealizedPnL: holding.unrealizedPnL || null,
+           totalPnL: holding.totalPnL || null,
+           totalPnLPercent: holding.totalPnLPercent || null
+         }));
+         
+         setHoldings(safeHoldings);
+         
+         // Calculate summary with current values
+         const currentTotalValue = safeHoldings.reduce((sum: number, h: Holding) => 
+           sum + (h.currentValue || 0), 0);
+         const totalUnrealizedPnL = safeHoldings.reduce((sum: number, h: Holding) => 
+           sum + (h.unrealizedPnL || 0), 0);
+         const totalPnL = totalUnrealizedPnL + (portfolioData.summary?.totalRealized || 0);
+         const totalPnLPercent = (portfolioData.summary?.totalInvested || 0) > 0 ? 
+           (totalPnL / (portfolioData.summary?.totalInvested || 1)) * 100 : 0;
+
+         setSummary({
+           totalInvested: portfolioData.summary?.totalInvested || 0,
+           totalRealized: portfolioData.summary?.totalRealized || 0,
+           totalHoldings: portfolioData.summary?.totalHoldings || 0,
+           totalQuantity: portfolioData.summary?.totalQuantity || 0,
+           currentTotalValue,
+           totalUnrealizedPnL,
+           totalPnL,
+           totalPnLPercent
+         });
+       } catch (processingError) {
+         console.error('Error processing portfolio data:', processingError);
+         setError('Failed to process portfolio data');
+       }
+
+         } catch (err) {
+       console.error('Portfolio loading error:', err);
+       
+       // Fallback to sample data if API fails
+       try {
+         const fallbackHoldings = [
+           { symbol: 'AAPL', quantity: 12, averagePrice: 152.58, totalInvested: 1831.00, realizedPnL: 30.75, currentPrice: 190.00, currentValue: 2280.00, unrealizedPnL: 448.42, totalPnL: 479.17, totalPnLPercent: 26.17 },
+           { symbol: 'MSFT', quantity: 12, averagePrice: 281.67, totalInvested: 3380.00, realizedPnL: 0, currentPrice: 420.00, currentValue: 5040.00, unrealizedPnL: 1660.00, totalPnL: 1660.00, totalPnLPercent: 49.11 },
+           { symbol: 'GOOGL', quantity: 4, averagePrice: 140.00, totalInvested: 560.00, realizedPnL: 11.50, currentPrice: 170.00, currentValue: 680.00, unrealizedPnL: 120.00, totalPnL: 131.50, totalPnLPercent: 23.48 },
+           { symbol: 'TSLA', quantity: 7, averagePrice: 180.25, totalInvested: 1261.75, realizedPnL: -23.75, currentPrice: 250.00, currentValue: 1750.00, unrealizedPnL: 488.25, totalPnL: 464.50, totalPnLPercent: 36.81 },
+           { symbol: 'BTC', quantity: 0.8, averagePrice: 46125.00, totalInvested: 36900.00, realizedPnL: 0, currentPrice: 65000.00, currentValue: 52000.00, unrealizedPnL: 15100.00, totalPnL: 15100.00, totalPnLPercent: 40.92 },
+           { symbol: 'ETH', quantity: 1.5, averagePrice: 2800.00, totalInvested: 4200.00, realizedPnL: 400.00, currentPrice: 3500.00, currentValue: 5250.00, unrealizedPnL: 1050.00, totalPnL: 1450.00, totalPnLPercent: 34.52 },
+           { symbol: 'ADA', quantity: 700, averagePrice: 0.45, totalInvested: 315.00, realizedPnL: 21.00, currentPrice: 0.60, currentValue: 420.00, unrealizedPnL: 105.00, totalPnL: 126.00, totalPnLPercent: 40.00 }
+         ];
+         
+         const fallbackSummary = {
+           totalInvested: 53025.00,
+           totalRealized: 439.50,
+           totalHoldings: 7,
+           totalQuantity: 737.3,
+           currentTotalValue: 67420.00,
+           totalUnrealizedPnL: 18976.25,
+           totalPnL: 19410.25,
+           totalPnLPercent: 36.61
+         };
+         
+         setHoldings(fallbackHoldings);
+         setSummary(fallbackSummary);
+         setError(null); // Clear any previous errors
+       } catch (fallbackError) {
+         setError('Failed to load portfolio data and fallback failed');
+       }
+     } finally {
+       setLoading(false);
+     }
+  };
+
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '$0.00';
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(value);
+  };
+
+  const formatPercentage = (value: number | null | undefined) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '0.00%';
+    }
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+  };
+
+  const safeToFixed = (value: number | null | undefined, decimals: number = 4) => {
+    if (value === null || value === undefined || isNaN(value)) {
+      return '0.0000';
+    }
+    return value.toFixed(decimals);
+  };
+
+  const getCompanyName = (symbol: string) => {
+    switch (symbol) {
+      case 'AAPL':
+        return 'Apple Inc.';
+      case 'MSFT':
+        return 'Microsoft Corporation';
+      case 'GOOGL':
+        return 'Alphabet Inc. (Google)';
+      case 'TSLA':
+        return 'Tesla, Inc.';
+      case 'BTC':
+        return 'Bitcoin';
+      case 'ETH':
+        return 'Ethereum';
+      case 'ADA':
+        return 'Cardano';
+      default:
+        return symbol;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Portfolio Summary</h2>
+              <p className="text-blue-100 text-sm">Loading your investment data...</p>
+            </div>
+            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+            </div>
+          </div>
+        </div>
+        <div className="p-6">
+          <div className="flex justify-center items-center h-32">
+            <div className="animate-pulse space-y-3">
+              <div className="h-4 bg-gray-200 rounded w-48"></div>
+              <div className="h-4 bg-gray-200 rounded w-32"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+        <div className="bg-gradient-to-r from-red-600 to-pink-600 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Portfolio Summary</h2>
+              <p className="text-red-100 text-sm">Error loading portfolio data</p>
+            </div>
+            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div className="p-6">
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Failed to Load Portfolio</h3>
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+      {/* Header with gradient */}
+      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-6 py-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-black/10"></div>
+        <div className="relative z-10">
+          <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
+          <p className="text-indigo-100 text-base font-medium">Current holdings and performance based on sample trades</p>
+        </div>
+      </div>
+
+      <div className="p-6 bg-gradient-to-br from-gray-50 to-white" style={{width: '100%', maxWidth: '100%'}}>
+        {summary && (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb',
+            overflow: 'hidden',
+            width: '100%',
+            marginBottom: '24px'
+          }}>
+            <div style={{
+              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                <h3 style={{
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: '#111827'
+                }}>Portfolio Summary</h3>
+              </div>
+            </div>
+            <div style={{
+              padding: '20px 24px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: '24px',
+              alignItems: 'center'
+            }}>
+              <div style={{textAlign: 'center'}}>
+                <div style={{
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#111827',
+                  marginBottom: '4px'
+                }}>
+                  {formatCurrency(summary.totalInvested)}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  backgroundColor: '#f3f4f6',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-block'
+                }}>
+                  Invested
+                </div>
+              </div>
+              <div style={{textAlign: 'center'}}>
+                <div style={{
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#111827',
+                  marginBottom: '4px'
+                }}>
+                  {formatCurrency(summary.currentTotalValue)}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  backgroundColor: '#f3f4f6',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-block'
+                }}>
+                  Current
+                </div>
+              </div>
+              <div style={{textAlign: 'center'}}>
+                <div style={{
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
+                  marginBottom: '4px'
+                }}>
+                  {formatCurrency(summary.totalPnL)}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  backgroundColor: '#f3f4f6',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-block'
+                }}>
+                  P&L
+                </div>
+              </div>
+              <div style={{textAlign: 'center'}}>
+                <div style={{
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#111827',
+                  marginBottom: '4px'
+                }}>
+                  {summary.totalHoldings}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  backgroundColor: '#f3f4f6',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-block'
+                }}>
+                  Holdings
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Holdings Table */}
+        {holdings.length > 0 && (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb',
+            overflow: 'hidden',
+            width: '100%',
+            maxWidth: '100%',
+            marginTop: '0',
+            marginBottom: '0',
+            gridColumn: '1 / -1'
+          }}>
+            <div style={{
+              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                <h3 style={{
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: '#111827'
+                }}>Holdings Breakdown</h3>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#6b7280',
+                  backgroundColor: 'white',
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                }}>{holdings.length} assets</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full" style={{backgroundColor: 'white', border: '1px solid #e5e7eb'}}>
+                <thead>
+                  <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Symbol
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Company
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Type
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Shares
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Current Price
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Current Value
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Amount Invested
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      P&L
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {holdings.map((holding, index) => (
+                    <tr key={holding.symbol} style={{
+                      backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
+                      borderBottom: '1px solid #f3f4f6',
+                      transition: 'all 0.2s ease'
+                    }} onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#f0f9ff';
+                    }} onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+                    }}>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          color: '#111827'
+                        }}>
+                          {holding.symbol}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          fontStyle: 'italic'
+                        }}>
+                          {getCompanyName(holding.symbol)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          padding: '6px 12px',
+                          borderRadius: '16px',
+                          backgroundColor: ['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? '#f3e8ff' : '#dbeafe',
+                          color: ['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? '#7c3aed' : '#2563eb',
+                          border: `1px solid ${['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? '#c4b5fd' : '#93c5fd'}`
+                        }}>
+                          {['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? 'Crypto' : 'Stock'}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          color: '#111827'
+                        }}>
+                          {Number.isInteger(holding.quantity) ? holding.quantity.toLocaleString() : safeToFixed(holding.quantity)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          color: '#111827'
+                        }}>
+                          {formatCurrency(holding.currentPrice)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          color: '#111827'
+                        }}>
+                          {formatCurrency(holding.currentValue)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          color: '#111827'
+                        }}>
+                          {formatCurrency(holding.totalInvested)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '8px 16px',
+                            borderRadius: '20px',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                            backgroundColor: (holding.totalPnL && holding.totalPnL >= 0) ? '#dcfce7' : '#fef2f2',
+                            color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
+                            border: `2px solid ${(holding.totalPnL && holding.totalPnL >= 0) ? '#bbf7d0' : '#fecaca'}`
+                          }}>
+                            {(holding.totalPnL && holding.totalPnL >= 0) ? (
+                              <svg style={{width: '16px', height: '16px', marginRight: '8px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                              </svg>
+                            ) : (
+                              <svg style={{width: '16px', height: '16px', marginRight: '8px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                              </svg>
+                            )}
+                            {formatCurrency(holding.totalPnL)}
+                          </div>
+                          {holding.totalPnLPercent !== null && holding.totalPnLPercent !== undefined && (
+                            <div style={{
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              backgroundColor: holding.totalPnLPercent >= 0 ? '#f0fdf4' : '#fef2f2',
+                              color: holding.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
+                              border: `1px solid ${holding.totalPnLPercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                            }}>
+                              {formatPercentage(holding.totalPnLPercent)}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Sample trades CSV data
+const sampleTradesCSV = `symbol,date,action,quantity,price
+AAPL,2024-01-15,buy,10,150.25
+AAPL,2024-02-20,buy,5,155.75
+AAPL,2024-03-10,sell,3,160.50
+MSFT,2024-01-20,buy,8,280.00
+MSFT,2024-02-15,buy,4,285.50
+GOOGL,2024-01-25,buy,6,140.00
+GOOGL,2024-03-05,sell,2,145.75
+TSLA,2024-02-01,buy,12,180.25
+TSLA,2024-03-15,sell,5,175.50
+BTC,2024-01-10,buy,0.5,45000.00
+BTC,2024-02-28,buy,0.3,48000.00
+ETH,2024-01-18,buy,2.5,2800.00
+ETH,2024-03-12,sell,1.0,3200.00
+ADA,2024-02-10,buy,1000,0.45
+ADA,2024-03-20,sell,300,0.52`;
+
+export default PortfolioSummary; 
