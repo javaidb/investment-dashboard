@@ -49,8 +49,8 @@ const TrendingStocks: React.FC = () => {
       const symbols = trendingData.stocks.slice(0, 6).map((stock: TrendingItem) => stock.symbol);
       const historicalPromises = symbols.map(async (symbol: string) => {
         try {
-          const response = await axios.get(`/api/stocks/historical/${symbol}`, {
-            params: { outputsize: 'compact' }
+          const response = await axios.get(`/api/stocks/yahoo/historical/${symbol}`, {
+            params: { range: '1mo', interval: '1d' }
           });
           return { symbol, data: response.data };
         } catch (error) {
