@@ -5,16 +5,48 @@ const router = express.Router();
 // CoinGecko API configuration
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
 
+// Symbol to CoinGecko ID mapping
+const CRYPTO_SYMBOL_MAP = {
+  'BTC': 'bitcoin',
+  'ETH': 'ethereum',
+  'ADA': 'cardano',
+  'SOL': 'solana',
+  'DOT': 'polkadot',
+  'LINK': 'chainlink',
+  'UNI': 'uniswap',
+  'MATIC': 'matic-network',
+  'AVAX': 'avalanche-2',
+  'ATOM': 'cosmos',
+  'LTC': 'litecoin',
+  'BCH': 'bitcoin-cash',
+  'XRP': 'ripple',
+  'DOGE': 'dogecoin',
+  'SHIB': 'shiba-inu',
+  'TRX': 'tron',
+  'ETC': 'ethereum-classic',
+  'FIL': 'filecoin',
+  'NEAR': 'near',
+  'ALGO': 'algorand'
+};
+
 // Cache for crypto data
 const cryptoCache = new Map();
 const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
+
+// Helper function to get CoinGecko ID from symbol
+function getCoinGeckoId(symbol) {
+  return CRYPTO_SYMBOL_MAP[symbol.toUpperCase()] || symbol.toLowerCase();
+}
 
 // Get cryptocurrency price data
 router.get('/price/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { currency = 'usd' } = req.query;
-    const cacheKey = `price_${id}_${currency}`;
+    
+    // Convert symbol to CoinGecko ID if it's a known symbol
+    const coinGeckoId = getCoinGeckoId(id);
+    const cacheKey = `price_${coinGeckoId}_${currency}`;
     
     // Check cache first
     const cached = cryptoCache.get(cacheKey);
@@ -24,7 +56,7 @@ router.get('/price/:id', async (req, res) => {
 
     const response = await axios.get(`${COINGECKO_BASE_URL}/simple/price`, {
       params: {
-        ids: id,
+        ids: coinGeckoId,
         vs_currencies: currency,
         include_24hr_change: true,
         include_24hr_vol: true,
@@ -32,13 +64,13 @@ router.get('/price/:id', async (req, res) => {
       }
     });
 
-    if (!response.data[id]) {
+    if (!response.data[coinGeckoId]) {
       return res.status(404).json({ error: 'Cryptocurrency not found' });
     }
 
-    const priceData = response.data[id];
+    const priceData = response.data[coinGeckoId];
     const cryptoData = {
-      id: id,
+      id: coinGeckoId,
       symbol: id.toUpperCase(),
       price: priceData[currency],
       change24h: priceData[`${currency}_24h_change`],
