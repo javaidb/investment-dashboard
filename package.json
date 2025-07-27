@@ -11,10 +11,16 @@
     "install-all": "npm install && cd server && npm install && cd ../client && npm install",
     "start": "cd server && npm start"
   },
-  "keywords": ["investment", "dashboard", "stocks", "crypto", "trading"],
+  "keywords": [
+    "investment",
+    "dashboard",
+    "stocks",
+    "crypto",
+    "trading"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
   }
-} 
+}
