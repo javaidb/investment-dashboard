@@ -85,7 +85,7 @@ router.get('/trending/all', async (req, res) => {
       { symbol: 'LINK', name: 'Chainlink', price: 18, changePercent: 1.1 }
     ].slice(0, Math.floor(limit / 2));
 
-    // For stocks, we'll use some popular ones (in a real app, you'd get trending stocks from an API)
+    // For stocks, we'll use some popular ones and fetch real data
     const popularStocks = [
       { symbol: 'AAPL', name: 'Apple Inc.' },
       { symbol: 'MSFT', name: 'Microsoft Corporation' },
@@ -101,14 +101,32 @@ router.get('/trending/all', async (req, res) => {
 
     const trendingStocks = popularStocks.slice(0, Math.floor(limit / 2));
 
-    // Add mock prices for trending stocks
-    const trendingStocksWithPrices = trendingStocks.map(stock => ({
-      ...stock,
-      type: 'stock',
-      price: Math.random() * 500 + 50, // Mock price between 50-550
-      change: (Math.random() - 0.5) * 10, // Mock change between -5 and +5
-      changePercent: (Math.random() - 0.5) * 10 // Mock percentage between -5% and +5%
-    }));
+    // Fetch real stock data for trending stocks
+    const trendingStocksWithPrices = await Promise.all(
+      trendingStocks.map(async (stock) => {
+        try {
+          // Fetch real stock data from our stocks API
+          const response = await axios.get(`http://localhost:5000/api/stocks/quote/${stock.symbol}`);
+          return {
+            ...stock,
+            type: 'stock',
+            price: response.data.price,
+            change: response.data.change,
+            changePercent: response.data.changePercent
+          };
+        } catch (error) {
+          console.error(`Error fetching data for ${stock.symbol}:`, error.message);
+          // Fallback to mock data if API fails
+          return {
+            ...stock,
+            type: 'stock',
+            price: Math.random() * 500 + 50,
+            change: (Math.random() - 0.5) * 10,
+            changePercent: (Math.random() - 0.5) * 10
+          };
+        }
+      })
+    );
 
     // Combine results
     const trendingItems = [
