@@ -48,12 +48,17 @@ router.get('/price/:id', async (req, res) => {
     const coinGeckoId = getCoinGeckoId(id);
     const cacheKey = `price_${coinGeckoId}_${currency}`;
     
+    console.log(`🔍 Fetching crypto price for ${id} (CoinGecko ID: ${coinGeckoId})`);
+    
     // Check cache first
     const cached = cryptoCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log(`✅ Returning cached price for ${id}: $${cached.data.price}`);
       return res.json(cached.data);
     }
 
+    console.log(`🌐 Making API call to CoinGecko for ${coinGeckoId}`);
+    
     const response = await axios.get(`${COINGECKO_BASE_URL}/simple/price`, {
       params: {
         ids: coinGeckoId,
@@ -61,10 +66,14 @@ router.get('/price/:id', async (req, res) => {
         include_24hr_change: true,
         include_24hr_vol: true,
         include_market_cap: true
-      }
+      },
+      timeout: 10000 // 10 second timeout
     });
 
+    console.log(`📊 CoinGecko response for ${coinGeckoId}:`, response.data);
+
     if (!response.data[coinGeckoId]) {
+      console.error(`❌ Cryptocurrency not found in response: ${coinGeckoId}`);
       return res.status(404).json({ error: 'Cryptocurrency not found' });
     }
 
@@ -80,6 +89,8 @@ router.get('/price/:id', async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
+    console.log(`✅ Successfully fetched price for ${id}: $${cryptoData.price}`);
+
     // Cache the result
     cryptoCache.set(cacheKey, {
       data: cryptoData,
@@ -88,7 +99,14 @@ router.get('/price/:id', async (req, res) => {
 
     res.json(cryptoData);
   } catch (error) {
-    console.error('Crypto price error:', error.message);
+    console.error(`❌ Crypto price error for ${req.params.id}:`, error.message);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    if (error.code === 'ECONNABORTED') {
+      console.error('Request timed out');
+    }
     res.status(500).json({ error: 'Failed to fetch crypto data' });
   }
 });
