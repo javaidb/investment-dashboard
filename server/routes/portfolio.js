@@ -108,6 +108,84 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
   }
 });
 
+// Read and process uploaded CSV files
+router.post('/process-uploaded', async (req, res) => {
+  try {
+    const uploadDir = path.join(__dirname, '../uploads');
+    const files = fs.readdirSync(uploadDir).filter(file => file.endsWith('.csv'));
+    
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'No CSV files found in uploads directory' });
+    }
+
+    let allTrades = [];
+    const portfolioId = Date.now().toString();
+
+    // Process each CSV file
+    for (const file of files) {
+      const filePath = path.join(uploadDir, file);
+      const trades = [];
+
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(filePath)
+          .pipe(csv())
+          .on('data', (row) => {
+            // Skip empty rows
+            if (!row.symbol || !row.date || !row.action || !row.quantity || !row.price) {
+              return;
+            }
+
+            // Validate required columns
+            if (!row.symbol || !row.date || !row.action || !row.quantity || !row.price) {
+              reject(new Error(`Missing required columns in ${file}: symbol, date, action, quantity, price`));
+              return;
+            }
+
+            trades.push({
+              symbol: row.symbol.toUpperCase(),
+              date: new Date(row.date),
+              action: row.action.toLowerCase(),
+              quantity: parseFloat(row.quantity),
+              price: parseFloat(row.price),
+              total: parseFloat(row.quantity) * parseFloat(row.price)
+            });
+          })
+          .on('end', () => {
+            allTrades = allTrades.concat(trades);
+            resolve();
+          })
+          .on('error', (error) => {
+            reject(new Error(`Error processing ${file}: ${error.message}`));
+          });
+      });
+    }
+
+    // Process all trades and calculate portfolio
+    const portfolio = await processTrades(allTrades);
+    
+    // Store portfolio data
+    portfolios.set(portfolioId, {
+      id: portfolioId,
+      trades: allTrades,
+      holdings: portfolio.holdings,
+      summary: portfolio.summary,
+      createdAt: new Date().toISOString()
+    });
+
+    res.json({
+      portfolioId: portfolioId,
+      message: `Processed ${files.length} CSV files successfully`,
+      summary: portfolio.summary,
+      holdings: portfolio.holdings,
+      filesProcessed: files
+    });
+
+  } catch (error) {
+    console.error('Uploaded files processing error:', error);
+    res.status(500).json({ error: 'Failed to process uploaded files: ' + error.message });
+  }
+});
+
 // Get portfolio summary
 router.get('/:portfolioId', async (req, res) => {
   try {
