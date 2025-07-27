@@ -43,79 +43,128 @@ router.get('/quote/:symbol', async (req, res) => {
       return res.json(cached.data);
     }
 
-    // Check rate limit
-    if (!checkRateLimit()) {
-      return res.status(429).json({ 
-        error: 'Rate limit exceeded. Please wait before making more requests.',
-        retryAfter: 60
+    // Try Yahoo Finance first
+    try {
+      console.log(`Fetching Yahoo Finance quote for ${symbol.toUpperCase()}`);
+      const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}`, {
+        params: {
+          range: '1d',
+          interval: '1m'
+        },
+        timeout: 10000
       });
-    }
 
-    const response = await axios.get(`${FINNHUB_BASE_URL}/quote`, {
-      params: {
-        symbol: symbol.toUpperCase(),
-        token: FINNHUB_API_KEY
+      if (yahooResponse.data && yahooResponse.data.chart && yahooResponse.data.chart.result) {
+        const result = yahooResponse.data.chart.result[0];
+        const meta = result.meta;
+        const quotes = result.indicators.quote[0];
+        const timestamps = result.timestamp;
+        
+        if (meta && quotes && timestamps.length > 0) {
+          const latestIndex = timestamps.length - 1;
+          const stockData = {
+            symbol: symbol.toUpperCase(),
+            price: parseFloat(meta.regularMarketPrice || 0),
+            change: parseFloat(meta.regularMarketPrice - meta.previousClose || 0),
+            changePercent: parseFloat(((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100) || 0),
+            volume: parseInt(meta.regularMarketVolume || 0),
+            high: parseFloat(meta.regularMarketDayHigh || 0),
+            low: parseFloat(meta.regularMarketDayLow || 0),
+            open: parseFloat(meta.regularMarketOpen || 0),
+            previousClose: parseFloat(meta.previousClose || 0),
+            timestamp: new Date().toISOString()
+          };
+
+          // Cache the result
+          stockCache.set(cacheKey, {
+            data: stockData,
+            timestamp: Date.now()
+          });
+
+          console.log(`Yahoo Finance quote for ${symbol}: $${stockData.price}`);
+          return res.json(stockData);
+        }
       }
-    });
-
-    if (!response.data || response.data.error) {
-      return res.status(400).json({ error: 'Invalid symbol or API error' });
+    } catch (yahooError) {
+      console.log('Yahoo Finance quote failed, using fallback:', yahooError.message);
     }
 
-    const quote = response.data;
-    if (!quote.c || quote.c === 0) {
-      return res.status(404).json({ error: 'Stock not found' });
-    }
-
-    const stockData = {
+    // Fallback: Return mock data
+    const mockData = {
       symbol: symbol.toUpperCase(),
-      price: parseFloat(quote.c),
-      change: parseFloat(quote.d),
-      changePercent: parseFloat(quote.dp),
-      volume: parseInt(quote.v),
-      high: parseFloat(quote.h),
-      low: parseFloat(quote.l),
-      open: parseFloat(quote.o),
-      previousClose: parseFloat(quote.pc),
-      timestamp: new Date().toISOString()
+      price: 150.00 + Math.random() * 50,
+      change: (Math.random() - 0.5) * 10,
+      changePercent: (Math.random() - 0.5) * 5,
+      volume: 1000000 + Math.floor(Math.random() * 5000000),
+      high: 160.00 + Math.random() * 20,
+      low: 140.00 + Math.random() * 20,
+      open: 145.00 + Math.random() * 10,
+      previousClose: 150.00,
+      timestamp: new Date().toISOString(),
+      isMockData: true
     };
 
     // Cache the result
     stockCache.set(cacheKey, {
-      data: stockData,
+      data: mockData,
       timestamp: Date.now()
     });
 
-    res.json(stockData);
+    res.json(mockData);
   } catch (error) {
     console.error('Stock quote error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch stock quote' });
+  }
+});
+
+// Get historical data using Yahoo Finance (no API key required)
+router.get('/yahoo/historical/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { range = '1mo', interval = '1d' } = req.query;
     
-    // Handle specific error cases
-    if (error.response) {
-      const status = error.response.status;
-      const data = error.response.data;
+    console.log(`Fetching Yahoo Finance data for ${symbol.toUpperCase()}`);
+    
+    const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}`, {
+      params: {
+        range: range,
+        interval: interval
+      },
+      timeout: 10000
+    });
+
+    console.log('Yahoo Finance response status:', yahooResponse.status);
+    
+    if (yahooResponse.data && yahooResponse.data.chart && yahooResponse.data.chart.result) {
+      const result = yahooResponse.data.chart.result[0];
+      const timestamps = result.timestamp;
+      const quotes = result.indicators.quote[0];
       
-      if (status === 403) {
-        console.error('403 Forbidden - Possible rate limit exceeded or invalid API key');
-        console.error('Response data:', data);
-        return res.status(403).json({ 
-          error: 'API access denied. Possible causes: rate limit exceeded, invalid API key, or API key not activated.',
-          details: data
-        });
-      } else if (status === 429) {
-        return res.status(429).json({ 
-          error: 'Rate limit exceeded. Please wait before making more requests.',
-          details: data
-        });
-      } else {
-        return res.status(status).json({ 
-          error: `API error: ${status}`,
-          details: data
-        });
-      }
+      console.log(`Yahoo Finance data points: ${timestamps.length}`);
+      
+      const historicalData = timestamps.map((timestamp, index) => ({
+        date: new Date(timestamp * 1000).toISOString().split('T')[0],
+        open: quotes.open[index] || 0,
+        high: quotes.high[index] || 0,
+        low: quotes.low[index] || 0,
+        close: quotes.close[index] || 0,
+        volume: quotes.volume[index] || 0
+      })).filter(item => item.close > 0);
+      
+      console.log(`Filtered data points: ${historicalData.length}`);
+      
+      res.json(historicalData);
+    } else {
+      console.log('Yahoo Finance response structure:', JSON.stringify(yahooResponse.data, null, 2));
+      res.status(404).json({ error: 'No data found for symbol' });
     }
-    
-    res.status(500).json({ error: 'Failed to fetch stock data' });
+  } catch (error) {
+    console.error('Yahoo Finance error:', error.message);
+    if (error.response) {
+      console.error('Yahoo Finance response status:', error.response.status);
+      console.error('Yahoo Finance response data:', error.response.data);
+    }
+    res.status(500).json({ error: 'Failed to fetch Yahoo Finance data' });
   }
 });
 
@@ -131,33 +180,73 @@ router.get('/search/:query', async (req, res) => {
       return res.json(cached.data);
     }
 
-    const response = await axios.get(`${FINNHUB_BASE_URL}/search`, {
-      params: {
-        q: query,
-        token: FINNHUB_API_KEY
-      }
-    });
+    // Try Yahoo Finance search first
+    try {
+      console.log(`Searching Yahoo Finance for: ${query}`);
+      const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v1/finance/search`, {
+        params: {
+          q: query,
+          quotesCount: 10,
+          newsCount: 0
+        },
+        timeout: 5000
+      });
 
-    if (!response.data || response.data.error) {
-      return res.status(400).json({ error: 'Search failed' });
+      if (yahooResponse.data && yahooResponse.data.quotes) {
+        const searchResults = yahooResponse.data.quotes.map((quote) => ({
+          symbol: quote.symbol,
+          name: quote.shortname || quote.longname || quote.symbol,
+          type: quote.quoteType || 'stock',
+          region: quote.exchange || 'US',
+          currency: quote.currency || 'USD'
+        }));
+
+        // Cache the result
+        stockCache.set(cacheKey, {
+          data: searchResults,
+          timestamp: Date.now()
+        });
+
+        console.log(`Yahoo Finance search found ${searchResults.length} results`);
+        return res.json(searchResults);
+      }
+    } catch (yahooError) {
+      console.log('Yahoo Finance search failed, using fallback:', yahooError.message);
     }
 
-    const matches = response.data.result || [];
-    const searchResults = matches.map(match => ({
-      symbol: match.symbol,
-      name: match.description,
-      type: match.type,
-      region: match.primaryExchange,
-      currency: match.currency
-    }));
+    // Fallback: Popular stocks that match the query
+    const popularStocks = [
+      { symbol: 'AAPL', name: 'Apple Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'MSFT', name: 'Microsoft Corporation', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'GOOGL', name: 'Alphabet Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'AMZN', name: 'Amazon.com Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'TSLA', name: 'Tesla Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'NVDA', name: 'NVIDIA Corporation', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'META', name: 'Meta Platforms Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'NFLX', name: 'Netflix Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'AMD', name: 'Advanced Micro Devices Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'CRM', name: 'Salesforce Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'JPM', name: 'JPMorgan Chase & Co.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'JNJ', name: 'Johnson & Johnson', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'PG', name: 'Procter & Gamble Co.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'UNH', name: 'UnitedHealth Group Inc.', type: 'stock', region: 'US', currency: 'USD' },
+      { symbol: 'HD', name: 'Home Depot Inc.', type: 'stock', region: 'US', currency: 'USD' }
+    ];
+
+    // Filter popular stocks that match the query
+    const filteredResults = popularStocks.filter(stock => 
+      stock.symbol.toLowerCase().includes(query.toLowerCase()) ||
+      stock.name.toLowerCase().includes(query.toLowerCase())
+    );
 
     // Cache the result
     stockCache.set(cacheKey, {
-      data: searchResults,
+      data: filteredResults,
       timestamp: Date.now()
     });
 
-    res.json(searchResults);
+    console.log(`Fallback search found ${filteredResults.length} results`);
+    res.json(filteredResults);
   } catch (error) {
     console.error('Stock search error:', error.message);
     res.status(500).json({ error: 'Failed to search stocks' });
@@ -255,17 +344,23 @@ router.get('/historical/:symbol', async (req, res) => {
       // For free tier, we'll use Yahoo Finance API as a fallback for historical data
       // This provides real historical data without API key restrictions
       try {
+        console.log(`Fetching Yahoo Finance data for ${symbol.toUpperCase()}`);
         const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}`, {
           params: {
             range: outputsize === 'full' ? '1y' : '1mo',
             interval: '1d'
-          }
+          },
+          timeout: 10000 // 10 second timeout
         });
 
+        console.log('Yahoo Finance response status:', yahooResponse.status);
+        
         if (yahooResponse.data && yahooResponse.data.chart && yahooResponse.data.chart.result) {
           const result = yahooResponse.data.chart.result[0];
           const timestamps = result.timestamp;
           const quotes = result.indicators.quote[0];
+          
+          console.log(`Yahoo Finance data points: ${timestamps.length}`);
           
           const historicalData = timestamps.map((timestamp, index) => ({
             date: new Date(timestamp * 1000).toISOString().split('T')[0],
@@ -276,6 +371,8 @@ router.get('/historical/:symbol', async (req, res) => {
             volume: quotes.volume[index] || 0
           })).filter(item => item.close > 0); // Filter out invalid data points
           
+          console.log(`Filtered data points: ${historicalData.length}`);
+          
           // Cache the result
           stockCache.set(cacheKey, {
             data: historicalData,
@@ -284,9 +381,15 @@ router.get('/historical/:symbol', async (req, res) => {
 
           res.json(historicalData);
           return;
+        } else {
+          console.log('Yahoo Finance response structure:', JSON.stringify(yahooResponse.data, null, 2));
         }
       } catch (yahooError) {
-        console.log('Yahoo Finance fallback failed, using sample data');
+        console.error('Yahoo Finance fallback failed:', yahooError.message);
+        if (yahooError.response) {
+          console.error('Yahoo Finance response status:', yahooError.response.status);
+          console.error('Yahoo Finance response data:', yahooError.response.data);
+        }
       }
 
       // Fallback: Generate sample historical data for free tier
