@@ -1,6 +1,7 @@
 import React from 'react';
 import StockChart from '../components/StockChart';
 import TrendingStocks from '../components/TrendingStocks';
+import PortfolioSummary from '../components/PortfolioSummary';
 
 const Dashboard: React.FC = () => {
   return (
@@ -39,6 +40,11 @@ const Dashboard: React.FC = () => {
               <TrendingStocks />
             </div>
           </div>
+        </div>
+        
+        <div className="dashboard-section">
+          {/* Portfolio Summary */}
+          <PortfolioSummary />
         </div>
       </div>
     </div>
