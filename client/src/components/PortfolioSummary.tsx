@@ -14,6 +14,8 @@ interface Holding {
   averagePrice: number;
   totalInvested: number;
   realizedPnL: number;
+  type: string; // 's' for stock, 'c' for crypto
+  currency: string; // 'CAD' for Canadian dollars
   currentPrice?: number;
   currentValue?: number;
   unrealizedPnL?: number;
@@ -73,6 +75,8 @@ const PortfolioSummary: React.FC = () => {
            averagePrice: holding.averagePrice || 0,
            totalInvested: holding.totalInvested || 0,
            realizedPnL: holding.realizedPnL || 0,
+           type: holding.type || 's', // Default to stock if type is missing
+           currency: holding.currency || 'CAD', // Default to CAD
            currentPrice: holding.currentPrice || null,
            currentValue: holding.currentValue || null,
            unrealizedPnL: holding.unrealizedPnL || null,
@@ -112,13 +116,13 @@ const PortfolioSummary: React.FC = () => {
        // Fallback to sample data if API fails
        try {
          const fallbackHoldings = [
-           { symbol: 'AAPL', quantity: 12, averagePrice: 152.58, totalInvested: 1831.00, realizedPnL: 30.75, currentPrice: 190.00, currentValue: 2280.00, unrealizedPnL: 448.42, totalPnL: 479.17, totalPnLPercent: 26.17 },
-           { symbol: 'MSFT', quantity: 12, averagePrice: 281.67, totalInvested: 3380.00, realizedPnL: 0, currentPrice: 420.00, currentValue: 5040.00, unrealizedPnL: 1660.00, totalPnL: 1660.00, totalPnLPercent: 49.11 },
-           { symbol: 'GOOGL', quantity: 4, averagePrice: 140.00, totalInvested: 560.00, realizedPnL: 11.50, currentPrice: 170.00, currentValue: 680.00, unrealizedPnL: 120.00, totalPnL: 131.50, totalPnLPercent: 23.48 },
-           { symbol: 'TSLA', quantity: 7, averagePrice: 180.25, totalInvested: 1261.75, realizedPnL: -23.75, currentPrice: 250.00, currentValue: 1750.00, unrealizedPnL: 488.25, totalPnL: 464.50, totalPnLPercent: 36.81 },
-           { symbol: 'BTC', quantity: 0.8, averagePrice: 46125.00, totalInvested: 36900.00, realizedPnL: 0, currentPrice: 65000.00, currentValue: 52000.00, unrealizedPnL: 15100.00, totalPnL: 15100.00, totalPnLPercent: 40.92 },
-           { symbol: 'ETH', quantity: 1.5, averagePrice: 2800.00, totalInvested: 4200.00, realizedPnL: 400.00, currentPrice: 3500.00, currentValue: 5250.00, unrealizedPnL: 1050.00, totalPnL: 1450.00, totalPnLPercent: 34.52 },
-           { symbol: 'ADA', quantity: 700, averagePrice: 0.45, totalInvested: 315.00, realizedPnL: 21.00, currentPrice: 0.60, currentValue: 420.00, unrealizedPnL: 105.00, totalPnL: 126.00, totalPnLPercent: 40.00 }
+           { symbol: 'AAPL', quantity: 12, averagePrice: 152.58, totalInvested: 1831.00, realizedPnL: 30.75, type: 's', currency: 'CAD', currentPrice: 190.00, currentValue: 2280.00, unrealizedPnL: 448.42, totalPnL: 479.17, totalPnLPercent: 26.17 },
+           { symbol: 'MSFT', quantity: 12, averagePrice: 281.67, totalInvested: 3380.00, realizedPnL: 0, type: 's', currency: 'CAD', currentPrice: 420.00, currentValue: 5040.00, unrealizedPnL: 1660.00, totalPnL: 1660.00, totalPnLPercent: 49.11 },
+           { symbol: 'GOOGL', quantity: 4, averagePrice: 140.00, totalInvested: 560.00, realizedPnL: 11.50, type: 's', currency: 'CAD', currentPrice: 170.00, currentValue: 680.00, unrealizedPnL: 120.00, totalPnL: 131.50, totalPnLPercent: 23.48 },
+           { symbol: 'TSLA', quantity: 7, averagePrice: 180.25, totalInvested: 1261.75, realizedPnL: -23.75, type: 's', currency: 'CAD', currentPrice: 250.00, currentValue: 1750.00, unrealizedPnL: 488.25, totalPnL: 464.50, totalPnLPercent: 36.81 },
+           { symbol: 'BTC', quantity: 0.8, averagePrice: 46125.00, totalInvested: 36900.00, realizedPnL: 0, type: 'c', currency: 'CAD', currentPrice: 65000.00, currentValue: 52000.00, unrealizedPnL: 15100.00, totalPnL: 15100.00, totalPnLPercent: 40.92 },
+           { symbol: 'ETH', quantity: 1.5, averagePrice: 2800.00, totalInvested: 4200.00, realizedPnL: 400.00, type: 'c', currency: 'CAD', currentPrice: 3500.00, currentValue: 5250.00, unrealizedPnL: 1050.00, totalPnL: 1450.00, totalPnLPercent: 34.52 },
+           { symbol: 'ADA', quantity: 700, averagePrice: 0.45, totalInvested: 315.00, realizedPnL: 21.00, type: 'c', currency: 'CAD', currentPrice: 0.60, currentValue: 420.00, unrealizedPnL: 105.00, totalPnL: 126.00, totalPnLPercent: 40.00 }
          ];
          
          const fallbackSummary = {
@@ -145,11 +149,11 @@ const PortfolioSummary: React.FC = () => {
 
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined || isNaN(value)) {
-      return '$0.00';
+      return 'C$0.00';
     }
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-CA', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'CAD',
     }).format(value);
   };
 
@@ -183,6 +187,10 @@ const PortfolioSummary: React.FC = () => {
         return 'Ethereum';
       case 'ADA':
         return 'Cardano';
+      case 'SOL':
+        return 'Solana';
+      case 'DOGE':
+        return 'Dogecoin';
       default:
         return symbol;
     }
@@ -472,11 +480,11 @@ const PortfolioSummary: React.FC = () => {
                           fontWeight: '600',
                           padding: '6px 12px',
                           borderRadius: '16px',
-                          backgroundColor: ['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? '#f3e8ff' : '#dbeafe',
-                          color: ['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? '#7c3aed' : '#2563eb',
-                          border: `1px solid ${['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? '#c4b5fd' : '#93c5fd'}`
+                          backgroundColor: holding.type === 'c' ? '#f3e8ff' : '#dbeafe',
+                          color: holding.type === 'c' ? '#7c3aed' : '#2563eb',
+                          border: `1px solid ${holding.type === 'c' ? '#c4b5fd' : '#93c5fd'}`
                         }}>
-                          {['BTC', 'ETH', 'ADA'].includes(holding.symbol) ? 'Crypto' : 'Stock'}
+                          {holding.type === 'c' ? 'Crypto' : 'Stock'}
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
