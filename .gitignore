@@ -69,4 +69,7 @@ jspm_packages/
 .yarn-integrity
 
 # dotenv environment variables file
-.env 
+.env
+
+# local uploads
+uploads/
