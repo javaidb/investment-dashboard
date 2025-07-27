@@ -123,14 +123,24 @@ router.get('/yahoo/historical/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const { range = '1mo', interval = '1d' } = req.query;
     
-    console.log(`Fetching Yahoo Finance data for ${symbol.toUpperCase()}`);
+    console.log(`Fetching Yahoo Finance data for ${symbol.toUpperCase()} with range: ${range}`);
+    
+    // Map range to Yahoo Finance parameters
+    let yahooRange = range;
+    let yahooInterval = interval;
+    
+    // For 'max' range, use the longest available range
+    if (range === 'max') {
+      yahooRange = '10y'; // Yahoo Finance supports up to 10 years with daily data
+      console.log(`Using maximum range: ${yahooRange}`);
+    }
     
     const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}`, {
       params: {
-        range: range,
-        interval: interval
+        range: yahooRange,
+        interval: yahooInterval
       },
-      timeout: 10000
+      timeout: 15000 // Increased timeout for longer ranges
     });
 
     console.log('Yahoo Finance response status:', yahooResponse.status);
@@ -152,6 +162,15 @@ router.get('/yahoo/historical/:symbol', async (req, res) => {
       })).filter(item => item.close > 0);
       
       console.log(`Filtered data points: ${historicalData.length}`);
+      
+      // For max range, also try to get even more historical data if available
+      if (range === 'max' && historicalData.length > 0) {
+        const firstDate = new Date(historicalData[0].date);
+        const lastDate = new Date(historicalData[historicalData.length - 1].date);
+        const yearsOfData = (lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24 * 365);
+        
+        console.log(`Historical data spans ${yearsOfData.toFixed(1)} years (${firstDate.toLocaleDateString()} to ${lastDate.toLocaleDateString()})`);
+      }
       
       res.json(historicalData);
     } else {

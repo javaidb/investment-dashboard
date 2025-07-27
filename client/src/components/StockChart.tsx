@@ -68,7 +68,7 @@ const StockChart: React.FC<StockChartProps> = ({ defaultSymbol = 'AAPL' }) => {
         '1M': '1mo',
         '3M': '3mo',
         '1Y': '1y',
-        'ALL': '5y'
+        'ALL': 'max' // Use 'max' to get maximum available historical data
       };
       
       const range = rangeMap[timeRange] || '1mo';
@@ -296,4 +296,4 @@ const StockChart: React.FC<StockChartProps> = ({ defaultSymbol = 'AAPL' }) => {
   );
 };
 
-export default StockChart; 
+export default StockChart;
