@@ -46,18 +46,13 @@ const PortfolioSummary: React.FC = () => {
     try {
       setLoading(true);
       
-      // First, upload the sample trades CSV
-      const formData = new FormData();
-      const csvBlob = new Blob([sampleTradesCSV], { type: 'text/csv' });
-      formData.append('trades', csvBlob, 'sample-trades.csv');
-
-      const uploadResponse = await fetch('/api/portfolio/upload', {
+      // Process uploaded CSV files instead of sample data
+      const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
         method: 'POST',
-        body: formData,
       });
 
       if (!uploadResponse.ok) {
-        throw new Error('Failed to upload portfolio data');
+        throw new Error('Failed to process uploaded portfolio data');
       }
 
       const uploadResult = await uploadResponse.json();
@@ -571,23 +566,5 @@ const PortfolioSummary: React.FC = () => {
     </div>
   );
 };
-
-// Sample trades CSV data
-const sampleTradesCSV = `symbol,date,action,quantity,price
-AAPL,2024-01-15,buy,10,150.25
-AAPL,2024-02-20,buy,5,155.75
-AAPL,2024-03-10,sell,3,160.50
-MSFT,2024-01-20,buy,8,280.00
-MSFT,2024-02-15,buy,4,285.50
-GOOGL,2024-01-25,buy,6,140.00
-GOOGL,2024-03-05,sell,2,145.75
-TSLA,2024-02-01,buy,12,180.25
-TSLA,2024-03-15,sell,5,175.50
-BTC,2024-01-10,buy,0.5,45000.00
-BTC,2024-02-28,buy,0.3,48000.00
-ETH,2024-01-18,buy,2.5,2800.00
-ETH,2024-03-12,sell,1.0,3200.00
-ADA,2024-02-10,buy,1000,0.45
-ADA,2024-03-20,sell,300,0.52`;
 
 export default PortfolioSummary; 
