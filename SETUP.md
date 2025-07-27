@@ -124,14 +124,17 @@ Your trading CSV should include these columns:
 - `date` - Transaction date (YYYY-MM-DD)
 - `action` - buy or sell
 - `quantity` - Number of shares/coins
-- `price` - Price per share/coin
+- `total amount` - Total amount in CAD (all amounts are processed as CAD)
+- `type` - 's' for stock or 'c' for crypto
+
+**Currency Handling**: All CSV amounts are processed as CAD. Current market prices (in USD) are automatically converted to CAD using real-time exchange rates for accurate profit/loss calculations.
 
 Example:
 ```csv
-symbol,date,action,quantity,price
-AAPL,2024-01-15,buy,10,150.25
-AAPL,2024-02-20,sell,5,155.75
-BTC,2024-01-10,buy,0.5,45000.00
+symbol,date,action,quantity,total amount,type
+AAPL,2024-01-15,buy,10,1502.50,s
+AAPL,2024-02-20,sell,5,778.75,s
+BTC,2024-01-10,buy,0.5,22500.00,c
 ```
 
 ## Troubleshooting
