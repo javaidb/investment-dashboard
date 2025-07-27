@@ -220,71 +220,112 @@ const Portfolio: React.FC = () => {
 
                 {/* Holdings Table */}
                 {portfolio.holdings && portfolio.holdings.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Symbol
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Quantity
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Avg Price
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Current Price
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            P&L
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {portfolio.holdings.map((holding) => (
-                          <tr key={holding.symbol}>
-                            <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {holding.symbol}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                              {holding.quantity.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                              {formatCurrency(holding.averagePrice)}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                              {holding.currentPrice ? formatCurrency(holding.currentPrice) : 'N/A'}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap text-sm">
-                              {holding.totalPnL !== undefined ? (
-                                <div className="flex items-center">
-                                  {holding.totalPnL > 0 ? (
-                                    <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
+                  <div className="mt-6">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Holdings</h4>
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                            <tr>
+                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                Symbol
+                              </th>
+                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                Quantity
+                              </th>
+                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                Avg Price
+                              </th>
+                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                Current Price
+                              </th>
+                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                Total Value
+                              </th>
+                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                P&L
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-100">
+                            {portfolio.holdings.map((holding, index) => (
+                              <tr 
+                                key={holding.symbol}
+                                className={`hover:bg-gray-50 transition-colors duration-150 ${
+                                  index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
+                                }`}
+                              >
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="flex items-center">
+                                    <div className="flex-shrink-0 h-8 w-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                                      <span className="text-xs font-bold text-white">
+                                        {holding.symbol.slice(0, 2)}
+                                      </span>
+                                    </div>
+                                    <div className="ml-3">
+                                      <div className="text-sm font-semibold text-gray-900">
+                                        {holding.symbol}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {holding.quantity.toLocaleString()}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 font-medium">
+                                    {formatCurrency(holding.averagePrice)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 font-medium">
+                                    {holding.currentPrice ? formatCurrency(holding.currentPrice) : (
+                                      <span className="text-gray-400 italic">N/A</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 font-medium">
+                                    {holding.currentValue ? formatCurrency(holding.currentValue) : (
+                                      <span className="text-gray-400 italic">N/A</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  {holding.totalPnL !== undefined ? (
+                                    <div className="flex items-center space-x-2">
+                                      <div className={`flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                                        holding.totalPnL > 0 
+                                          ? 'bg-green-100 text-green-800' 
+                                          : 'bg-red-100 text-red-800'
+                                      }`}>
+                                        {holding.totalPnL > 0 ? (
+                                          <TrendingUp className="h-3 w-3 mr-1" />
+                                        ) : (
+                                          <TrendingDown className="h-3 w-3 mr-1" />
+                                        )}
+                                        {formatCurrency(holding.totalPnL)}
+                                      </div>
+                                      {holding.totalPnLPercent && (
+                                        <div className={`text-xs font-medium ${
+                                          holding.totalPnLPercent > 0 ? 'text-green-600' : 'text-red-600'
+                                        }`}>
+                                          {formatPercentage(holding.totalPnLPercent)}
+                                        </div>
+                                      )}
+                                    </div>
                                   ) : (
-                                    <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
+                                    <span className="text-gray-400 italic text-sm">N/A</span>
                                   )}
-                                  <span className={
-                                    holding.totalPnL > 0 ? 'text-green-600' : 'text-red-600'
-                                  }>
-                                    {formatCurrency(holding.totalPnL)}
-                                  </span>
-                                  {holding.totalPnLPercent && (
-                                    <span className={`ml-2 ${
-                                      holding.totalPnLPercent > 0 ? 'text-green-600' : 'text-red-600'
-                                    }`}>
-                                      ({formatPercentage(holding.totalPnLPercent)})
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-gray-500">N/A</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
