@@ -154,7 +154,14 @@ const Portfolio: React.FC = () => {
             <p>• <strong>date</strong> - Transaction date (YYYY-MM-DD)</p>
             <p>• <strong>action</strong> - buy or sell</p>
             <p>• <strong>quantity</strong> - Number of shares/coins</p>
-            <p>• <strong>price</strong> - Price per share/coin</p>
+            <p>• <strong>total amount</strong> - Total amount in CAD (all amounts are processed as CAD)</p>
+            <p>• <strong>type</strong> - 's' for stock or 'c' for crypto</p>
+          </div>
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800 font-medium">💱 Currency Conversion Note:</p>
+            <p className="text-sm text-blue-700">
+              All CSV amounts are processed as CAD. Current market prices (in USD) are automatically converted to CAD for accurate profit/loss calculations.
+            </p>
           </div>
         </div>
       </div>

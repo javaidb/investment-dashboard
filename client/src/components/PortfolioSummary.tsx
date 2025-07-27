@@ -17,11 +17,13 @@ interface Holding {
   type: string; // 's' for stock, 'c' for crypto
   currency: string; // 'CAD' for Canadian dollars
   companyName?: string;
-  currentPrice?: number;
-  currentValue?: number;
-  unrealizedPnL?: number;
-  totalPnL?: number;
+  currentPrice?: number; // Now in CAD
+  currentValue?: number; // Now in CAD
+  unrealizedPnL?: number; // Now in CAD
+  totalPnL?: number; // Now in CAD
   totalPnLPercent?: number;
+  usdPrice?: number; // USD price for reference
+  exchangeRate?: number; // Exchange rate used for conversion
 }
 
 interface PortfolioSummary {
@@ -240,6 +242,9 @@ const PortfolioSummary: React.FC = () => {
         <div className="relative z-10">
           <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
           <p className="text-indigo-100 text-base font-medium">Current holdings and performance based on sample trades</p>
+          <div className="mt-3 text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
+            💱 All amounts converted from USD to CAD for accurate P&L calculations
+          </div>
         </div>
       </div>
 

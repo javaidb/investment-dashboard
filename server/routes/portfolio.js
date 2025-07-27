@@ -38,6 +38,44 @@ const upload = multer({
 // In-memory storage for portfolio data (in production, use a database)
 const portfolios = new Map();
 
+// Currency conversion cache
+const currencyCache = new Map();
+const CURRENCY_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+// Helper function to get USD to CAD exchange rate
+async function getUSDtoCADRate() {
+  const cacheKey = 'usd_cad_rate';
+  const cached = currencyCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CURRENCY_CACHE_DURATION) {
+    console.log(`✅ Using cached USD/CAD rate: ${cached.rate}`);
+    return cached.rate;
+  }
+
+  try {
+    console.log('🌐 Fetching USD/CAD exchange rate...');
+    // Using a free currency API (you can replace with your preferred service)
+    const response = await axios.get('https://api.exchangerate-api.com/v4/latest/USD', {
+      timeout: 10000
+    });
+    
+    const rate = response.data.rates.CAD;
+    console.log(`✅ Fetched USD/CAD rate: ${rate}`);
+    
+    // Cache the rate
+    currencyCache.set(cacheKey, {
+      rate: rate,
+      timestamp: Date.now()
+    });
+    
+    return rate;
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch USD/CAD rate, using fallback rate of 1.35');
+    // Fallback rate (approximate USD/CAD rate)
+    return 1.35;
+  }
+}
+
 // Upload and process CSV file
 router.post('/upload', upload.single('trades'), async (req, res) => {
   try {
@@ -275,6 +313,22 @@ router.delete('/:portfolioId', (req, res) => {
   }
 });
 
+// Get currency conversion rate
+router.get('/currency/rate', async (req, res) => {
+  try {
+    const rate = await getUSDtoCADRate();
+    res.json({
+      usdToCad: rate,
+      cadToUsd: 1 / rate,
+      timestamp: new Date().toISOString(),
+      source: 'exchangerate-api.com'
+    });
+  } catch (error) {
+    console.error('Currency rate error:', error);
+    res.status(500).json({ error: 'Failed to fetch currency rate' });
+  }
+});
+
 // Helper function to process trades and calculate holdings
 async function processTrades(trades) {
   const holdings = new Map();
@@ -427,18 +481,23 @@ async function getCurrentPrices(holdings) {
         companyName = cryptoNames[holding.symbol] || holding.symbol;
       }
 
-      const currentValue = currentPrice ? currentPrice * holding.quantity : null;
+      // Convert USD price to CAD for accurate P&L calculations
+      const exchangeRate = await getUSDtoCADRate();
+      const cadPrice = currentPrice ? currentPrice * exchangeRate : null;
+      const currentValue = cadPrice ? cadPrice * holding.quantity : null;
       const unrealizedPnL = currentValue ? currentValue - holding.totalInvested : null;
       const totalPnL = unrealizedPnL ? unrealizedPnL + holding.realizedPnL : holding.realizedPnL;
 
       holdingsWithPrices.push({
         ...holding,
         companyName: companyName,
-        currentPrice: currentPrice,
+        currentPrice: cadPrice, // Store CAD price for display
         currentValue: currentValue,
         unrealizedPnL: unrealizedPnL,
         totalPnL: totalPnL,
-        totalPnLPercent: totalPnL ? (totalPnL / holding.totalInvested) * 100 : null
+        totalPnLPercent: totalPnL ? (totalPnL / holding.totalInvested) * 100 : null,
+        usdPrice: currentPrice, // Keep USD price for reference
+        exchangeRate: exchangeRate // Store exchange rate for transparency
       });
     } catch (error) {
       console.error(`Error fetching price for ${holding.symbol}:`, error);
