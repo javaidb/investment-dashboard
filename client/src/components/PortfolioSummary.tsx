@@ -90,7 +90,14 @@ const PortfolioSummary: React.FC = () => {
            totalPnLPercent: holding.totalPnLPercent || null
          }));
          
-         setHoldings(safeHoldings);
+         // Sort holdings by P&L amount (highest to lowest)
+         const sortedHoldings = safeHoldings.sort((a: Holding, b: Holding) => {
+           const aPnL = a.totalPnL || 0;
+           const bPnL = b.totalPnL || 0;
+           return bPnL - aPnL; // Descending order (highest P&L first)
+         });
+         
+         setHoldings(sortedHoldings);
          
          // Calculate summary with current values
          const currentTotalValue = safeHoldings.reduce((sum: number, h: Holding) => 
@@ -142,7 +149,14 @@ const PortfolioSummary: React.FC = () => {
            totalPnLPercent: 36.61
          };
          
-         setHoldings(fallbackHoldings);
+         // Sort fallback holdings by P&L amount (highest to lowest)
+         const sortedFallbackHoldings = fallbackHoldings.sort((a: Holding, b: Holding) => {
+           const aPnL = a.totalPnL || 0;
+           const bPnL = b.totalPnL || 0;
+           return bPnL - aPnL; // Descending order (highest P&L first)
+         });
+         
+         setHoldings(sortedFallbackHoldings);
          setSummary(fallbackSummary);
          setError(null); // Clear any previous errors
        } catch (fallbackError) {
@@ -245,7 +259,7 @@ const PortfolioSummary: React.FC = () => {
           <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
           <p className="text-indigo-100 text-base font-medium">Current holdings and performance based on sample trades</p>
           <div className="mt-3 text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
-            💱 All amounts converted from USD to CAD for accurate P&L calculations
+            💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first)
           </div>
         </div>
       </div>
@@ -430,7 +444,7 @@ const PortfolioSummary: React.FC = () => {
                       Amount Sold ($)
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      P&L
+                      P&L ↓
                     </th>
                   </tr>
                 </thead>
