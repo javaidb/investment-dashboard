@@ -16,35 +16,43 @@ const Dashboard: React.FC = () => {
 
       {/* Main Content */}
       <div className="dashboard-content">
-        <div className="dashboard-section">
-          {/* Main Interactive Stock Chart */}
-          <div className="card">
-            <div className="card-header">
-              <h2 className="card-title">Stock Analysis</h2>
-              <p className="card-subtitle">Search and analyze any stock with interactive charts</p>
+        <div className="dashboard-grid">
+          {/* Left Column - Stock Chart and Trending Stocks */}
+          <div className="dashboard-left-column">
+            <div className="dashboard-section">
+              {/* Main Interactive Stock Chart */}
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="card-title">Stock Analysis</h2>
+                  <p className="card-subtitle">Search and analyze any stock with interactive charts</p>
+                </div>
+                <div className="card-body">
+                  <StockChart defaultSymbol="AAPL" />
+                </div>
+              </div>
             </div>
-            <div className="card-body">
-              <StockChart defaultSymbol="AAPL" />
+            
+            <div className="dashboard-section">
+              {/* Trending Stocks with Mini Charts */}
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="card-title">Trending Stocks</h2>
+                  <p className="card-subtitle">Top performing stocks with 24-hour performance</p>
+                </div>
+                <div className="card-body">
+                  <TrendingStocks />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="dashboard-section">
-          {/* Trending Stocks with Mini Charts */}
-          <div className="card">
-            <div className="card-header">
-              <h2 className="card-title">Trending Stocks</h2>
-              <p className="card-subtitle">Top performing stocks with 24-hour performance</p>
-            </div>
-            <div className="card-body">
-              <TrendingStocks />
+          
+          {/* Right Column - Portfolio Summary */}
+          <div className="dashboard-right-column">
+            <div className="dashboard-section">
+              {/* Portfolio Summary */}
+              <PortfolioSummary />
             </div>
           </div>
-        </div>
-        
-        <div className="dashboard-section">
-          {/* Portfolio Summary */}
-          <PortfolioSummary />
         </div>
       </div>
     </div>
