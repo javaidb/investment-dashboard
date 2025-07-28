@@ -73,3 +73,7 @@ jspm_packages/
 
 # local uploads
 uploads/
+
+# Cache and data files
+server/data/cache/
+*.cache
