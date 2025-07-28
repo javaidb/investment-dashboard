@@ -41,7 +41,18 @@ const Search: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header Section */}
+      <div className="dashboard-header">
+        <div className="dashboard-header-content">
+          <h1 className="dashboard-title">Search Investments</h1>
+          <p className="dashboard-subtitle">Find stocks and cryptocurrencies to invest in</p>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="dashboard-content">
+        <div className="dashboard-section">
       {/* Search Form */}
       <div className="card">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Search Investments</h2>
@@ -176,6 +187,8 @@ const Search: React.FC = () => {
               <li>• Examples: Bitcoin, Ethereum, Cardano</li>
             </ul>
           </div>
+        </div>
+        </div>
         </div>
       </div>
     </div>
