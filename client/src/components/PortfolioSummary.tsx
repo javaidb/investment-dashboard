@@ -13,6 +13,7 @@ interface Holding {
   quantity: number;
   averagePrice: number;
   totalInvested: number;
+  totalAmountInvested?: number; // Total amount ever invested (all buy transactions)
   realizedPnL: number;
   amountSold?: number; // Total amount sold in CAD
   type: string; // 's' for stock, 'c' for crypto
@@ -78,6 +79,7 @@ const PortfolioSummary: React.FC = () => {
            quantity: holding.quantity || 0,
            averagePrice: holding.averagePrice || 0,
            totalInvested: holding.totalInvested || 0,
+           totalAmountInvested: holding.totalAmountInvested || holding.totalInvested || 0, // Use totalAmountInvested if available, fallback to totalInvested
            realizedPnL: holding.realizedPnL || 0,
            amountSold: holding.amountSold || 0,
            type: holding.type || 's', // Default to stock if type is missing
@@ -129,13 +131,13 @@ const PortfolioSummary: React.FC = () => {
        // Fallback to sample data if API fails
        try {
          const fallbackHoldings = [
-           { symbol: 'AAPL', quantity: 12, averagePrice: 152.58, totalInvested: 1831.00, realizedPnL: 30.75, amountSold: 481.50, type: 's', currency: 'CAD', currentPrice: 190.00, currentValue: 2280.00, unrealizedPnL: 448.42, totalPnL: 479.17, totalPnLPercent: 26.17 },
-           { symbol: 'MSFT', quantity: 12, averagePrice: 281.67, totalInvested: 3380.00, realizedPnL: 0, amountSold: 0, type: 's', currency: 'CAD', currentPrice: 420.00, currentValue: 5040.00, unrealizedPnL: 1660.00, totalPnL: 1660.00, totalPnLPercent: 49.11 },
-           { symbol: 'GOOGL', quantity: 4, averagePrice: 140.00, totalInvested: 560.00, realizedPnL: 11.50, amountSold: 291.50, type: 's', currency: 'CAD', currentPrice: 170.00, currentValue: 680.00, unrealizedPnL: 120.00, totalPnL: 131.50, totalPnLPercent: 23.48 },
-           { symbol: 'TSLA', quantity: 7, averagePrice: 180.25, totalInvested: 1261.75, realizedPnL: -23.75, amountSold: 877.50, type: 's', currency: 'CAD', currentPrice: 250.00, currentValue: 1750.00, unrealizedPnL: 488.25, totalPnL: 464.50, totalPnLPercent: 36.81 },
-           { symbol: 'BTC', quantity: 0.8, averagePrice: 46125.00, totalInvested: 36900.00, realizedPnL: 0, amountSold: 0, type: 'c', currency: 'CAD', currentPrice: 65000.00, currentValue: 52000.00, unrealizedPnL: 15100.00, totalPnL: 15100.00, totalPnLPercent: 40.92 },
-           { symbol: 'ETH', quantity: 1.5, averagePrice: 2800.00, totalInvested: 4200.00, realizedPnL: 400.00, amountSold: 3200.00, type: 'c', currency: 'CAD', currentPrice: 3500.00, currentValue: 5250.00, unrealizedPnL: 1050.00, totalPnL: 1450.00, totalPnLPercent: 34.52 },
-           { symbol: 'ADA', quantity: 700, averagePrice: 0.45, totalInvested: 315.00, realizedPnL: 21.00, amountSold: 156.00, type: 'c', currency: 'CAD', currentPrice: 0.60, currentValue: 420.00, unrealizedPnL: 105.00, totalPnL: 126.00, totalPnLPercent: 40.00 }
+           { symbol: 'AAPL', quantity: 12, averagePrice: 152.58, totalInvested: 1831.00, totalAmountInvested: 2312.50, realizedPnL: 30.75, amountSold: 481.50, type: 's', currency: 'CAD', currentPrice: 190.00, currentValue: 2280.00, unrealizedPnL: 448.42, totalPnL: 479.17, totalPnLPercent: 26.17 },
+           { symbol: 'MSFT', quantity: 12, averagePrice: 281.67, totalInvested: 3380.00, totalAmountInvested: 3380.00, realizedPnL: 0, amountSold: 0, type: 's', currency: 'CAD', currentPrice: 420.00, currentValue: 5040.00, unrealizedPnL: 1660.00, totalPnL: 1660.00, totalPnLPercent: 49.11 },
+           { symbol: 'GOOGL', quantity: 4, averagePrice: 140.00, totalInvested: 560.00, totalAmountInvested: 851.50, realizedPnL: 11.50, amountSold: 291.50, type: 's', currency: 'CAD', currentPrice: 170.00, currentValue: 680.00, unrealizedPnL: 120.00, totalPnL: 131.50, totalPnLPercent: 23.48 },
+           { symbol: 'TSLA', quantity: 7, averagePrice: 180.25, totalInvested: 1261.75, totalAmountInvested: 2139.25, realizedPnL: -23.75, amountSold: 877.50, type: 's', currency: 'CAD', currentPrice: 250.00, currentValue: 1750.00, unrealizedPnL: 488.25, totalPnL: 464.50, totalPnLPercent: 36.81 },
+           { symbol: 'BTC', quantity: 0.8, averagePrice: 46125.00, totalInvested: 36900.00, totalAmountInvested: 36900.00, realizedPnL: 0, amountSold: 0, type: 'c', currency: 'CAD', currentPrice: 65000.00, currentValue: 52000.00, unrealizedPnL: 15100.00, totalPnL: 15100.00, totalPnLPercent: 40.92 },
+           { symbol: 'ETH', quantity: 1.5, averagePrice: 2800.00, totalInvested: 4200.00, totalAmountInvested: 7400.00, realizedPnL: 400.00, amountSold: 3200.00, type: 'c', currency: 'CAD', currentPrice: 3500.00, currentValue: 5250.00, unrealizedPnL: 1050.00, totalPnL: 1450.00, totalPnLPercent: 34.52 },
+           { symbol: 'ADA', quantity: 700, averagePrice: 0.45, totalInvested: 315.00, totalAmountInvested: 471.00, realizedPnL: 21.00, amountSold: 156.00, type: 'c', currency: 'CAD', currentPrice: 0.60, currentValue: 420.00, unrealizedPnL: 105.00, totalPnL: 126.00, totalPnLPercent: 40.00 }
          ];
          
          const fallbackSummary = {
@@ -189,6 +191,10 @@ const PortfolioSummary: React.FC = () => {
       return '0.0000';
     }
     return value.toFixed(decimals);
+  };
+
+  const calculateNetInvested = (totalInvested: number | undefined, amountSold: number | undefined) => {
+    return (totalInvested || 0) - (amountSold || 0);
   };
 
 
@@ -259,7 +265,7 @@ const PortfolioSummary: React.FC = () => {
           <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
           <p className="text-indigo-100 text-base font-medium">Current holdings and performance based on sample trades</p>
           <div className="mt-3 text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
-            💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first)
+            💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first) • 💰 Net Invested = Total Invested - Amount Sold
           </div>
         </div>
       </div>
@@ -438,7 +444,10 @@ const PortfolioSummary: React.FC = () => {
                       Current Value
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Amount Invested
+                      Net Invested
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Total Invested
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       Amount Sold ($)
@@ -523,7 +532,16 @@ const PortfolioSummary: React.FC = () => {
                           fontWeight: '600',
                           color: '#111827'
                         }}>
-                          {formatCurrency(holding.totalInvested)}
+                          {formatCurrency(calculateNetInvested(holding.totalAmountInvested, holding.amountSold))}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          color: '#111827'
+                        }}>
+                          {formatCurrency(holding.totalAmountInvested)}
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
