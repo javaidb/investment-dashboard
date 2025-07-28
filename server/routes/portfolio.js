@@ -4,6 +4,7 @@ const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const holdingsCache = require('../cache');
 const router = express.Router();
 
 // Configure multer for file uploads
@@ -404,81 +405,138 @@ async function processTrades(trades) {
   };
 }
 
-// Helper function to get current prices for holdings
+// Helper function to get current prices for holdings with cache fallback
 async function getCurrentPrices(holdings) {
   const holdingsWithPrices = [];
   
   for (const holding of holdings) {
     try {
       let currentPrice = null;
+      let companyName = holding.symbol;
+      let exchangeRate = null;
+      let cadPrice = null;
+      let currentValue = null;
+      let unrealizedPnL = null;
+      let totalPnL = null;
+      let totalPnLPercent = null;
+      let usdPrice = null;
+      let cacheUsed = false;
       
       console.log(`🔍 Fetching price for ${holding.symbol} (type: ${holding.type})`);
       
-      // Use the type information from the holding to determine which API to call
-      // Note: APIs return USD prices, but holdings are in CAD - currency conversion needed for accurate P&L
-      if (holding.type === 'c') {
-        try {
-          // Use crypto API for crypto holdings
-          const cryptoResponse = await axios.get(`http://localhost:5000/api/crypto/price/${holding.symbol.toLowerCase()}`);
-          currentPrice = cryptoResponse.data.price;
-          console.log(`✅ Fetched crypto price for ${holding.symbol}: $${currentPrice} USD (holding in CAD)`);
-        } catch (cryptoError) {
-          console.warn(`❌ Could not fetch crypto price for ${holding.symbol}:`, cryptoError.message);
-          // For crypto, if API fails, we'll use a fallback price to avoid showing 0 values
-          // This is a temporary solution - in production, you'd want to implement proper fallback logic
-          if (holding.symbol === 'DOGE') {
-            currentPrice = 0.08; // Fallback DOGE price in USD
-            console.log(`🔄 Using fallback price for ${holding.symbol}: $${currentPrice} USD`);
-          } else if (holding.symbol === 'BTC') {
-            currentPrice = 45000; // Fallback BTC price in USD
-            console.log(`🔄 Using fallback price for ${holding.symbol}: $${currentPrice} USD`);
-          } else if (holding.symbol === 'ETH') {
-            currentPrice = 3200; // Fallback ETH price in USD
-            console.log(`🔄 Using fallback price for ${holding.symbol}: $${currentPrice} USD`);
-          } else {
-            console.warn(`⚠️ No fallback price available for ${holding.symbol}, current value will be null`);
+      // Check cache first
+      const cachedData = holdingsCache.get(holding.symbol);
+      if (cachedData) {
+        console.log(`📦 Found cached data for ${holding.symbol}: $${cachedData.cadPrice} CAD (from ${cachedData.lastUpdated})`);
+        currentPrice = cachedData.usdPrice;
+        companyName = cachedData.companyName || holding.symbol;
+        exchangeRate = cachedData.exchangeRate;
+        cadPrice = cachedData.cadPrice;
+        currentValue = cadPrice * holding.quantity;
+        unrealizedPnL = currentValue - holding.totalInvested;
+        totalPnL = unrealizedPnL + holding.realizedPnL;
+        totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
+        usdPrice = cachedData.usdPrice;
+        cacheUsed = true;
+      }
+      
+      // Try to fetch fresh data from API
+      if (!cacheUsed) {
+        if (holding.type === 'c') {
+          try {
+            // Use crypto API for crypto holdings
+            const cryptoResponse = await axios.get(`http://localhost:5000/api/crypto/price/${holding.symbol.toLowerCase()}`);
+            currentPrice = cryptoResponse.data.price;
+            console.log(`✅ Fetched fresh crypto price for ${holding.symbol}: $${currentPrice} USD`);
+            
+            // Update cache with fresh data
+            exchangeRate = await getUSDtoCADRate();
+            cadPrice = currentPrice * exchangeRate;
+            holdingsCache.update(holding.symbol, {
+              price: currentPrice,
+              usdPrice: currentPrice,
+              cadPrice: cadPrice,
+              companyName: getCryptoName(holding.symbol),
+              exchangeRate: exchangeRate
+            });
+          } catch (cryptoError) {
+            console.warn(`❌ Could not fetch crypto price for ${holding.symbol}:`, cryptoError.message);
+            
+            // Try to use cached data as fallback
+            if (cachedData) {
+              console.log(`🔄 Using cached data as fallback for ${holding.symbol}`);
+              currentPrice = cachedData.usdPrice;
+              companyName = cachedData.companyName || holding.symbol;
+              exchangeRate = cachedData.exchangeRate;
+              cadPrice = cachedData.cadPrice;
+              currentValue = cadPrice * holding.quantity;
+              unrealizedPnL = currentValue - holding.totalInvested;
+              totalPnL = unrealizedPnL + holding.realizedPnL;
+              totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
+              usdPrice = cachedData.usdPrice;
+              cacheUsed = true;
+            } else {
+              // Use hardcoded fallback prices for crypto
+              currentPrice = getCryptoFallbackPrice(holding.symbol);
+              if (currentPrice) {
+                console.log(`🔄 Using hardcoded fallback price for ${holding.symbol}: $${currentPrice} USD`);
+                exchangeRate = await getUSDtoCADRate();
+                cadPrice = currentPrice * exchangeRate;
+                companyName = getCryptoName(holding.symbol);
+              }
+            }
           }
+        } else if (holding.type === 's') {
+          try {
+            // Use stock API for stock holdings
+            const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
+            currentPrice = stockResponse.data.price;
+            companyName = stockResponse.data.name || holding.symbol;
+            console.log(`✅ Fetched fresh stock price for ${holding.symbol}: $${currentPrice} USD`);
+            
+            // Update cache with fresh data
+            exchangeRate = await getUSDtoCADRate();
+            cadPrice = currentPrice * exchangeRate;
+            holdingsCache.update(holding.symbol, {
+              price: currentPrice,
+              usdPrice: currentPrice,
+              cadPrice: cadPrice,
+              companyName: companyName,
+              exchangeRate: exchangeRate
+            });
+          } catch (stockError) {
+            console.warn(`❌ Could not fetch stock price for ${holding.symbol}:`, stockError.message);
+            
+            // Try to use cached data as fallback
+            if (cachedData) {
+              console.log(`🔄 Using cached data as fallback for ${holding.symbol}`);
+              currentPrice = cachedData.usdPrice;
+              companyName = cachedData.companyName || holding.symbol;
+              exchangeRate = cachedData.exchangeRate;
+              cadPrice = cachedData.cadPrice;
+              currentValue = cadPrice * holding.quantity;
+              unrealizedPnL = currentValue - holding.totalInvested;
+              totalPnL = unrealizedPnL + holding.realizedPnL;
+              totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
+              usdPrice = cachedData.usdPrice;
+              cacheUsed = true;
+            }
+          }
+        } else {
+          console.warn(`⚠️ Unknown type '${holding.type}' for ${holding.symbol}, skipping price fetch`);
         }
-      } else if (holding.type === 's') {
-        try {
-          // Use stock API for stock holdings
-          const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
-          currentPrice = stockResponse.data.price;
-          console.log(`✅ Fetched stock price for ${holding.symbol}: $${currentPrice} USD (holding in CAD)`);
-        } catch (stockError) {
-          console.warn(`❌ Could not fetch stock price for ${holding.symbol}:`, stockError.message);
-        }
-      } else {
-        console.warn(`⚠️ Unknown type '${holding.type}' for ${holding.symbol}, skipping price fetch`);
       }
-
-      // Get company name for stocks
-      let companyName = holding.symbol;
-      if (holding.type === 's') {
-        try {
-          const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
-          companyName = stockResponse.data.name || holding.symbol;
-        } catch (nameError) {
-          console.warn(`Could not fetch company name for ${holding.symbol}:`, nameError.message);
-        }
-      } else if (holding.type === 'c') {
-        // For crypto, use a simple mapping or fetch from crypto API
-        const cryptoNames = {
-          'BTC': 'Bitcoin',
-          'ETH': 'Ethereum',
-          'ADA': 'Cardano',
-          'SOL': 'Solana',
-          'DOGE': 'Dogecoin'
-        };
-        companyName = cryptoNames[holding.symbol] || holding.symbol;
+      
+      // Calculate values if we have a price
+      if (currentPrice && !cacheUsed) {
+        exchangeRate = exchangeRate || await getUSDtoCADRate();
+        cadPrice = currentPrice * exchangeRate;
+        currentValue = cadPrice * holding.quantity;
+        unrealizedPnL = currentValue - holding.totalInvested;
+        totalPnL = unrealizedPnL + holding.realizedPnL;
+        totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
+        usdPrice = currentPrice;
       }
-
-      // Convert USD price to CAD for accurate P&L calculations
-      const exchangeRate = await getUSDtoCADRate();
-      const cadPrice = currentPrice ? currentPrice * exchangeRate : null;
-      const currentValue = cadPrice ? cadPrice * holding.quantity : null;
-      const unrealizedPnL = currentValue ? currentValue - holding.totalInvested : null;
-      const totalPnL = unrealizedPnL ? unrealizedPnL + holding.realizedPnL : holding.realizedPnL;
 
       holdingsWithPrices.push({
         ...holding,
@@ -487,9 +545,10 @@ async function getCurrentPrices(holdings) {
         currentValue: currentValue,
         unrealizedPnL: unrealizedPnL,
         totalPnL: totalPnL,
-        totalPnLPercent: totalPnL ? (totalPnL / holding.totalInvested) * 100 : null,
-        usdPrice: currentPrice, // Keep USD price for reference
-        exchangeRate: exchangeRate // Store exchange rate for transparency
+        totalPnLPercent: totalPnLPercent,
+        usdPrice: usdPrice, // Keep USD price for reference
+        exchangeRate: exchangeRate, // Store exchange rate for transparency
+        cacheUsed: cacheUsed // Flag to indicate if cache was used
       });
     } catch (error) {
       console.error(`Error fetching price for ${holding.symbol}:`, error);
@@ -498,6 +557,30 @@ async function getCurrentPrices(holdings) {
   }
 
   return holdingsWithPrices;
+}
+
+// Helper function to get crypto names
+function getCryptoName(symbol) {
+  const cryptoNames = {
+    'BTC': 'Bitcoin',
+    'ETH': 'Ethereum',
+    'ADA': 'Cardano',
+    'SOL': 'Solana',
+    'DOGE': 'Dogecoin'
+  };
+  return cryptoNames[symbol] || symbol;
+}
+
+// Helper function to get crypto fallback prices
+function getCryptoFallbackPrice(symbol) {
+  const fallbackPrices = {
+    'DOGE': 0.08,
+    'BTC': 45000,
+    'ETH': 3200,
+    'ADA': 0.60,
+    'SOL': 100
+  };
+  return fallbackPrices[symbol] || null;
 }
 
 // Helper function to process crypto format rows
@@ -613,5 +696,70 @@ function processWealthsimpleRow(row, filename) {
     currency: 'CAD' // All amounts are in CAD
   };
 }
+
+// Cache management endpoints
+router.get('/cache/stats', (req, res) => {
+  try {
+    const stats = holdingsCache.getStats();
+    res.json({
+      success: true,
+      cache: stats,
+      message: `Cache contains ${stats.totalEntries} entries`
+    });
+  } catch (error) {
+    console.error('Cache stats error:', error);
+    res.status(500).json({ error: 'Failed to get cache statistics' });
+  }
+});
+
+router.get('/cache/data', (req, res) => {
+  try {
+    const cacheData = {};
+    for (const [symbol, data] of holdingsCache.cache.entries()) {
+      cacheData[symbol] = data;
+    }
+    res.json({
+      success: true,
+      cache: cacheData,
+      message: `Retrieved ${Object.keys(cacheData).length} cache entries`
+    });
+  } catch (error) {
+    console.error('Cache data error:', error);
+    res.status(500).json({ error: 'Failed to get cache data' });
+  }
+});
+
+router.delete('/cache/clear', (req, res) => {
+  try {
+    // Clear all cache entries
+    const stats = holdingsCache.getStats();
+    holdingsCache.cache.clear();
+    holdingsCache.saveCache();
+    
+    res.json({
+      success: true,
+      message: `Cleared ${stats.totalEntries} cache entries`
+    });
+  } catch (error) {
+    console.error('Cache clear error:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
+router.delete('/cache/:symbol', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const deleted = holdingsCache.cache.delete(symbol);
+    holdingsCache.saveCache();
+    
+    res.json({
+      success: true,
+      message: deleted ? `Removed ${symbol} from cache` : `${symbol} not found in cache`
+    });
+  } catch (error) {
+    console.error('Cache delete error:', error);
+    res.status(500).json({ error: 'Failed to delete cache entry' });
+  }
+});
 
 module.exports = router; 
