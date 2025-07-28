@@ -31,6 +31,7 @@ interface Holding {
 interface PortfolioSummary {
   totalInvested: number;
   totalRealized: number;
+  totalAmountSold?: number;
   totalHoldings: number;
   totalQuantity: number;
   currentTotalValue?: number;
@@ -113,6 +114,7 @@ const PortfolioSummary: React.FC = () => {
          setSummary({
            totalInvested: portfolioData.summary?.totalInvested || 0,
            totalRealized: portfolioData.summary?.totalRealized || 0,
+           totalAmountSold: portfolioData.summary?.totalAmountSold || 0,
            totalHoldings: portfolioData.summary?.totalHoldings || 0,
            totalQuantity: portfolioData.summary?.totalQuantity || 0,
            currentTotalValue,
@@ -143,6 +145,7 @@ const PortfolioSummary: React.FC = () => {
          const fallbackSummary = {
            totalInvested: 53025.00,
            totalRealized: 439.50,
+           totalAmountSold: 439.50,
            totalHoldings: 7,
            totalQuantity: 737.3,
            currentTotalValue: 67420.00,
@@ -308,26 +311,6 @@ const PortfolioSummary: React.FC = () => {
                   color: '#111827',
                   marginBottom: '4px'
                 }}>
-                  {formatCurrency(summary.totalInvested)}
-                </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
-                  backgroundColor: '#f3f4f6',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  display: 'inline-block'
-                }}>
-                  Invested
-                </div>
-              </div>
-              <div style={{textAlign: 'center'}}>
-                <div style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#111827',
-                  marginBottom: '4px'
-                }}>
                   {formatCurrency(summary.currentTotalValue)}
                 </div>
                 <div style={{
@@ -338,8 +321,36 @@ const PortfolioSummary: React.FC = () => {
                   borderRadius: '12px',
                   display: 'inline-block'
                 }}>
-                  Current
+                  Net Value in All Holdings by Market
                 </div>
+              </div>
+              <div style={{textAlign: 'center'}}>
+                <div style={{
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#111827',
+                  marginBottom: '4px'
+                }}>
+                  {formatCurrency(summary.totalInvested - (summary.totalAmountSold || 0))}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  backgroundColor: '#f3f4f6',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  display: 'inline-block',
+                  marginRight: '8px'
+                }}>
+                  Net Spent
+                </div>
+                <span style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  fontWeight: '500'
+                }}>
+                  (<span style={{color: '#dc2626'}}>{formatCurrency(summary.totalInvested)}</span> - <span style={{color: '#166534'}}>{formatCurrency(summary.totalAmountSold || 0)}</span>)
+                </span>
               </div>
               <div style={{textAlign: 'center'}}>
                 <div style={{
@@ -365,10 +376,10 @@ const PortfolioSummary: React.FC = () => {
                 <div style={{
                   fontSize: '16px',
                   fontWeight: '600',
-                  color: '#111827',
+                  color: summary.totalPnLPercent && summary.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
                   marginBottom: '4px'
                 }}>
-                  {summary.totalHoldings}
+                  {formatPercentage(summary.totalPnLPercent)}
                 </div>
                 <div style={{
                   fontSize: '12px',
@@ -378,7 +389,7 @@ const PortfolioSummary: React.FC = () => {
                   borderRadius: '12px',
                   display: 'inline-block'
                 }}>
-                  Holdings
+                  P&L %
                 </div>
               </div>
             </div>

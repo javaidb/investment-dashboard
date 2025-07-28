@@ -316,7 +316,8 @@ router.get('/currency/rate', async (req, res) => {
 async function processTrades(trades) {
   const holdings = new Map();
   let totalInvested = 0;
-  let totalRealized = 0;
+  let totalRealizedPnL = 0; // Track P&L from sales
+  let totalAmountSold = 0; // Track total amount sold
 
   // Sort trades by date
   trades.sort((a, b) => a.date - b.date);
@@ -362,7 +363,8 @@ async function processTrades(trades) {
         holding.quantity = 0;
         holding.realizedPnL += realizedPnL;
         holding.amountSold += adjustedTotal; // Track adjusted amount sold
-        totalRealized += realizedPnL;
+        totalRealizedPnL += realizedPnL;
+        totalAmountSold += adjustedTotal; // Track total amount sold
         holding.totalInvested = 0;
         holding.averagePrice = 0;
       } else {
@@ -371,7 +373,8 @@ async function processTrades(trades) {
         holding.quantity -= trade.quantity;
         holding.realizedPnL += realizedPnL;
         holding.amountSold += trade.total; // Track amount sold
-        totalRealized += realizedPnL;
+        totalRealizedPnL += realizedPnL;
+        totalAmountSold += trade.total; // Track total amount sold
 
         if (holding.quantity === 0) {
           holding.totalInvested = 0;
@@ -393,7 +396,8 @@ async function processTrades(trades) {
     holdings: holdingsArray,
     summary: {
       totalInvested: totalInvested,
-      totalRealized: totalRealized,
+      totalRealized: totalRealizedPnL, // Keep as P&L for backward compatibility
+      totalAmountSold: totalAmountSold, // Add new field for total amount sold
       totalHoldings: holdingsArray.length,
       totalQuantity: holdingsArray.reduce((sum, h) => sum + h.quantity, 0)
     }
