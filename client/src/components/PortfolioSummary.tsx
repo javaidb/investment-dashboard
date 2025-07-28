@@ -562,16 +562,27 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(holding.currentPrice)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td className="py-4 px-6" style={{
+                        padding: '20px 24px', 
+                        backgroundColor: (() => {
+                          const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
+                          const currentValue = holding.currentValue || 0;
+                          return currentValue > netInvested ? '#dcfce7' : '#fef2f2';
+                        })()
+                      }}>
                         <div style={{
                           fontSize: '16px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: (() => {
+                            const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
+                            const currentValue = holding.currentValue || 0;
+                            return currentValue > netInvested ? '#166534' : '#dc2626';
+                          })()
                         }}>
                           {formatCurrency(holding.currentValue)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td className="py-4 px-6" style={{padding: '20px 24px', backgroundColor: '#e0f2fe'}}>
                         <div style={{
                           fontSize: '16px',
                           fontWeight: '600',
