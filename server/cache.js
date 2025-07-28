@@ -3,7 +3,7 @@ const path = require('path');
 
 class HoldingsCache {
   constructor() {
-    this.cacheFile = path.join(__dirname, 'holdings-cache.json');
+    this.cacheFile = path.join(__dirname, 'data', 'cache', 'holdings-cache.json');
     this.cache = new Map();
     this.loadCache();
   }
