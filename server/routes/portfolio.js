@@ -150,9 +150,21 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
 router.post('/process-uploaded', async (req, res) => {
   try {
     const uploadDir = path.join(__dirname, '../uploads');
-    const files = fs.readdirSync(uploadDir).filter(file => file.endsWith('.csv'));
+    const cryptoDir = path.join(uploadDir, 'crypto');
+    const wealthsimpleDir = path.join(uploadDir, 'wealthsimple');
     
-    if (files.length === 0) {
+    // Get files from both directories
+    const cryptoFiles = fs.existsSync(cryptoDir) ? 
+      fs.readdirSync(cryptoDir).filter(file => file.endsWith('.csv')) : [];
+    const wealthsimpleFiles = fs.existsSync(wealthsimpleDir) ? 
+      fs.readdirSync(wealthsimpleDir).filter(file => file.endsWith('.csv')) : [];
+    
+    const allFiles = [
+      ...cryptoFiles.map(file => ({ path: path.join(cryptoDir, file), type: 'crypto' })),
+      ...wealthsimpleFiles.map(file => ({ path: path.join(wealthsimpleDir, file), type: 'wealthsimple' }))
+    ];
+    
+    if (allFiles.length === 0) {
       return res.status(404).json({ error: 'No CSV files found in uploads directory' });
     }
 
@@ -160,70 +172,41 @@ router.post('/process-uploaded', async (req, res) => {
     const portfolioId = Date.now().toString();
 
     // Process each CSV file
-    for (const file of files) {
-      const filePath = path.join(uploadDir, file);
+    for (const fileInfo of allFiles) {
+      const { path: filePath, type: fileType } = fileInfo;
       const trades = [];
 
       await new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', (row) => {
-            // Skip completely empty rows or rows with missing essential data
-            if (!row.symbol || !row.date || !row.action || !row.quantity || !row['total amount'] || !row.type || 
-                row.symbol.trim() === '' || row.date.trim() === '' || row.action.trim() === '' || 
-                row.quantity.trim() === '' || row['total amount'].trim() === '' || row.type.trim() === '') {
-              console.log(`Skipping empty/invalid row in ${file}:`, row);
-              return;
-            }
-
-            // Validate required columns
-            if (!row.symbol || !row.date || !row.action || !row.quantity || !row['total amount'] || !row.type) {
-              reject(new Error(`Missing required columns in ${file}: symbol, date, action, quantity, total amount, type`));
-              return;
-            }
-
-            // Validate type values
-            if (row.type.toLowerCase() !== 's' && row.type.toLowerCase() !== 'c') {
-              reject(new Error(`Invalid type '${row.type}' in ${file}. Must be 's' for stock or 'c' for crypto`));
-              return;
-            }
-
-            // Parse date - handle both simple dates and datetime formats
-            let parsedDate;
             try {
-              parsedDate = new Date(row.date);
-              if (isNaN(parsedDate.getTime())) {
-                throw new Error('Invalid date');
+              let trade = null;
+              
+              if (fileType === 'crypto') {
+                // Process crypto format
+                trade = processCryptoRow(row, path.basename(filePath));
+              } else if (fileType === 'wealthsimple') {
+                // Process Wealthsimple format
+                trade = processWealthsimpleRow(row, path.basename(filePath));
               }
-            } catch (dateError) {
-              console.warn(`Invalid date format for ${row.symbol}: ${row.date}`);
-              parsedDate = new Date(); // Use current date as fallback
+              
+              if (trade) {
+                console.log(`Processing trade in ${path.basename(filePath)}:`, trade);
+                trades.push(trade);
+              }
+            } catch (error) {
+              console.warn(`Error processing row in ${path.basename(filePath)}:`, error.message);
+              // Continue processing other rows instead of rejecting the entire file
             }
-
-            const totalAmount = parseFloat(row['total amount']);
-            const quantity = parseFloat(row.quantity);
-            const pricePerUnit = totalAmount / quantity; // Calculate price per share/coin
-
-            const trade = {
-              symbol: row.symbol.toUpperCase(),
-              date: parsedDate,
-              action: row.action.toLowerCase(),
-              quantity: quantity,
-              price: pricePerUnit, // Price per share/coin in CAD
-              total: totalAmount, // Total amount invested in CAD
-              type: row.type.toLowerCase(), // 's' for stock, 'c' for crypto
-              currency: 'CAD' // All amounts are in CAD
-            };
-
-            console.log(`Processing trade in ${file}:`, trade);
-            trades.push(trade);
           })
           .on('end', () => {
             allTrades = allTrades.concat(trades);
             resolve();
           })
           .on('error', (error) => {
-            reject(new Error(`Error processing ${file}: ${error.message}`));
+            console.error(`Error processing ${path.basename(filePath)}:`, error.message);
+            resolve(); // Continue with other files instead of rejecting
           });
       });
     }
@@ -242,10 +225,10 @@ router.post('/process-uploaded', async (req, res) => {
 
     res.json({
       portfolioId: portfolioId,
-      message: `Processed ${files.length} CSV files successfully`,
+      message: `Processed ${allFiles.length} CSV files successfully`,
       summary: portfolio.summary,
       holdings: portfolio.holdings,
-      filesProcessed: files
+      filesProcessed: allFiles.map(f => path.basename(f.path))
     });
 
   } catch (error) {
@@ -511,6 +494,120 @@ async function getCurrentPrices(holdings) {
   }
 
   return holdingsWithPrices;
+}
+
+// Helper function to process crypto format rows
+function processCryptoRow(row, filename) {
+  // Skip completely empty rows or rows with missing essential data
+  if (!row.symbol || !row.date || !row.action || !row.quantity || !row['total amount'] || !row.type || 
+      row.symbol.trim() === '' || row.date.trim() === '' || row.action.trim() === '' || 
+      row.quantity.trim() === '' || row['total amount'].trim() === '' || row.type.trim() === '') {
+    console.log(`Skipping empty/invalid row in ${filename}:`, row);
+    return null;
+  }
+
+  // Only process BUY or SELL transactions
+  if (row.action.toLowerCase() !== 'buy' && row.action.toLowerCase() !== 'sell') {
+    return null;
+  }
+
+  // Validate type values
+  if (row.type.toLowerCase() !== 's' && row.type.toLowerCase() !== 'c') {
+    console.warn(`Invalid type '${row.type}' in ${filename}. Must be 's' for stock or 'c' for crypto`);
+    return null;
+  }
+
+  // Parse date - handle both simple dates and datetime formats
+  let parsedDate;
+  try {
+    parsedDate = new Date(row.date);
+    if (isNaN(parsedDate.getTime())) {
+      throw new Error('Invalid date');
+    }
+  } catch (dateError) {
+    console.warn(`Invalid date format for ${row.symbol}: ${row.date}`);
+    parsedDate = new Date(); // Use current date as fallback
+  }
+
+  const totalAmount = parseFloat(row['total amount']);
+  const quantity = parseFloat(row.quantity);
+  const pricePerUnit = totalAmount / quantity; // Calculate price per share/coin
+
+  return {
+    symbol: row.symbol.toUpperCase(),
+    date: parsedDate,
+    action: row.action.toLowerCase(),
+    quantity: quantity,
+    price: pricePerUnit, // Price per share/coin in CAD
+    total: totalAmount, // Total amount invested in CAD
+    type: row.type.toLowerCase(), // 's' for stock, 'c' for crypto
+    currency: 'CAD' // All amounts are in CAD
+  };
+}
+
+// Helper function to process Wealthsimple format rows
+function processWealthsimpleRow(row, filename) {
+  // Skip completely empty rows or rows with missing essential data
+  if (!row.date || !row.transaction || !row.description || !row.amount || 
+      row.date.trim() === '' || row.transaction.trim() === '' || 
+      row.description.trim() === '' || row.amount.trim() === '') {
+    console.log(`Skipping empty/invalid row in ${filename}:`, row);
+    return null;
+  }
+
+  // Only process BUY or SELL transactions
+  if (row.transaction.toUpperCase() !== 'BUY' && row.transaction.toUpperCase() !== 'SELL') {
+    return null;
+  }
+
+  // Extract symbol and quantity from description
+  // Format: "TSLA - Tesla Inc: Bought 1.0000 shares (executed at 2025-04-30), FX Rate: 1.4065"
+  // Format: "TSLA - Tesla Inc: Sold 1.0000 shares (executed at 2025-03-18), FX Rate: 1.4026"
+  const description = row.description;
+  const symbolMatch = description.match(/^([A-Z]+)\s*-\s*/);
+  
+  // Check for both "Bought" and "Sold" patterns
+  const boughtMatch = description.match(/Bought\s+([\d.]+)\s+shares/);
+  const soldMatch = description.match(/Sold\s+([\d.]+)\s+shares/);
+  
+  if (!symbolMatch || (!boughtMatch && !soldMatch)) {
+    console.warn(`Could not extract symbol or quantity from description in ${filename}: ${description}`);
+    return null;
+  }
+
+  const symbol = symbolMatch[1];
+  const quantity = parseFloat(boughtMatch ? boughtMatch[1] : soldMatch[1]);
+  const amount = parseFloat(row.amount);
+  
+  // For Wealthsimple: 
+  // - BUY transactions: negative amounts (money going out)
+  // - SELL transactions: positive amounts (money coming in)
+  const totalAmount = Math.abs(amount);
+  const action = row.transaction.toLowerCase();
+  const pricePerUnit = totalAmount / quantity;
+
+  // Parse date
+  let parsedDate;
+  try {
+    parsedDate = new Date(row.date);
+    if (isNaN(parsedDate.getTime())) {
+      throw new Error('Invalid date');
+    }
+  } catch (dateError) {
+    console.warn(`Invalid date format for ${symbol}: ${row.date}`);
+    parsedDate = new Date(); // Use current date as fallback
+  }
+
+  return {
+    symbol: symbol.toUpperCase(),
+    date: parsedDate,
+    action: action,
+    quantity: quantity,
+    price: pricePerUnit, // Price per share in CAD
+    total: totalAmount, // Total amount in CAD
+    type: 's', // Wealthsimple is for stocks
+    currency: 'CAD' // All amounts are in CAD
+  };
 }
 
 module.exports = router; 

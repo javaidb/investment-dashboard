@@ -156,21 +156,50 @@ const Portfolio: React.FC = () => {
 
         {/* CSV Format Instructions */}
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <h4 className="font-medium text-gray-900 mb-2">CSV Format Required</h4>
-          <p className="text-sm text-gray-600 mb-2">
-            Your CSV file should include these columns:
+          <h4 className="font-medium text-gray-900 mb-2">CSV Format Support</h4>
+          <p className="text-sm text-gray-600 mb-4">
+            The system automatically processes CSV files from both crypto exchanges and Wealthsimple:
           </p>
-          <div className="text-sm text-gray-600 space-y-1">
-            <p>• <strong>symbol</strong> - Stock/crypto symbol (e.g., AAPL, BTC)</p>
-            <p>• <strong>date</strong> - Transaction date (YYYY-MM-DD)</p>
-            <p>• <strong>action</strong> - buy or sell</p>
-            <p>• <strong>quantity</strong> - Number of shares/coins</p>
-            <p>• <strong>total amount</strong> - Total amount in CAD (all amounts are processed as CAD)</p>
-            <p>• <strong>type</strong> - 's' for stock or 'c' for crypto</p>
+          
+          <div className="space-y-4">
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h5 className="font-medium text-gray-900 mb-2">Crypto Exchange Format</h5>
+              <div className="text-sm text-gray-600 space-y-1">
+                <p>• <strong>symbol</strong> - Crypto symbol (e.g., BTC, ETH)</p>
+                <p>• <strong>date</strong> - Transaction date (YYYY-MM-DD)</p>
+                <p>• <strong>action</strong> - buy or sell</p>
+                <p>• <strong>quantity</strong> - Number of coins</p>
+                <p>• <strong>total amount</strong> - Total amount in CAD</p>
+                <p>• <strong>type</strong> - 'c' for crypto</p>
+              </div>
+            </div>
+            
+            <div className="border-l-4 border-green-500 pl-4">
+              <h5 className="font-medium text-gray-900 mb-2">Wealthsimple Format</h5>
+              <div className="text-sm text-gray-600 space-y-1">
+                <p>• <strong>date</strong> - Transaction date (YYYY-MM-DD)</p>
+                <p>• <strong>transaction</strong> - BUY or SELL (only these are processed)</p>
+                <p>• <strong>description</strong> - Contains symbol and shares info</p>
+                <p>• <strong>amount</strong> - Transaction amount in CAD (negative for BUY, positive for SELL)</p>
+                <p>• <strong>balance</strong> - Account balance (ignored)</p>
+              </div>
+              <p className="text-sm text-gray-500 mt-2">
+                Examples: "TSLA - Tesla Inc: Bought 1.0000 shares" → Symbol: TSLA, Quantity: 1.0<br/>
+                "TSLA - Tesla Inc: Sold 1.0000 shares" → Symbol: TSLA, Quantity: 1.0
+              </p>
+            </div>
           </div>
-          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-800 font-medium">💱 Currency Conversion Note:</p>
+          
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800 font-medium">📁 File Organization:</p>
             <p className="text-sm text-blue-700">
+              Place crypto CSV files in the <code>crypto/</code> folder and Wealthsimple CSV files in the <code>wealthsimple/</code> folder. Empty files are automatically ignored.
+            </p>
+          </div>
+          
+          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-sm text-green-800 font-medium">💱 Currency Conversion Note:</p>
+            <p className="text-sm text-green-700">
               All CSV amounts are processed as CAD. Current market prices (in USD) are automatically converted to CAD for accurate profit/loss calculations.
             </p>
           </div>
