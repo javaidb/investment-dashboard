@@ -348,6 +348,7 @@ async function processTrades(trades) {
         averagePrice: 0,
         totalInvested: 0,
         realizedPnL: 0,
+        amountSold: 0, // Track total amount sold
         type: trade.type, // 's' for stock, 'c' for crypto
         currency: trade.currency || 'CAD' // Default to CAD
       });
@@ -375,6 +376,7 @@ async function processTrades(trades) {
         
         holding.quantity = 0;
         holding.realizedPnL += realizedPnL;
+        holding.amountSold += adjustedTotal; // Track adjusted amount sold
         totalRealized += realizedPnL;
         holding.totalInvested = 0;
         holding.averagePrice = 0;
@@ -383,6 +385,7 @@ async function processTrades(trades) {
         
         holding.quantity -= trade.quantity;
         holding.realizedPnL += realizedPnL;
+        holding.amountSold += trade.total; // Track amount sold
         totalRealized += realizedPnL;
 
         if (holding.quantity === 0) {
