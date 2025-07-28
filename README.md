@@ -9,6 +9,8 @@ A comprehensive web dashboard for tracking stocks and cryptocurrency investments
 - **Portfolio Summary**: Automatic calculation of current holdings value and net profit based on sample trades
 - **CSV Upload**: Upload your trading history to calculate net profits
 - **Portfolio Analysis**: Track current holdings and historical performance
+- **Intelligent Caching**: Persistent cache for holdings data with fallback support to prevent data loss on page refresh
+- **Cache Management**: Interface to view and manage cached holdings data
 - **Modern UI**: Beautiful, responsive dashboard interface
 
 ## Tech Stack
@@ -78,14 +80,27 @@ The portfolio summary shows:
 - Total profit/loss (realized + unrealized)
 - Individual holding performance
 
-## CSV Format
+## CSV Format Support
 
-Your trading CSV should include these columns:
-- `symbol` (stock/crypto symbol)
+The system supports two CSV formats:
+
+### Crypto Exchange Format
+Your crypto trading CSV should include these columns:
+- `symbol` (crypto symbol like BTC, ETH)
 - `date` (purchase/sale date)
 - `action` (buy/sell)
-- `quantity` (number of shares/coins)
-- `total amount` (total amount in CAD - all amounts are processed as CAD)
-- `type` ('s' for stock or 'c' for crypto)
+- `quantity` (number of coins)
+- `total amount` (total amount in CAD)
+- `type` ('c' for crypto)
+
+### Wealthsimple Format
+Your Wealthsimple trading CSV should include these columns:
+- `date` (transaction date)
+- `transaction` (BUY or SELL - only these are processed)
+- `description` (contains symbol and shares info, e.g., "TSLA - Tesla Inc: Bought 1.0000 shares" or "TSLA - Tesla Inc: Sold 1.0000 shares")
+- `amount` (transaction amount in CAD - negative for BUY, positive for SELL)
+- `balance` (account balance - ignored)
+
+**File Organization**: Place crypto CSV files in the `crypto/` folder and Wealthsimple CSV files in the `wealthsimple/` folder. Empty files are automatically ignored.
 
 **Currency Handling**: All CSV amounts are processed as CAD. Current market prices (in USD) are automatically converted to CAD using real-time exchange rates for accurate profit/loss calculations.
