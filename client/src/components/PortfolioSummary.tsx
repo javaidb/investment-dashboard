@@ -26,6 +26,7 @@ interface Holding {
   totalPnLPercent?: number;
   usdPrice?: number; // USD price for reference
   exchangeRate?: number; // Exchange rate used for conversion
+  cacheUsed?: boolean; // Flag to indicate if cache was used
 }
 
 interface PortfolioSummary {
@@ -101,7 +102,8 @@ const PortfolioSummary: React.FC = () => {
            currentValue: holding.currentValue || null,
            unrealizedPnL: holding.unrealizedPnL || null,
            totalPnL: holding.totalPnL || null,
-           totalPnLPercent: holding.totalPnLPercent || null
+           totalPnLPercent: holding.totalPnLPercent || null,
+           cacheUsed: holding.cacheUsed || false
          }));
          
          // Sort holdings by P&L amount (highest to lowest)
@@ -141,42 +143,60 @@ const PortfolioSummary: React.FC = () => {
          } catch (err) {
        console.error('Portfolio loading error:', err);
        
-       // Fallback to sample data if API fails
+       // Try to get cache data as fallback
        try {
-         const fallbackHoldings = [
-           { symbol: 'AAPL', quantity: 12, averagePrice: 152.58, totalInvested: 1831.00, totalAmountInvested: 2312.50, realizedPnL: 30.75, amountSold: 481.50, type: 's', currency: 'CAD', currentPrice: 190.00, currentValue: 2280.00, unrealizedPnL: 448.42, totalPnL: 479.17, totalPnLPercent: 26.17 },
-           { symbol: 'MSFT', quantity: 12, averagePrice: 281.67, totalInvested: 3380.00, totalAmountInvested: 3380.00, realizedPnL: 0, amountSold: 0, type: 's', currency: 'CAD', currentPrice: 420.00, currentValue: 5040.00, unrealizedPnL: 1660.00, totalPnL: 1660.00, totalPnLPercent: 49.11 },
-           { symbol: 'GOOGL', quantity: 4, averagePrice: 140.00, totalInvested: 560.00, totalAmountInvested: 851.50, realizedPnL: 11.50, amountSold: 291.50, type: 's', currency: 'CAD', currentPrice: 170.00, currentValue: 680.00, unrealizedPnL: 120.00, totalPnL: 131.50, totalPnLPercent: 23.48 },
-           { symbol: 'TSLA', quantity: 7, averagePrice: 180.25, totalInvested: 1261.75, totalAmountInvested: 2139.25, realizedPnL: -23.75, amountSold: 877.50, type: 's', currency: 'CAD', currentPrice: 250.00, currentValue: 1750.00, unrealizedPnL: 488.25, totalPnL: 464.50, totalPnLPercent: 36.81 },
-           { symbol: 'BTC', quantity: 0.8, averagePrice: 46125.00, totalInvested: 36900.00, totalAmountInvested: 36900.00, realizedPnL: 0, amountSold: 0, type: 'c', currency: 'CAD', currentPrice: 65000.00, currentValue: 52000.00, unrealizedPnL: 15100.00, totalPnL: 15100.00, totalPnLPercent: 40.92 },
-           { symbol: 'ETH', quantity: 1.5, averagePrice: 2800.00, totalInvested: 4200.00, totalAmountInvested: 7400.00, realizedPnL: 400.00, amountSold: 3200.00, type: 'c', currency: 'CAD', currentPrice: 3500.00, currentValue: 5250.00, unrealizedPnL: 1050.00, totalPnL: 1450.00, totalPnLPercent: 34.52 },
-           { symbol: 'ADA', quantity: 700, averagePrice: 0.45, totalInvested: 315.00, totalAmountInvested: 471.00, realizedPnL: 21.00, amountSold: 156.00, type: 'c', currency: 'CAD', currentPrice: 0.60, currentValue: 420.00, unrealizedPnL: 105.00, totalPnL: 126.00, totalPnLPercent: 40.00 }
-         ];
-         
-         const fallbackSummary = {
-           totalInvested: 53025.00,
-           totalRealized: 439.50,
-           totalAmountSold: 439.50,
-           totalHoldings: 7,
-           totalQuantity: 737.3,
-           currentTotalValue: 67420.00,
-           totalUnrealizedPnL: 18976.25,
-           totalPnL: 19410.25,
-           totalPnLPercent: 36.61
-         };
-         
-         // Sort fallback holdings by P&L amount (highest to lowest)
-         const sortedFallbackHoldings = fallbackHoldings.sort((a: Holding, b: Holding) => {
-           const aPnL = a.totalPnL || 0;
-           const bPnL = b.totalPnL || 0;
-           return bPnL - aPnL; // Descending order (highest P&L first)
-         });
-         
-         setHoldings(sortedFallbackHoldings);
-         setSummary(fallbackSummary);
-         setError(null); // Clear any previous errors
+         console.log('🔄 Attempting to load cached data as fallback...');
+         const cacheResponse = await fetch('/api/portfolio/cache/data');
+         if (cacheResponse.ok) {
+           const cacheData = await cacheResponse.json();
+           console.log('📦 Found cached data:', cacheData);
+           
+           // Create holdings from cache data with actual prices
+           const cachedHoldings: Holding[] = Object.entries(cacheData.cache).map(([symbol, data]: [string, any]) => {
+             const isCrypto = symbol === 'BTC' || symbol === 'ETH' || symbol === 'DOGE' || symbol === 'ADA' || symbol === 'SOL';
+             
+             return {
+               symbol: symbol,
+               quantity: 1, // Default quantity for display purposes
+               averagePrice: 0,
+               totalInvested: 0,
+               totalAmountInvested: 0,
+               realizedPnL: 0,
+               amountSold: 0,
+               type: isCrypto ? 'c' : 's',
+               currency: 'CAD',
+               companyName: data.companyName || symbol,
+               currentPrice: data.cadPrice || undefined,
+               currentValue: data.cadPrice || undefined, // For display, use price as value
+               unrealizedPnL: undefined,
+               totalPnL: undefined,
+               totalPnLPercent: undefined,
+               cacheUsed: true
+             };
+           });
+           
+           // Sort by symbol for better organization
+           const sortedCachedHoldings = cachedHoldings.sort((a, b) => a.symbol.localeCompare(b.symbol));
+           
+           setHoldings(sortedCachedHoldings);
+           setSummary({
+             totalInvested: 0,
+             totalRealized: 0,
+             totalAmountSold: 0,
+             totalHoldings: cachedHoldings.length,
+             totalQuantity: cachedHoldings.length,
+             currentTotalValue: 0,
+             totalUnrealizedPnL: 0,
+             totalPnL: 0,
+             totalPnLPercent: 0
+           });
+           setError('Using cached data - portfolio information may be incomplete');
+         } else {
+           throw new Error('Cache not available');
+         }
        } catch (fallbackError) {
-         setError('Failed to load portfolio data and fallback failed');
+         console.error('Cache fallback failed:', fallbackError);
+         setError('Failed to load portfolio data and cache fallback failed');
        }
      } finally {
        setLoading(false);
@@ -477,6 +497,9 @@ const PortfolioSummary: React.FC = () => {
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       P&L ↓
                     </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Cache
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -614,6 +637,26 @@ const PortfolioSummary: React.FC = () => {
                             </div>
                           )}
                         </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        {holding.cacheUsed && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            backgroundColor: '#fef3c7',
+                            color: '#92400e',
+                            border: '1px solid #fde68a'
+                          }}>
+                            <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Cached
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}

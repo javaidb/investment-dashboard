@@ -6,7 +6,8 @@ import {
   Upload, 
   TrendingUp,
   Menu,
-  X
+  X,
+  Database
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -22,6 +23,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Dashboard', href: '/', icon: BarChart3 },
     { name: 'Search', href: '/search', icon: Search },
     { name: 'Portfolio', href: '/portfolio', icon: Upload },
+    { name: 'Cache', href: '/cache', icon: Database },
   ];
 
   const isActive = (path: string) => location.pathname === path;
