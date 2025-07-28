@@ -42,6 +42,7 @@ interface PortfolioSummary {
 
 const PortfolioSummary: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +75,16 @@ const PortfolioSummary: React.FC = () => {
              const portfolioData = await portfolioResponse.json();
        
        try {
+         // Extract trades data
+         const portfolioTrades = (portfolioData.trades || []).map((trade: any) => ({
+           symbol: trade.symbol,
+           date: trade.date,
+           action: trade.action,
+           quantity: trade.quantity,
+           price: trade.price
+         }));
+         setTrades(portfolioTrades);
+         
          // Ensure holdings data is properly formatted with null checks
          const safeHoldings = (portfolioData.holdings || []).map((holding: any) => ({
            symbol: holding.symbol || 'UNKNOWN',
@@ -611,6 +622,8 @@ const PortfolioSummary: React.FC = () => {
             </div>
           </div>
         )}
+
+
       </div>
     </div>
   );

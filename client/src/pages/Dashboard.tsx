@@ -2,6 +2,7 @@ import React from 'react';
 import StockChart from '../components/StockChart';
 import TrendingStocks from '../components/TrendingStocks';
 import PortfolioSummary from '../components/PortfolioSummary';
+import HoldingsChartWrapper from '../components/HoldingsChartWrapper';
 
 const Dashboard: React.FC = () => {
   return (
@@ -46,11 +47,16 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
           
-          {/* Right Column - Portfolio Summary */}
+          {/* Right Column - Portfolio Summary and Holdings Chart */}
           <div className="dashboard-right-column">
             <div className="dashboard-section">
               {/* Portfolio Summary */}
               <PortfolioSummary />
+            </div>
+            
+            <div className="dashboard-section">
+              {/* Holdings Chart */}
+              <HoldingsChartWrapper />
             </div>
           </div>
         </div>
