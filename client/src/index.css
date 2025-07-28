@@ -36,9 +36,9 @@ nav {
 }
 
 .nav-container {
-  max-width: 1280px;
+  max-width: 95%;
   margin: 0 auto;
-  padding: 0 1rem;
+  padding: 0 0.5rem;
 }
 
 .nav-content {
@@ -159,11 +159,11 @@ nav {
 .dashboard-header {
   background-color: #ffffff;
   border-bottom: 1px solid #e5e7eb;
-  padding: 2rem 1.5rem;
+  padding: 1.5rem 0.5rem;
 }
 
 .dashboard-header-content {
-  max-width: 1280px;
+  max-width: 95%;
   margin: 0 auto;
 }
 
@@ -179,13 +179,31 @@ nav {
 }
 
 .dashboard-content {
-  max-width: 1280px;
+  max-width: 95%;
   margin: 0 auto;
-  padding: 2rem 1.5rem;
+  padding: 1rem 0.5rem;
 }
 
 .dashboard-section {
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.dashboard-left-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dashboard-right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .card {
@@ -197,7 +215,7 @@ nav {
 }
 
 .card-header {
-  padding: 1.5rem;
+  padding: 1rem;
   border-bottom: 1px solid #e5e7eb;
 }
 
@@ -214,7 +232,7 @@ nav {
 }
 
 .card-body {
-  padding: 1.5rem;
+  padding: 1rem;
 }
 
 /* Stock Chart styles */
@@ -519,5 +537,17 @@ nav {
 @media (min-width: 1024px) {
   .trending-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .dashboard-grid {
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 1400px) {
+  .dashboard-grid {
+    grid-template-columns: 3fr 1fr;
+    gap: 2rem;
   }
 } 
