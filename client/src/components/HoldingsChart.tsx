@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery } from 'react-query';
 import axios from 'axios';
 import {
@@ -54,6 +54,12 @@ interface HoldingsChartProps {
 
 const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
   const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
+  const [zoomStart, setZoomStart] = useState<number | null>(null);
+  const [zoomEnd, setZoomEnd] = useState<number | null>(null);
+  const [isZooming, setIsZooming] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const lastMouseMove = useRef<number>(0);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Fetch maximum historical data for selected holding
   const { data: historicalData, isLoading, error } = useQuery(
@@ -90,6 +96,70 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     });
   };
 
+  // Zoom handlers
+  const handleMouseDown = useCallback((e: any) => {
+    if (e && e.nativeEvent) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.nativeEvent.clientX - rect.left;
+      const y = e.nativeEvent.clientY - rect.top;
+      
+      setSelectionBox({ x, y, width: 0, height: 0 });
+      setIsZooming(true);
+    }
+  }, []);
+
+  const handleMouseMove = useCallback((e: any) => {
+    if (!isZooming || !selectionBox || !e || !e.nativeEvent) return;
+    
+    // Throttle mouse move events (only update every 16ms = 60fps)
+    const now = Date.now();
+    if (now - lastMouseMove.current < 16) return;
+    lastMouseMove.current = now;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.nativeEvent.clientX - rect.left;
+    const y = e.nativeEvent.clientY - rect.top;
+    
+    setSelectionBox(prev => {
+      if (!prev) return prev;
+      return {
+        x: Math.min(prev.x, x),
+        y: Math.min(prev.y, y),
+        width: Math.abs(x - prev.x),
+        height: Math.abs(y - prev.y)
+      };
+    });
+  }, [isZooming, selectionBox]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isZooming && selectionBox && selectionBox.width > 10 && selectionBox.height > 10) {
+      // Convert selection box to data indices
+      const chartData = historicalData || [];
+      if (chartData.length > 0 && chartContainerRef.current) {
+        const rect = chartContainerRef.current.getBoundingClientRect();
+        const chartWidth = rect.width;
+        
+        // Calculate percentages based on actual chart width
+        const startPercent = Math.max(0, Math.min(1, selectionBox.x / chartWidth));
+        const endPercent = Math.max(0, Math.min(1, (selectionBox.x + selectionBox.width) / chartWidth));
+        
+        const startIndex = Math.floor(startPercent * chartData.length);
+        const endIndex = Math.floor(endPercent * chartData.length);
+        
+        setZoomStart(Math.max(0, startIndex));
+        setZoomEnd(Math.min(chartData.length - 1, endIndex));
+      }
+    }
+    setIsZooming(false);
+    setSelectionBox(null);
+  }, [isZooming, selectionBox, historicalData]);
+
+  const resetZoom = useCallback(() => {
+    setZoomStart(null);
+    setZoomEnd(null);
+    setSelectionBox(null);
+  }, []);
+
   // Filter trades for selected holding and match with chart dates
   const holdingTrades = trades.filter(trade => 
     selectedHolding && trade.symbol === selectedHolding.symbol
@@ -108,6 +178,18 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
       chartDate: matchingChartDate?.date || trade.date
     };
   }).filter(trade => trade.chartDate);
+
+  // Filter data based on zoom selection
+  const getFilteredData = (data: StockData[]) => {
+    if (!data || !zoomStart || !zoomEnd) return data;
+    
+    const startIndex = Math.max(0, Math.floor(zoomStart));
+    const endIndex = Math.min(data.length - 1, Math.ceil(zoomEnd));
+    
+    return data.slice(startIndex, endIndex + 1);
+  };
+
+  const filteredData = getFilteredData(historicalData || []);
 
   // Auto-select first holding if none selected
   useEffect(() => {
@@ -156,6 +238,15 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
           <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827' }}>
             {selectedHolding?.symbol || 'Select Holding'}
           </div>
+          
+          {(zoomStart !== null || zoomEnd !== null) && (
+            <button
+              onClick={resetZoom}
+              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+            >
+              Reset Zoom
+            </button>
+          )}
         </div>
       </div>
 
@@ -173,8 +264,18 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
             </div>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={historicalData || []} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+          <div 
+            ref={chartContainerRef}
+            style={{ position: 'relative', width: '100%', height: '100%' }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart 
+                data={filteredData} 
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
               <defs>
                 <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
@@ -225,40 +326,58 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
               ))}
             </AreaChart>
           </ResponsiveContainer>
+          
+          {/* Selection Box Overlay */}
+          {selectionBox && (
+            <div
+              style={{
+                position: 'absolute',
+                left: selectionBox.x,
+                top: selectionBox.y,
+                width: selectionBox.width,
+                height: selectionBox.height,
+                border: '2px dashed #3B82F6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                pointerEvents: 'none',
+                zIndex: 10
+              }}
+            />
+          )}
+        </div>
         )}
       </div>
 
       {/* Chart Info */}
-      {historicalData && historicalData.length > 0 && (
+      {filteredData && filteredData.length > 0 && (
         <div className="chart-info">
-          <div className="chart-info-item">
-            <div className="chart-info-label">Current Price</div>
-            <div className="chart-info-value">
-              ${historicalData[historicalData.length - 1]?.close?.toFixed(2)}
+                      <div className="chart-info-item">
+              <div className="chart-info-label">Current Price</div>
+              <div className="chart-info-value">
+                ${filteredData[filteredData.length - 1]?.close?.toFixed(2)}
+              </div>
             </div>
-          </div>
-          <div className="chart-info-item">
-            <div className="chart-info-label">Change</div>
-            <div className={`chart-info-value ${
-              historicalData[historicalData.length - 1]?.close > historicalData[0]?.close 
-                ? 'positive' 
-                : 'negative'
-            }`}>
-              {((historicalData[historicalData.length - 1]?.close - historicalData[0]?.close) / historicalData[0]?.close * 100).toFixed(2)}%
+            <div className="chart-info-item">
+              <div className="chart-info-label">Change</div>
+              <div className={`chart-info-value ${
+                filteredData[filteredData.length - 1]?.close > filteredData[0]?.close 
+                  ? 'positive' 
+                  : 'negative'
+              }`}>
+                {((filteredData[filteredData.length - 1]?.close - filteredData[0]?.close) / filteredData[0]?.close * 100).toFixed(2)}%
+              </div>
             </div>
-          </div>
-          <div className="chart-info-item">
-            <div className="chart-info-label">High</div>
-            <div className="chart-info-value">
-              ${Math.max(...historicalData.map((d: StockData) => d.high)).toFixed(2)}
+            <div className="chart-info-item">
+              <div className="chart-info-label">High</div>
+              <div className="chart-info-value">
+                ${Math.max(...filteredData.map((d: StockData) => d.high)).toFixed(2)}
+              </div>
             </div>
-          </div>
-          <div className="chart-info-item">
-            <div className="chart-info-label">Low</div>
-            <div className="chart-info-value">
-              ${Math.min(...historicalData.map((d: StockData) => d.low)).toFixed(2)}
+            <div className="chart-info-item">
+              <div className="chart-info-label">Low</div>
+              <div className="chart-info-value">
+                ${Math.min(...filteredData.map((d: StockData) => d.low)).toFixed(2)}
+              </div>
             </div>
-          </div>
         </div>
       )}
     </div>
