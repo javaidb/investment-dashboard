@@ -347,6 +347,7 @@ async function processTrades(trades) {
         quantity: 0,
         averagePrice: 0,
         totalInvested: 0,
+        totalAmountInvested: 0, // Track total amount ever invested (all buy transactions)
         realizedPnL: 0,
         amountSold: 0, // Track total amount sold
         type: trade.type, // 's' for stock, 'c' for crypto
@@ -362,6 +363,7 @@ async function processTrades(trades) {
       
       holding.quantity = newQuantity;
       holding.totalInvested = newTotalInvested;
+      holding.totalAmountInvested += trade.total; // Accumulate total amount ever invested
       holding.averagePrice = newTotalInvested / newQuantity;
       totalInvested += trade.total;
     } else if (trade.action === 'sell') {
