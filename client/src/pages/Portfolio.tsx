@@ -99,7 +99,18 @@ const Portfolio: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header Section */}
+      <div className="dashboard-header">
+        <div className="dashboard-header-content">
+          <h1 className="dashboard-title">Portfolio Management</h1>
+          <p className="dashboard-subtitle">Upload and manage your investment portfolios</p>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="dashboard-content">
+        <div className="dashboard-section">
       {/* Upload Section */}
       <div className="card">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Upload Portfolio</h2>
@@ -345,6 +356,8 @@ const Portfolio: React.FC = () => {
             <p className="text-sm text-gray-400">Upload a CSV file to get started</p>
           </div>
         )}
+      </div>
+        </div>
       </div>
     </div>
   );
