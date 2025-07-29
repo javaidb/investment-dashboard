@@ -14,6 +14,15 @@ if %errorlevel% neq 0 (
 echo Node.js found. Installing dependencies...
 echo.
 
+echo ========================================
+echo KILLING EXISTING PROCESSES
+echo ========================================
+
+echo Killing all Node.js processes first...
+taskkill /f /im node.exe >nul 2>&1
+timeout /t 3 /nobreak >nul
+echo Node.js processes cleared.
+
 echo Checking and killing processes on ports 3000 and 5000...
 echo.
 
@@ -25,7 +34,7 @@ if %errorlevel% equ 0 (
         echo Killing process on port 3000 (PID: %%a)
         taskkill /f /pid %%a >nul 2>&1
     )
-    timeout /t 2 /nobreak >nul
+    timeout /t 3 /nobreak >nul
 ) else (
     echo Port 3000 is free
 )
@@ -38,20 +47,26 @@ if %errorlevel% equ 0 (
         echo Killing process on port 5000 (PID: %%a)
         taskkill /f /pid %%a >nul 2>&1
     )
-    timeout /t 2 /nobreak >nul
+    timeout /t 3 /nobreak >nul
 ) else (
     echo Port 5000 is free
 )
 
-echo.
-echo Ports cleared. Installing dependencies...
-echo.
+echo Double-checking ports are free...
+timeout /t 2 /nobreak >nul
+netstat -ano | findstr ":3000\|:5000" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo WARNING: Ports may still be in use. Trying to kill again...
+    taskkill /f /im node.exe >nul 2>&1
+    timeout /t 3 /nobreak >nul
+) else (
+    echo Ports are confirmed free.
+)
 
-echo Killing any remaining Node.js processes...
-taskkill /f /im node.exe >nul 2>&1
-timeout /t 1 /nobreak >nul
-echo Node.js processes cleared.
 echo.
+echo ========================================
+echo INSTALLING DEPENDENCIES
+echo ========================================
 
 echo Installing root dependencies...
 call "C:\Program Files\nodejs\npm.cmd" install
@@ -82,8 +97,9 @@ if %errorlevel% neq 0 (
 cd ..
 
 echo.
-echo Dependencies installed successfully!
-echo.
+echo ========================================
+echo ENVIRONMENT CHECK
+echo ========================================
 
 echo Checking for server/.env file...
 if not exist "server\.env" (
@@ -107,6 +123,10 @@ if %errorlevel% neq 0 (
 
 echo API key found. Proceeding...
 echo.
+
+echo ========================================
+echo STARTING SERVERS
+echo ========================================
 
 echo Opening dashboard in browser in 5 seconds...
 timeout /t 5 /nobreak >nul
