@@ -387,9 +387,14 @@ async function processTrades(trades) {
     }
   }
 
-  // Convert holdings map to array and filter out zero quantities
+  // Convert holdings map to array and change zero quantities to 1e-9 to show in assets
   const holdingsArray = Array.from(holdings.values())
-    .filter(holding => holding.quantity > 0);
+    .map(holding => {
+      if (holding.quantity === 0) {
+        holding.quantity = 1e-9;
+      }
+      return holding;
+    });
 
   console.log('📊 Final holdings:', holdingsArray.map(h => ({ symbol: h.symbol, type: h.type, quantity: h.quantity })));
 
