@@ -1,6 +1,7 @@
 import React from 'react';
 import StockChart from '../components/StockChart';
 import TrendingStocks from '../components/TrendingStocks';
+import HoldingsPerformance from '../components/HoldingsPerformance';
 import PortfolioSummary from '../components/PortfolioSummary';
 import HoldingsChartWrapper from '../components/HoldingsChartWrapper';
 
@@ -42,6 +43,19 @@ const Dashboard: React.FC = () => {
                 </div>
                 <div className="card-body">
                   <TrendingStocks />
+                </div>
+              </div>
+            </div>
+            
+            <div className="dashboard-section">
+              {/* Holdings Performance Quick View */}
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="card-title">Holdings Performance</h2>
+                  <p className="card-subtitle">Your top performing holdings over the last 3 days</p>
+                </div>
+                <div className="card-body">
+                  <HoldingsPerformance />
                 </div>
               </div>
             </div>
