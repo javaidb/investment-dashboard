@@ -36,8 +36,38 @@ const upload = multer({
   }
 });
 
+// File-based storage for portfolio data
+const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
+
+// Load portfolios from file on startup
+function loadPortfolios() {
+  try {
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+      const portfolioData = JSON.parse(data);
+      const portfolios = new Map(Object.entries(portfolioData));
+      console.log(`📁 Loaded ${portfolios.size} portfolios from file`);
+      return portfolios;
+    }
+  } catch (error) {
+    console.warn('⚠️ Could not load portfolios from file:', error.message);
+  }
+  return new Map();
+}
+
+// Save portfolios to file
+function savePortfolios(portfolios) {
+  try {
+    const portfolioData = Object.fromEntries(portfolios);
+    fs.writeFileSync(PORTFOLIO_FILE, JSON.stringify(portfolioData, null, 2));
+    console.log(`💾 Saved ${portfolios.size} portfolios to file`);
+  } catch (error) {
+    console.error('❌ Could not save portfolios to file:', error.message);
+  }
+}
+
 // In-memory storage for portfolio data (in production, use a database)
-const portfolios = new Map();
+const portfolios = loadPortfolios();
 
 // Currency conversion cache
 const currencyCache = new Map();
@@ -121,6 +151,9 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
             summary: portfolio.summary,
             createdAt: new Date().toISOString()
           });
+          
+          // Save to file
+          savePortfolios(portfolios);
 
           res.json({
             portfolioId: portfolioId,
@@ -223,6 +256,9 @@ router.post('/process-uploaded', async (req, res) => {
       summary: portfolio.summary,
       createdAt: new Date().toISOString()
     });
+    
+    // Save to file
+    savePortfolios(portfolios);
 
     res.json({
       portfolioId: portfolioId,
@@ -256,7 +292,9 @@ router.get('/:portfolioId', async (req, res) => {
       summary: portfolio.summary,
       holdings: holdingsWithPrices,
       trades: portfolio.trades,
-      createdAt: portfolio.createdAt
+      createdAt: portfolio.createdAt,
+      lastUpdated: new Date().toISOString(),
+      dataSource: 'API'
     });
   } catch (error) {
     console.error('Portfolio retrieval error:', error);
@@ -270,7 +308,8 @@ router.get('/', (req, res) => {
     const portfolioList = Array.from(portfolios.values()).map(portfolio => ({
       id: portfolio.id,
       summary: portfolio.summary,
-      createdAt: portfolio.createdAt
+      createdAt: portfolio.createdAt,
+      lastUpdated: new Date().toISOString()
     }));
 
     res.json(portfolioList);
@@ -289,6 +328,9 @@ router.delete('/:portfolioId', (req, res) => {
     if (!deleted) {
       return res.status(404).json({ error: 'Portfolio not found' });
     }
+
+    // Save to file after deletion
+    savePortfolios(portfolios);
 
     res.json({ message: 'Portfolio deleted successfully' });
   } catch (error) {
