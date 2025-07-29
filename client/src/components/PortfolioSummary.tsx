@@ -582,11 +582,14 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(holding.currentValue)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px', backgroundColor: '#e0f2fe'}}>
+                      <td className="py-4 px-6" style={{
+                        padding: '20px 24px', 
+                        backgroundColor: holding.quantity <= 0.01 ? '#f3e8ff' : '#e0f2fe'
+                      }}>
                         <div style={{
                           fontSize: '16px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: holding.quantity <= 0.01 ? '#7c3aed' : '#111827'
                         }}>
                           {formatCurrency(calculateNetInvested(holding.totalAmountInvested, holding.amountSold))}
                         </div>
