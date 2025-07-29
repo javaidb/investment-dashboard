@@ -29,6 +29,7 @@ interface StockData {
 }
 
 const TrendingStocks: React.FC = () => {
+  // Fetch trending stocks - only shows stocks with positive 24h performance
   const { data: trendingData, isLoading, error } = useQuery(
     'trending',
     async () => {
@@ -111,6 +112,14 @@ const TrendingStocks: React.FC = () => {
 
   return (
     <div style={{ width: '100%' }}>
+      <div style={{ marginBottom: '1rem' }}>
+        <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
+          Trending Stocks (24h Gainers)
+        </h3>
+        <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
+          Stocks with the best 24-hour performance
+        </p>
+      </div>
       <div className="trending-grid">
         {trendingData?.stocks?.slice(0, 6).map((stock: TrendingItem) => {
           const stockData = historicalData?.[stock.symbol] || [];
