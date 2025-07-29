@@ -90,18 +90,22 @@ router.get('/quote/:symbol', async (req, res) => {
       console.log('Yahoo Finance quote failed, using fallback:', yahooError.message);
     }
 
-    // Fallback: Return mock data
+    // Fallback: Return mock data with more realistic positive/negative distribution
+    const basePrice = 150.00 + Math.random() * 50;
+    const changePercent = (Math.random() - 0.3) * 8; // Slight bias toward positive, range -2.4% to +5.6%
+    const change = (basePrice * changePercent) / 100;
+    
     const mockData = {
       symbol: symbol.toUpperCase(),
       name: symbol.toUpperCase(), // Fallback to symbol if no name available
-      price: 150.00 + Math.random() * 50,
-      change: (Math.random() - 0.5) * 10,
-      changePercent: (Math.random() - 0.5) * 5,
+      price: basePrice,
+      change: change,
+      changePercent: changePercent,
       volume: 1000000 + Math.floor(Math.random() * 5000000),
-      high: 160.00 + Math.random() * 20,
-      low: 140.00 + Math.random() * 20,
-      open: 145.00 + Math.random() * 10,
-      previousClose: 150.00,
+      high: basePrice + Math.random() * 20,
+      low: basePrice - Math.random() * 20,
+      open: basePrice + (Math.random() - 0.5) * 10,
+      previousClose: basePrice - change,
       timestamp: new Date().toISOString(),
       isMockData: true
     };
