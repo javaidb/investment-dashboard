@@ -45,35 +45,109 @@ const PortfolioSummary: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false to show initial state
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [initialized, setInitialized] = useState(true); // Changed to true for auto-loading
+
+  console.log('🔍 PortfolioSummary component rendered. State:', { loading, error, retryCount, initialized });
 
   useEffect(() => {
+    console.log('🔄 PortfolioSummary useEffect triggered with retryCount:', retryCount);
+    if (!initialized) {
+      setInitialized(true);
+      // Automatically load data on mount
+      loadPortfolioData();
+      return;
+    }
     loadPortfolioData();
-  }, []);
+    // eslint-disable-next-line
+  }, [retryCount, initialized]);
 
   const loadPortfolioData = async () => {
     try {
+      console.log('🔄 PortfolioSummary: Starting to load portfolio data...');
       setLoading(true);
+      setError(null);
       
+      // Test if we can reach the backend at all
+      console.log('🔍 PortfolioSummary: Testing backend connectivity...');
+      try {
+        const testResponse = await fetch('/api/health', { 
+          signal: AbortSignal.timeout(5000) // 5 second timeout for health check
+        });
+        console.log('✅ Health check response:', testResponse.status, testResponse.statusText);
+        if (!testResponse.ok) {
+          throw new Error(`Health check failed: ${testResponse.status}`);
+        }
+        const health = await testResponse.json();
+        if (health.status !== 'OK') {
+          throw new Error('Backend health check failed. Please check backend logs.');
+        }
+        console.log('✅ Backend health check passed');
+      } catch (healthError: any) {
+        console.error('❌ Health check failed:', healthError);
+        setError(`Backend server is not responding: ${healthError.message}`);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('✅ Backend health check passed, processing uploaded files...');
       // Process uploaded CSV files instead of sample data
       const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
         method: 'POST',
       });
-
+      console.log('Process-uploaded response:', uploadResponse);
       if (!uploadResponse.ok) {
-        throw new Error('Failed to process uploaded portfolio data');
+        let msg = 'Failed to process uploaded portfolio data';
+        try {
+          const errJson = await uploadResponse.json();
+          msg = errJson.error || msg;
+        } catch {}
+        setError(msg + ` (Status: ${uploadResponse.status})`);
+        setLoading(false);
+        return;
       }
-
       const uploadResult = await uploadResponse.json();
+      console.log('✅ Upload processing completed:', uploadResult);
       
       // Get the portfolio with current prices
-      const portfolioResponse = await fetch(`/api/portfolio/${uploadResult.portfolioId}`);
+      let portfolioResponse;
+      try {
+        console.log('🔄 Fetching portfolio data for ID:', uploadResult.portfolioId);
+        portfolioResponse = await fetch(`/api/portfolio/${uploadResult.portfolioId}`, {
+          signal: AbortSignal.timeout(60000) // 60 second timeout
+        });
+        console.log('Portfolio fetch response:', portfolioResponse);
+      } catch (fetchError: any) {
+        console.error('Portfolio fetch error:', fetchError);
+        if (fetchError.name === 'TimeoutError' || fetchError.name === 'AbortError') {
+          setError('Request timed out. The server is taking too long to fetch current prices. Please try again.');
+        } else {
+          setError(`Failed to fetch portfolio data: ${fetchError.message || 'Unknown error'}`);
+        }
+        setLoading(false);
+        return;
+      }
       if (!portfolioResponse.ok) {
-        throw new Error('Failed to fetch portfolio data');
+        let msg = 'Failed to fetch portfolio data';
+        if (portfolioResponse.status === 404) {
+          msg = 'Portfolio not found. Please check your uploaded files.';
+        } else if (portfolioResponse.status === 500) {
+          try {
+            const errJson = await portfolioResponse.json();
+            msg = errJson.error || msg;
+          } catch {}
+        } else if (portfolioResponse.status === 408 || portfolioResponse.status === 504) {
+          msg = 'Request timed out. The server is taking too long to fetch current prices.';
+        }
+        setError(msg + ` (Status: ${portfolioResponse.status})`);
+        setLoading(false);
+        return;
       }
 
              const portfolioData = await portfolioResponse.json();
+             console.log('✅ Portfolio data received:', portfolioData);
        
        try {
          // Extract trades data
@@ -135,12 +209,13 @@ const PortfolioSummary: React.FC = () => {
            totalPnL,
            totalPnLPercent
          });
+         
+         console.log('✅ Portfolio data processing completed successfully');
        } catch (processingError) {
          console.error('Error processing portfolio data:', processingError);
          setError('Failed to process portfolio data');
        }
-
-         } catch (err) {
+     } catch (err) {
        console.error('Portfolio loading error:', err);
        
        // Try to get cache data as fallback
@@ -231,9 +306,10 @@ const PortfolioSummary: React.FC = () => {
     return (totalInvested || 0) - (amountSold || 0);
   };
 
-
+  console.log('🔍 PortfolioSummary render state:', { loading, error, holdings: holdings.length, summary: !!summary, initialized });
 
   if (loading) {
+    console.log('🔄 PortfolioSummary: Rendering loading state');
     return (
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">
@@ -241,6 +317,7 @@ const PortfolioSummary: React.FC = () => {
             <div>
               <h2 className="text-xl font-bold text-white">Portfolio Summary</h2>
               <p className="text-blue-100 text-sm">Loading your investment data...</p>
+              <p className="text-blue-100 text-xs mt-1">This may take up to 60 seconds while fetching current prices</p>
             </div>
             <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
@@ -260,36 +337,23 @@ const PortfolioSummary: React.FC = () => {
   }
 
   if (error) {
+    console.log('❌ PortfolioSummary: Rendering error state:', error);
+    const isTimeoutError = error.includes('timed out') || error.includes('Timeout');
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-gradient-to-r from-red-600 to-pink-600 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-white">Portfolio Summary</h2>
-              <p className="text-red-100 text-sm">Error loading portfolio data</p>
-            </div>
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
+      <div style={{ color: 'red', padding: '1rem', background: '#fff0f0', border: '1px solid #ffcccc', borderRadius: 8 }}>
+        <div><b>Portfolio Summary</b></div>
+        <div>Error: {error}</div>
+        {isTimeoutError && (
+          <div style={{ marginTop: 8, fontSize: '14px', color: '#666' }}>
+            💡 Tip: Try refreshing the page or wait a few minutes before retrying. The server might be busy fetching current prices.
           </div>
-        </div>
-        <div className="p-6">
-          <div className="text-center py-8">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Failed to Load Portfolio</h3>
-            <p className="text-red-600 text-sm">{error}</p>
-          </div>
-        </div>
+        )}
+        <button onClick={() => setRetryCount(c => c + 1)} style={{ marginTop: 12, padding: '6px 16px', borderRadius: 4, border: '1px solid #ccc', background: '#f9f9f9', cursor: 'pointer' }}>Retry</button>
       </div>
     );
   }
 
+  console.log('✅ PortfolioSummary: Rendering success state with', holdings.length, 'holdings');
   return (
     <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
       {/* Header with gradient */}
@@ -686,4 +750,4 @@ const PortfolioSummary: React.FC = () => {
   );
 };
 
-export default PortfolioSummary; 
+export default PortfolioSummary;
