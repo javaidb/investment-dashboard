@@ -1,78 +1,66 @@
 import React from 'react';
-import { useQuery, useMutation } from 'react-query';
+import { useQuery } from 'react-query';
 import axios from 'axios';
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Wifi, WifiOff, Clock, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown } from 'lucide-react';
+import {
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  AreaChart,
+  Area
+} from 'recharts';
 
-interface Holding {
-  symbol: string;
-  quantity: number;
-  averagePrice: number;
-  totalInvested: number;
-  currentPrice?: number;
-  currentValue?: number;
-  totalPnL?: number;
-  totalPnLPercent?: number;
-  type?: string;
-  cacheUsed?: boolean;
-  lastUpdated?: string;
-  companyName?: string;
-}
 
-interface Portfolio {
-  id: string;
-  summary: {
-    totalInvested: number;
-    totalRealized: number;
-    totalHoldings: number;
-    totalQuantity: number;
-  };
-  holdings: Holding[];
-  createdAt: string;
-}
 
 const HoldingsPerformance: React.FC = () => {
-  const { data: portfolios, isLoading, error, refetch } = useQuery(
-    'portfolios',
-    async () => {
+  const [portfolioId, setPortfolioId] = React.useState<string | null>(null);
+  
+  // First get portfolio ID by processing uploaded files
+  React.useEffect(() => {
+    const getPortfolioId = async () => {
       try {
-        const response = await axios.get('/api/portfolio');
-        console.log('Portfolio data received:', response.data);
-        return response.data;
+        const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
+          method: 'POST',
+        });
+        if (uploadResponse.ok) {
+          const uploadResult = await uploadResponse.json();
+          setPortfolioId(uploadResult.portfolioId);
+        }
       } catch (error) {
-        console.error('Error fetching portfolios:', error);
-        throw error;
+        console.error('Failed to get portfolio ID:', error);
       }
-    },
-    {
-      refetchInterval: 300000, // Refetch every 5 minutes
-      retry: 3,
-      retryDelay: 1000,
-    }
-  );
+    };
+    
+    getPortfolioId();
+  }, []);
 
-  // Auto-process uploaded files if no portfolios exist
-  const { mutate: processUploaded } = useMutation(
+  // Fetch monthly holdings data with daily resolution
+  const { data: monthlyData, isLoading, error } = useQuery(
+    ['monthlyHoldingsData', portfolioId],
     async () => {
-      const response = await axios.post('/api/portfolio/process-uploaded');
+      if (!portfolioId) throw new Error('No portfolio ID available');
+      const response = await axios.get(`/api/portfolio/${portfolioId}/monthly`);
       return response.data;
     },
     {
-      onSuccess: () => {
-        refetch(); // Refetch portfolios after processing
-      },
-      onError: (error) => {
-        console.error('Error processing uploaded files:', error);
-      }
+      enabled: !!portfolioId,
+      refetchInterval: 300000, // Refetch every 5 minutes
+      retry: 2,
     }
   );
 
-  // Auto-process files when component mounts if no portfolios exist
+  // Debug logging for monthly data
   React.useEffect(() => {
-    if (!isLoading && (!portfolios || portfolios.length === 0)) {
-      console.log('No portfolios found, attempting to process uploaded files...');
-      processUploaded();
+    if (monthlyData) {
+      console.log('Monthly data received:', {
+        resultsKeys: Object.keys(monthlyData.results || {}),
+        dateRange: monthlyData.dateRange,
+        summary: monthlyData.summary
+      });
     }
-  }, [isLoading, portfolios, processUploaded]);
+  }, [monthlyData]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -81,60 +69,121 @@ const HoldingsPerformance: React.FC = () => {
     }).format(amount);
   };
 
-  const formatPercentage = (value: number) => {
-    return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+
+  // Format functions for tooltips
+  const formatTooltip = (value: any) => [`$${value.toFixed(2)}`, 'Price'];
+
+  const formatXAxis = (tickItem: string) => {
+    const date = new Date(tickItem);
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric' 
+    });
   };
 
-  // Helper function to check if data is fresh (less than 5 minutes old)
-  const isDataFresh = (lastUpdated?: string) => {
-    if (!lastUpdated) return false;
-    const now = new Date();
-    const updated = new Date(lastUpdated);
-    const diffMinutes = (now.getTime() - updated.getTime()) / (1000 * 60);
-    return diffMinutes < 5;
+  const formatTooltipLabel = (label: string) => {
+    const date = new Date(label);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
   };
 
-  // Helper function to format relative time
-  const formatRelativeTime = (lastUpdated?: string) => {
-    if (!lastUpdated) return 'Unknown';
-    const now = new Date();
-    const updated = new Date(lastUpdated);
-    const diffMinutes = Math.floor((now.getTime() - updated.getTime()) / (1000 * 60));
+  // Monthly chart component for each holding (similar to TrendingStocks)
+  const MonthlyChart: React.FC<{ symbol: string; stockInfo: any }> = ({ symbol, stockInfo }) => {
+    const chartData = stockInfo.data || [];
+    const meta = stockInfo.meta || {};
     
-    if (diffMinutes < 1) return 'Just now';
-    if (diffMinutes < 60) return `${diffMinutes}m ago`;
-    
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
-  };
+    if (chartData.length === 0) {
+      const message = stockInfo.noData ? 'Chart data unavailable' : 'Loading chart data...';
+      return (
+        <div className="trending-chart-placeholder">
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: '#9CA3AF',
+            fontSize: '0.75rem'
+          }}>
+            {message}
+          </div>
+        </div>
+      );
+    }
 
-  // Helper function to get overall data freshness status
-  const getOverallDataStatus = (holdings: Holding[]) => {
-    if (!holdings || holdings.length === 0) return { isLive: false, freshCount: 0, totalCount: 0 };
-    
-    const freshCount = holdings.filter(h => isDataFresh(h.lastUpdated)).length;
-    const totalCount = holdings.length;
-    const isLive = freshCount === totalCount;
-    
-    return { isLive, freshCount, totalCount };
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+          <defs>
+            <linearGradient id={`monthlyColor${symbol}`} x1="0" y1="0" x2="0" y2="1">
+              <stop 
+                offset="5%" 
+                stopColor={meta.monthlyPerformance && meta.monthlyPerformance > 0 ? "#10B981" : "#EF4444"} 
+                stopOpacity={0.3}
+              />
+              <stop 
+                offset="95%" 
+                stopColor={meta.monthlyPerformance && meta.monthlyPerformance > 0 ? "#10B981" : "#EF4444"} 
+                stopOpacity={0}
+              />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+          <XAxis 
+            dataKey="date" 
+            tickFormatter={formatXAxis}
+            stroke="#9CA3AF"
+            fontSize={10}
+            hide
+          />
+          <YAxis 
+            domain={['dataMin * 0.995', 'dataMax * 1.005']}
+            stroke="#9CA3AF"
+            fontSize={10}
+            hide
+          />
+          <Tooltip 
+            formatter={formatTooltip}
+            labelFormatter={formatTooltipLabel}
+            contentStyle={{
+              backgroundColor: 'white',
+              border: '1px solid #E5E7EB',
+              borderRadius: '6px',
+              fontSize: '12px'
+            }}
+          />
+          <Area
+            type="monotone"
+            dataKey="close"
+            stroke={meta.monthlyPerformance && meta.monthlyPerformance > 0 ? "#10B981" : "#EF4444"}
+            strokeWidth={1.5}
+            fillOpacity={1}
+            fill={`url(#monthlyColor${symbol})`}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    );
   };
 
   if (isLoading) {
     return (
-      <div className="holdings-performance">
-        <div className="holdings-performance-header">
-          <h3>Holdings Performance (3D)</h3>
-          <p>Loading your portfolio data...</p>
+      <div style={{ width: '100%' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
+            Holdings Performance (Monthly)
+          </h3>
+          <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
+            Loading your top performing holdings...
+          </p>
         </div>
-        <div className="holdings-performance-grid">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="holding-card skeleton">
-              <div className="skeleton-line" style={{ width: '60%' }}></div>
-              <div className="skeleton-line" style={{ width: '40%' }}></div>
-              <div className="skeleton-line" style={{ width: '80%' }}></div>
+        <div className="trending-grid">
+          {[...Array(15)].map((_, i) => (
+            <div key={i} style={{ animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}>
+              <div style={{ height: '8rem', backgroundColor: '#e5e7eb', borderRadius: '0.5rem', marginBottom: '0.5rem' }}></div>
+              <div style={{ height: '1rem', backgroundColor: '#e5e7eb', borderRadius: '0.25rem', width: '75%', marginBottom: '0.25rem' }}></div>
+              <div style={{ height: '0.75rem', backgroundColor: '#e5e7eb', borderRadius: '0.25rem', width: '50%' }}></div>
             </div>
           ))}
         </div>
@@ -142,163 +191,103 @@ const HoldingsPerformance: React.FC = () => {
     );
   }
 
-  if (error || !portfolios || portfolios.length === 0) {
+  if (error) {
     return (
-      <div className="holdings-performance">
-        <div className="holdings-performance-header">
-          <div className="header-top">
-            <h3>Holdings Performance (3D)</h3>
-            <div className="live-indicator">
-              <div className="live-status cached">
-                <Clock className="live-icon" />
-                <span>No Data</span>
-              </div>
-            </div>
-          </div>
-          <p>No portfolio data available</p>
-        </div>
-        <div className="holdings-performance-empty">
-          <BarChart3 className="empty-icon" />
-          <p>Upload your portfolio to see performance data</p>
-          <p className="text-sm text-gray-400 mt-2">
-            Go to Portfolio page to upload your CSV files
+      <div style={{ width: '100%' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
+            Holdings Performance (Monthly)
+          </h3>
+          <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
+            No portfolio data available
           </p>
-          {error ? (
-            <p className="text-sm text-red-500 mt-2">
-              Error: Failed to load portfolio data
-            </p>
-          ) : null}
+        </div>
+        <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+          <>
+            <p style={{ color: '#6b7280' }}>Upload your portfolio to see performance data</p>
+            {error && (
+              <p style={{ color: '#ef4444', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                Error: {error instanceof Error ? error.message : 'Failed to load portfolio data'}
+              </p>
+            )}
+          </>
         </div>
       </div>
     );
   }
 
-  // Get the most recent portfolio
-  const latestPortfolio = portfolios[0];
-  const holdings = latestPortfolio.holdings || [];
-
-  // Filter holdings that have current price data and sort by performance
-  const holdingsWithData = holdings
-    .filter((holding: Holding) => holding.currentPrice && holding.totalPnLPercent !== undefined)
-    .sort((a: Holding, b: Holding) => (b.totalPnLPercent || 0) - (a.totalPnLPercent || 0))
-    .slice(0, 6); // Show top 6 performers
-
-  if (holdingsWithData.length === 0) {
+  // Check if we have monthly data
+  if (!monthlyData?.results || Object.keys(monthlyData.results).length === 0) {
     return (
-      <div className="holdings-performance">
-        <div className="holdings-performance-header">
-          <h3>Holdings Performance (3D)</h3>
-          <p>No holdings with current price data</p>
+      <div style={{ width: '100%' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
+            Holdings Performance (Monthly)
+          </h3>
+          <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
+            No holdings with monthly data available
+          </p>
         </div>
-        <div className="holdings-performance-empty">
-          <DollarSign className="empty-icon" />
-          <p>Price data is being updated...</p>
+        <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+          <p style={{ color: '#6b7280' }}>Price data is being updated...</p>
         </div>
       </div>
     );
   }
-
-  // Get overall data status
-  const dataStatus = getOverallDataStatus(holdingsWithData);
 
   return (
-    <div className="holdings-performance">
-      <div className="holdings-performance-header">
-        <div className="header-top">
-          <h3>Holdings Performance (3D)</h3>
-          <div className="live-indicator">
-            {dataStatus.isLive ? (
-              <div className="live-status live">
-                <Wifi className="live-icon" />
-                <span>Live</span>
-              </div>
-            ) : (
-              <div className="live-status cached">
-                <Clock className="live-icon" />
-                <span>{dataStatus.freshCount}/{dataStatus.totalCount} Fresh</span>
-              </div>
-            )}
-            <button 
-              onClick={() => refetch()}
-              className="refresh-button"
-              title="Refresh data"
-            >
-              <RefreshCw className="refresh-icon" />
-            </button>
-          </div>
-        </div>
-        <p>Your top performing holdings</p>
-        <div className="data-info">
-          <span className="info-text">
-            <Wifi className="info-icon" /> Live: Real-time data (≤5 min old)
-          </span>
-          <span className="info-text">
-            <Clock className="info-icon" /> Cached: Data from cache (may be older)
-          </span>
-        </div>
+    <div style={{ width: '100%' }}>
+      <div style={{ marginBottom: '1rem' }}>
+        <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
+          Holdings Performance (Monthly)
+        </h3>
+        <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
+          Daily performance from {monthlyData?.dateRange?.start ? new Date(monthlyData.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'last month'} to now
+        </p>
       </div>
-      
-      <div className="holdings-performance-grid">
-        {holdingsWithData.map((holding: Holding) => (
-          <div key={holding.symbol} className="holding-card">
-            <div className="holding-header">
-              <div className="holding-symbol">
-                <div className="symbol-icon">
-                  {holding.symbol.slice(0, 2)}
+      <div className="trending-grid">
+        {monthlyData?.results && Object.entries(monthlyData.results).slice(0, 15).map(([symbol, stockInfo]: [string, any]) => {
+          const meta = stockInfo.meta || {};
+          
+          return (
+            <div key={symbol} className="trending-card">
+              {/* Stock Info */}
+              <div className="trending-header">
+                <div>
+                  <h4 className="trending-symbol">{symbol}</h4>
+                  <p className="trending-name">{meta.companyName || symbol}</p>
                 </div>
-                <div className="symbol-info">
-                  <span className="symbol-text">{holding.symbol}</span>
-                  <span className="quantity-text">
-                    {holding.quantity.toLocaleString()} {holding.type === 'c' ? 'coins' : 'shares'}
-                  </span>
+                <div className="trending-price">
+                  <div className="trending-price-value">
+                    {formatCurrency(meta.currentPrice || 0)}
+                  </div>
+                  <div className={`trending-change ${
+                    meta.monthlyPerformance && meta.monthlyPerformance > 0
+                      ? 'positive'
+                      : meta.monthlyPerformance && meta.monthlyPerformance < 0
+                      ? 'negative'
+                      : 'neutral'
+                  }`}>
+                    {meta.monthlyPerformance && meta.monthlyPerformance > 0 ? (
+                      <TrendingUp style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
+                    ) : meta.monthlyPerformance && meta.monthlyPerformance < 0 ? (
+                      <TrendingDown style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
+                    ) : null}
+                    {meta.monthlyPerformance ? `${meta.monthlyPerformance > 0 ? '+' : ''}${meta.monthlyPerformance.toFixed(2)}%` : 'N/A'}
+                  </div>
                 </div>
               </div>
-              <div className="holding-price">
-                <span className="current-price">{formatCurrency(holding.currentPrice || 0)}</span>
-                <div className="data-freshness">
-                  {isDataFresh(holding.lastUpdated) ? (
-                    <div className="freshness-indicator fresh">
-                      <Wifi className="freshness-icon" />
-                      <span className="freshness-text">Live</span>
-                    </div>
-                  ) : (
-                    <div className="freshness-indicator cached">
-                      <Clock className="freshness-icon" />
-                      <span className="freshness-text">{formatRelativeTime(holding.lastUpdated)}</span>
-                    </div>
-                  )}
-                </div>
+
+              {/* Monthly Chart */}
+              <div className="trending-chart">
+                <MonthlyChart 
+                  symbol={symbol} 
+                  stockInfo={stockInfo}
+                />
               </div>
             </div>
-            
-            <div className="holding-performance">
-              <div className="performance-row">
-                <span className="label">Invested:</span>
-                <span className="value">{formatCurrency(holding.totalInvested)}</span>
-              </div>
-              <div className="performance-row">
-                <span className="label">Current:</span>
-                <span className="value">{formatCurrency(holding.currentValue || 0)}</span>
-              </div>
-              <div className="performance-row total-pnl">
-                <span className="label">P&L:</span>
-                <div className="pnl-value">
-                  <span className={`pnl-amount ${(holding.totalPnL || 0) > 0 ? 'positive' : 'negative'}`}>
-                    {formatCurrency(holding.totalPnL || 0)}
-                  </span>
-                  <span className={`pnl-percent ${(holding.totalPnLPercent || 0) > 0 ? 'positive' : 'negative'}`}>
-                    {holding.totalPnLPercent && holding.totalPnLPercent > 0 ? (
-                      <TrendingUp className="trend-icon" />
-                    ) : (
-                      <TrendingDown className="trend-icon" />
-                    )}
-                    {formatPercentage(holding.totalPnLPercent || 0)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
