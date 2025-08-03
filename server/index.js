@@ -13,6 +13,7 @@ const stockRoutes = require('./routes/stocks');
 const cryptoRoutes = require('./routes/crypto');
 const portfolioRoutes = require('./routes/portfolio');
 const searchRoutes = require('./routes/search');
+const historicalRoutes = require('./routes/historical');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -69,6 +70,7 @@ app.use('/api/stocks', stockRoutes);
 app.use('/api/crypto', cryptoRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/historical', historicalRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
