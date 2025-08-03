@@ -31,120 +31,50 @@ interface Holding {
 const HoldingsChartWrapper: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const loadPortfolioData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Process uploaded CSV files
+        const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
+          method: 'POST',
+        });
+        
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to process uploaded portfolio data');
+        }
+        
+        const uploadResult = await uploadResponse.json();
+        
+        // Get the portfolio with current prices
+        const portfolioResponse = await fetch(`/api/portfolio/${uploadResult.portfolioId}`);
+        
+        if (!portfolioResponse.ok) {
+          throw new Error('Failed to fetch portfolio data');
+        }
+        
+        const portfolioData = await portfolioResponse.json();
+        
+        // Set holdings and trades
+        setHoldings(portfolioData.holdings || []);
+        setTrades(portfolioData.trades || []);
+      } catch (err: any) {
+        console.error('Error loading portfolio:', err);
+        setError(err.message || 'Failed to load portfolio data');
+        setHoldings([]);
+        setTrades([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadPortfolioData();
   }, []);
-
-  const loadPortfolioData = async () => {
-    try {
-      setLoading(true);
-      
-      // Process uploaded CSV files
-      const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
-        method: 'POST',
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to process uploaded portfolio data');
-      }
-
-      const uploadResult = await uploadResponse.json();
-      
-      // Get the portfolio with current prices
-      const portfolioResponse = await fetch(`/api/portfolio/${uploadResult.portfolioId}`);
-      if (!portfolioResponse.ok) {
-        throw new Error('Failed to fetch portfolio data');
-      }
-
-      const portfolioData = await portfolioResponse.json();
-      
-             // Extract trades data
-       const portfolioTrades = (portfolioData.trades || []).map((trade: any) => ({
-         symbol: trade.symbol,
-         date: trade.date,
-         action: trade.action as 'buy' | 'sell',
-         quantity: trade.quantity,
-         price: trade.price
-       }));
-      setTrades(portfolioTrades);
-      
-      // Extract holdings data
-      const safeHoldings = (portfolioData.holdings || []).map((holding: any) => ({
-        symbol: holding.symbol || 'UNKNOWN',
-        quantity: holding.quantity || 0,
-        averagePrice: holding.averagePrice || 0,
-        totalInvested: holding.totalInvested || 0,
-        totalAmountInvested: holding.totalAmountInvested || holding.totalInvested || 0,
-        realizedPnL: holding.realizedPnL || 0,
-        amountSold: holding.amountSold || 0,
-        type: holding.type || 's',
-        currency: holding.currency || 'CAD',
-        companyName: holding.companyName || holding.symbol || 'UNKNOWN',
-        currentPrice: holding.currentPrice || null,
-        currentValue: holding.currentValue || null,
-        unrealizedPnL: holding.unrealizedPnL || null,
-        totalPnL: holding.totalPnL || null,
-        totalPnLPercent: holding.totalPnLPercent || null,
-        cacheUsed: holding.cacheUsed || false
-      }));
-      
-      setHoldings(safeHoldings);
-      
-          } catch (err) {
-      console.error('Portfolio loading error:', err);
-      
-      // Try to get cache data as fallback
-      try {
-        console.log('🔄 Attempting to load cached data as fallback...');
-        const cacheResponse = await fetch('/api/portfolio/cache/data');
-        if (cacheResponse.ok) {
-          const cacheData = await cacheResponse.json();
-          console.log('📦 Found cached data:', cacheData);
-          
-          // Create holdings from cache data with actual prices
-          const cachedHoldings: Holding[] = Object.entries(cacheData.cache).map(([symbol, data]: [string, any]) => {
-            const isCrypto = symbol === 'BTC' || symbol === 'ETH' || symbol === 'DOGE' || symbol === 'ADA' || symbol === 'SOL';
-            
-            return {
-              symbol: symbol,
-              quantity: 1, // Default quantity for display purposes
-              averagePrice: 0,
-              totalInvested: 0,
-              totalAmountInvested: 0,
-              realizedPnL: 0,
-              amountSold: 0,
-              type: isCrypto ? 'c' : 's',
-              currency: 'CAD',
-              companyName: data.companyName || symbol,
-              currentPrice: data.cadPrice || undefined,
-              currentValue: data.cadPrice || undefined,
-              unrealizedPnL: undefined,
-              totalPnL: undefined,
-              totalPnLPercent: undefined,
-              cacheUsed: true
-            };
-          });
-          
-          // Sort by symbol for better organization
-          const sortedCachedHoldings = cachedHoldings.sort((a, b) => a.symbol.localeCompare(b.symbol));
-          
-          setHoldings(sortedCachedHoldings);
-          setTrades([]); // No trade data available from cache
-          setError('Using cached data - portfolio information may be incomplete');
-        } else {
-          throw new Error('Cache not available');
-        }
-      } catch (fallbackError) {
-        console.error('Cache fallback failed:', fallbackError);
-        setError('Failed to load portfolio data and cache fallback failed');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (loading) {
     return (
