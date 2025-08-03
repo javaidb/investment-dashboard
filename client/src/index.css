@@ -857,6 +857,106 @@ nav {
   font-size: 0.875rem;
 }
 
+/* Mini Chart Styles */
+.holding-chart {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.mini-chart {
+  position: relative;
+  height: 80px;
+  margin-bottom: 0.5rem;
+}
+
+.mini-chart-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 80px;
+  color: #9ca3af;
+  background-color: #f9fafb;
+  border-radius: 0.375rem;
+  border: 1px dashed #d1d5db;
+}
+
+.placeholder-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.placeholder-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.mini-chart-trend {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mini-chart-trend .trend-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.mini-chart-trend .trend-icon.positive {
+  color: #10b981;
+}
+
+.mini-chart-trend .trend-icon.negative {
+  color: #ef4444;
+}
+
+.mini-chart-trend .trend-text.positive {
+  color: #10b981;
+}
+
+.mini-chart-trend .trend-text.negative {
+  color: #ef4444;
+}
+
+.mini-chart-tooltip {
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.tooltip-price {
+  font-weight: 600;
+  margin-bottom: 0.125rem;
+}
+
+.tooltip-time {
+  font-size: 0.625rem;
+  opacity: 0.8;
+}
+
+/* Loading animation for refresh icon */
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Skeleton loading styles */
 .holding-card.skeleton {
   background: white;
@@ -883,13 +983,140 @@ nav {
   }
 }
 
+/* Compact holding cards */
+.holding-card-compact {
+  background: white;
+  border: 1px solid #E5E7EB;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.holding-card-compact:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.holding-header-compact {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.symbol-info-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.symbol-text-large {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.company-name-small {
+  font-size: 0.75rem;
+  color: #6B7280;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pnl-info-compact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.pnl-amount-large {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pnl-amount-large.positive {
+  color: #10b981;
+}
+
+.pnl-amount-large.negative {
+  color: #ef4444;
+}
+
+.pnl-percent-large {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.pnl-percent-large.positive {
+  color: #10b981;
+}
+
+.pnl-percent-large.negative {
+  color: #ef4444;
+}
+
+.trend-icon-small {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.holding-chart-large {
+  margin-top: 1rem;
+  height: 200px;
+}
+
+.large-chart {
+  position: relative;
+  height: 200px;
+  width: 100%;
+}
+
+.large-chart-tooltip {
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.large-chart-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #9ca3af;
+  background-color: #f9fafb;
+  border-radius: 0.375rem;
+  border: 1px dashed #d1d5db;
+}
+
+.placeholder-icon-large {
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.placeholder-text-large {
+  font-size: 0.875rem;
+  text-align: center;
+}
+
 /* Responsive adjustments */
 @media (max-width: 640px) {
   .holdings-performance-grid {
     grid-template-columns: 1fr;
   }
   
-  .holding-card {
+  .holding-card, .holding-card-compact {
     padding: 0.75rem;
   }
   
@@ -897,5 +1124,17 @@ nav {
     width: 2rem;
     height: 2rem;
     font-size: 0.625rem;
+  }
+
+  .holding-chart-large {
+    height: 150px;
+  }
+
+  .large-chart {
+    height: 150px;
+  }
+
+  .large-chart-placeholder {
+    height: 150px;
   }
 } 
