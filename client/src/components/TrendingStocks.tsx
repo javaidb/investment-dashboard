@@ -29,48 +29,16 @@ interface StockData {
 }
 
 const TrendingStocks: React.FC = () => {
-  // Fetch trending stocks - only shows stocks with positive 24h performance
+  // Fetch trending stocks with hourly charts from Monday to now
   const { data: trendingData, isLoading, error } = useQuery(
-    'trending',
+    'trendingWeekly',
     async () => {
-      const response = await axios.get('/api/search/trending/all');
+      const response = await axios.get('/api/historical/trending/weekly');
       return response.data;
     },
     {
       refetchInterval: 300000, // Refetch every 5 minutes
-    }
-  );
-
-  // Fetch historical data for trending stocks
-  const { data: historicalData } = useQuery(
-    ['trendingHistorical', trendingData],
-    async () => {
-      if (!trendingData?.stocks) return {};
-      
-      const symbols = trendingData.stocks.slice(0, 6).map((stock: TrendingItem) => stock.symbol);
-      const historicalPromises = symbols.map(async (symbol: string) => {
-        try {
-          const response = await axios.get(`/api/stocks/yahoo/historical/${symbol}`, {
-            params: { range: '1mo', interval: '1d' }
-          });
-          return { symbol, data: response.data };
-        } catch (error) {
-          console.error(`Error fetching data for ${symbol}:`, error);
-          return { symbol, data: [] };
-        }
-      });
-      
-      const results = await Promise.all(historicalPromises);
-      const historicalMap: { [key: string]: StockData[] } = {};
-      results.forEach(({ symbol, data }) => {
-        historicalMap[symbol] = data;
-      });
-      
-      return historicalMap;
-    },
-    {
-      enabled: !!trendingData?.stocks,
-      staleTime: 300000, // 5 minutes
+      staleTime: 300000, // Consider data fresh for 5 minutes
     }
   );
 
@@ -79,8 +47,21 @@ const TrendingStocks: React.FC = () => {
   const formatXAxis = (tickItem: string) => {
     const date = new Date(tickItem);
     return date.toLocaleDateString('en-US', { 
+      weekday: 'short',
       month: 'short', 
       day: 'numeric' 
+    });
+  };
+
+  const formatTooltipLabel = (label: string) => {
+    const date = new Date(label);
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
     });
   };
 
@@ -114,61 +95,61 @@ const TrendingStocks: React.FC = () => {
     <div style={{ width: '100%' }}>
       <div style={{ marginBottom: '1rem' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
-          Trending Stocks (24h Gainers)
+          Trending Stocks (Weekly Gainers)
         </h3>
         <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
-          Stocks with the best 24-hour performance
+          Hourly performance from {trendingData?.dateRange?.start ? new Date(trendingData.dateRange.start).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) : 'Monday'} to now
         </p>
       </div>
       <div className="trending-grid">
-        {trendingData?.stocks?.slice(0, 6).map((stock: TrendingItem) => {
-          const stockData = historicalData?.[stock.symbol] || [];
-          const lastDayData = stockData.slice(-2); // Last 2 data points for 1-day view
+        {trendingData?.results && Object.entries(trendingData.results).slice(0, 6).map(([symbol, stockInfo]: [string, any]) => {
+          const chartData = stockInfo.data || [];
+          const meta = stockInfo.meta || {};
           
           return (
-            <div key={stock.symbol} className="trending-card">
+            <div key={symbol} className="trending-card">
               {/* Stock Info */}
               <div className="trending-header">
                 <div>
-                  <h4 className="trending-symbol">{stock.symbol}</h4>
-                  <p className="trending-name">{stock.name}</p>
+                  <h4 className="trending-symbol">{symbol}</h4>
+                  <p className="trending-name">{meta.companyName || symbol}</p>
                 </div>
                 <div className="trending-price">
                   <div className="trending-price-value">
-                    ${stock.price?.toFixed(2) || 'N/A'}
+                    ${meta.currentPrice?.toFixed(2) || 'N/A'}
                   </div>
                   <div className={`trending-change ${
-                    stock.changePercent && stock.changePercent > 0
+                    meta.changePercent && meta.changePercent > 0
                       ? 'positive'
-                      : stock.changePercent && stock.changePercent < 0
+                      : meta.changePercent && meta.changePercent < 0
                       ? 'negative'
                       : 'neutral'
                   }`}>
-                    {stock.changePercent && stock.changePercent > 0 ? (
+                    {meta.changePercent && meta.changePercent > 0 ? (
                       <TrendingUp style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
-                    ) : stock.changePercent && stock.changePercent < 0 ? (
+                    ) : meta.changePercent && meta.changePercent < 0 ? (
                       <TrendingDown style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
                     ) : null}
-                    {stock.changePercent ? `${stock.changePercent > 0 ? '+' : ''}${stock.changePercent.toFixed(2)}%` : 'N/A'}
+                    {meta.changePercent ? `${meta.changePercent > 0 ? '+' : ''}${meta.changePercent.toFixed(2)}%` : 'N/A'}
                   </div>
                 </div>
               </div>
 
-              {/* Mini Chart */}
+              {/* Hourly Chart */}
               <div className="trending-chart">
-                {lastDayData.length > 1 ? (
+                {chartData.length > 1 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={lastDayData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                    <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                       <defs>
-                        <linearGradient id={`color${stock.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id={`color${symbol}`} x1="0" y1="0" x2="0" y2="1">
                           <stop 
                             offset="5%" 
-                            stopColor={stock.changePercent && stock.changePercent > 0 ? "#10B981" : "#EF4444"} 
+                            stopColor={meta.changePercent && meta.changePercent > 0 ? "#10B981" : "#EF4444"} 
                             stopOpacity={0.3}
                           />
                           <stop 
                             offset="95%" 
-                            stopColor={stock.changePercent && stock.changePercent > 0 ? "#10B981" : "#EF4444"} 
+                            stopColor={meta.changePercent && meta.changePercent > 0 ? "#10B981" : "#EF4444"} 
                             stopOpacity={0}
                           />
                         </linearGradient>
@@ -182,14 +163,14 @@ const TrendingStocks: React.FC = () => {
                         hide
                       />
                       <YAxis 
-                        domain={['dataMin - 0.1', 'dataMax + 0.1']}
+                        domain={['dataMin * 0.995', 'dataMax * 1.005']}
                         stroke="#9CA3AF"
                         fontSize={10}
                         hide
                       />
                       <Tooltip 
                         formatter={formatTooltip}
-                        labelFormatter={(label) => new Date(label).toLocaleTimeString()}
+                        labelFormatter={formatTooltipLabel}
                         contentStyle={{
                           backgroundColor: 'white',
                           border: '1px solid #E5E7EB',
@@ -200,16 +181,25 @@ const TrendingStocks: React.FC = () => {
                       <Area
                         type="monotone"
                         dataKey="close"
-                        stroke={stock.changePercent && stock.changePercent > 0 ? "#10B981" : "#EF4444"}
+                        stroke={meta.changePercent && meta.changePercent > 0 ? "#10B981" : "#EF4444"}
                         strokeWidth={1.5}
                         fillOpacity={1}
-                        fill={`url(#color${stock.symbol})`}
+                        fill={`url(#color${symbol})`}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="trending-chart-placeholder">
-                    No chart data
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      color: '#9CA3AF',
+                      fontSize: '0.75rem'
+                    }}>
+                      Loading chart data...
+                    </div>
                   </div>
                 )}
               </div>
