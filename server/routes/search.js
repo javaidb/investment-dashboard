@@ -71,125 +71,14 @@ router.get('/:query', async (req, res) => {
   }
 });
 
-// Get trending items (stocks and crypto)
+// Get trending items (stocks and crypto) - DEPRECATED
+// Use /api/historical/trending/weekly for real trending data
 router.get('/trending/all', async (req, res) => {
   try {
-    const { limit = 20 } = req.query;
-
-    // Get trending crypto - only positive performers
-    const trendingCrypto = [
-      { symbol: 'BTC', name: 'Bitcoin', price: 45000, changePercent: 2.5 },
-      { symbol: 'ETH', name: 'Ethereum', price: 3200, changePercent: 1.8 },
-      { symbol: 'DOT', name: 'Polkadot', price: 25, changePercent: 3.2 },
-      { symbol: 'LINK', name: 'Chainlink', price: 18, changePercent: 1.1 },
-      { symbol: 'SOL', name: 'Solana', price: 120, changePercent: 4.2 },
-      { symbol: 'AVAX', name: 'Avalanche', price: 85, changePercent: 2.8 }
-    ].slice(0, Math.floor(limit / 2));
-
-    // For stocks, we'll use some popular ones and fetch real data
-    const popularStocks = [
-      { symbol: 'AAPL', name: 'Apple Inc.' },
-      { symbol: 'MSFT', name: 'Microsoft Corporation' },
-      { symbol: 'GOOGL', name: 'Alphabet Inc.' },
-      { symbol: 'AMZN', name: 'Amazon.com Inc.' },
-      { symbol: 'TSLA', name: 'Tesla Inc.' },
-      { symbol: 'NVDA', name: 'NVIDIA Corporation' },
-      { symbol: 'META', name: 'Meta Platforms Inc.' },
-      { symbol: 'NFLX', name: 'Netflix Inc.' },
-      { symbol: 'AMD', name: 'Advanced Micro Devices Inc.' },
-      { symbol: 'CRM', name: 'Salesforce Inc.' }
-    ];
-
-    const trendingStocks = popularStocks.slice(0, Math.floor(limit / 2));
-
-    // Fetch real stock data for trending stocks
-    const trendingStocksWithPrices = await Promise.all(
-      trendingStocks.map(async (stock) => {
-        try {
-          // Fetch real stock data from our stocks API
-          const response = await axios.get(`http://localhost:5000/api/stocks/quote/${stock.symbol}`);
-          return {
-            ...stock,
-            type: 'stock',
-            price: response.data.price,
-            change: response.data.change,
-            changePercent: response.data.changePercent
-          };
-        } catch (error) {
-          console.error(`Error fetching data for ${stock.symbol}:`, error.message);
-          // Fallback to mock data if API fails - only positive performance for trending
-          const basePrice = Math.random() * 500 + 50;
-          const positiveChangePercent = Math.random() * 8 + 2; // 2-10% positive change
-          const change = (basePrice * positiveChangePercent) / 100;
-          return {
-            ...stock,
-            type: 'stock',
-            price: basePrice,
-            change: change,
-            changePercent: positiveChangePercent
-          };
-        }
-      })
-    );
-
-    // Filter to only show stocks with positive performance (trending up)
-    const positiveTrendingStocks = trendingStocksWithPrices.filter(stock => 
-      stock.changePercent && stock.changePercent > 0
-    );
-
-    // If we don't have enough positive stocks, add some more with positive performance
-    if (positiveTrendingStocks.length < Math.floor(limit / 2)) {
-      const additionalStocks = [
-        { symbol: 'NVDA', name: 'NVIDIA Corporation' },
-        { symbol: 'AMD', name: 'Advanced Micro Devices Inc.' },
-        { symbol: 'CRM', name: 'Salesforce Inc.' },
-        { symbol: 'ADBE', name: 'Adobe Inc.' },
-        { symbol: 'PYPL', name: 'PayPal Holdings Inc.' },
-        { symbol: 'SQ', name: 'Square Inc.' },
-        { symbol: 'ZM', name: 'Zoom Video Communications Inc.' },
-        { symbol: 'SHOP', name: 'Shopify Inc.' }
-      ];
-
-      const additionalStocksWithPrices = additionalStocks.map(stock => {
-        const basePrice = Math.random() * 500 + 50;
-        const positiveChangePercent = Math.random() * 8 + 2; // 2-10% positive change
-        const change = (basePrice * positiveChangePercent) / 100;
-        return {
-          ...stock,
-          type: 'stock',
-          price: basePrice,
-          change: change,
-          changePercent: positiveChangePercent
-        };
-      });
-
-      positiveTrendingStocks.push(...additionalStocksWithPrices);
-    }
-
-    // Sort by change percentage (highest performers first) and limit
-    const sortedTrendingStocks = positiveTrendingStocks
-      .sort((a, b) => (b.changePercent || 0) - (a.changePercent || 0))
-      .slice(0, Math.floor(limit / 2));
-
-    // Combine results
-    const trendingItems = [
-      ...trendingCrypto.map(crypto => ({
-        ...crypto,
-        type: 'crypto',
-        displayName: `${crypto.symbol} - ${crypto.name}`
-      })),
-      ...sortedTrendingStocks.map(stock => ({
-        ...stock,
-        displayName: `${stock.symbol} - ${stock.name}`
-      }))
-    ];
-
-    res.json({
-      crypto: trendingCrypto,
-      stocks: sortedTrendingStocks,
-      all: trendingItems
+    res.status(410).json({ 
+      error: 'This endpoint is deprecated. Use /api/historical/trending/weekly for real trending stocks data.',
+      redirectTo: '/api/historical/trending/weekly'
     });
-
   } catch (error) {
     console.error('Trending search error:', error);
     res.status(500).json({ error: 'Failed to fetch trending items' });
