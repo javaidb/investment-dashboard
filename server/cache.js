@@ -5,7 +5,21 @@ class HoldingsCache {
   constructor() {
     this.cacheFile = path.join(__dirname, 'data', 'cache', 'holdings-cache.json');
     this.cache = new Map();
+    this.ensureCacheDirectory();
     this.loadCache();
+  }
+
+  // Ensure cache directory exists
+  ensureCacheDirectory() {
+    try {
+      const cacheDir = path.dirname(this.cacheFile);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        console.log(`📁 Created cache directory: ${cacheDir}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not create cache directory:', error.message);
+    }
   }
 
   // Load cache from file on startup
@@ -16,6 +30,8 @@ class HoldingsCache {
         const cacheData = JSON.parse(data);
         this.cache = new Map(Object.entries(cacheData));
         console.log(`📦 Loaded ${this.cache.size} cached holdings from file`);
+      } else {
+        console.log('📦 No cache file found, starting with empty cache');
       }
     } catch (error) {
       console.warn('⚠️ Could not load holdings cache:', error.message);
@@ -26,6 +42,7 @@ class HoldingsCache {
   // Save cache to file
   saveCache() {
     try {
+      this.ensureCacheDirectory();
       const cacheData = Object.fromEntries(this.cache);
       fs.writeFileSync(this.cacheFile, JSON.stringify(cacheData, null, 2));
     } catch (error) {
