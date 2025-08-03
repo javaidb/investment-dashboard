@@ -39,15 +39,44 @@ const upload = multer({
 // File-based storage for portfolio data
 const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
 
-// Load portfolios from file on startup
+// Load portfolios from file
 function loadPortfolios() {
   try {
+    // Ensure portfolio directory exists
+    const portfolioDir = path.dirname(PORTFOLIO_FILE);
+    if (!fs.existsSync(portfolioDir)) {
+      fs.mkdirSync(portfolioDir, { recursive: true });
+      console.log(`📁 Created portfolio directory: ${portfolioDir}`);
+    }
+    
     if (fs.existsSync(PORTFOLIO_FILE)) {
       const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
       const portfolioData = JSON.parse(data);
       const portfolios = new Map(Object.entries(portfolioData));
       console.log(`📁 Loaded ${portfolios.size} portfolios from file`);
+      
+      // Validate portfolio data structure
+      for (const [id, portfolio] of portfolios.entries()) {
+        if (!portfolio || typeof portfolio !== 'object') {
+          console.warn(`⚠️ Invalid portfolio data for ID ${id}:`, portfolio);
+          portfolios.delete(id);
+          continue;
+        }
+        
+        if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+          console.warn(`⚠️ Portfolio ${id} has invalid holdings structure:`, portfolio.holdings);
+          portfolio.holdings = [];
+        }
+        
+        if (!portfolio.summary || typeof portfolio.summary !== 'object') {
+          console.warn(`⚠️ Portfolio ${id} has invalid summary structure:`, portfolio.summary);
+          portfolio.summary = {};
+        }
+      }
+      
       return portfolios;
+    } else {
+      console.log('📁 No portfolio file found, starting with empty portfolios');
     }
   } catch (error) {
     console.warn('⚠️ Could not load portfolios from file:', error.message);
@@ -183,6 +212,7 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
 // Read and process uploaded CSV files
 router.post('/process-uploaded', async (req, res) => {
   try {
+    console.log('🔄 Processing uploaded CSV files...');
     const uploadDir = path.join(__dirname, '../uploads');
     const cryptoDir = path.join(uploadDir, 'crypto');
     const wealthsimpleDir = path.join(uploadDir, 'wealthsimple');
@@ -198,17 +228,22 @@ router.post('/process-uploaded', async (req, res) => {
       ...wealthsimpleFiles.map(file => ({ path: path.join(wealthsimpleDir, file), type: 'wealthsimple' }))
     ];
     
+    console.log('📁 Found files:', allFiles.map(f => path.basename(f.path)));
+    
     if (allFiles.length === 0) {
+      console.log('❌ No CSV files found in uploads directory');
       return res.status(404).json({ error: 'No CSV files found in uploads directory' });
     }
 
     let allTrades = [];
     const portfolioId = Date.now().toString();
+    console.log('🆔 Generated portfolio ID:', portfolioId);
 
     // Process each CSV file
     for (const fileInfo of allFiles) {
       const { path: filePath, type: fileType } = fileInfo;
       const trades = [];
+      console.log(`📄 Processing ${fileType} file:`, path.basename(filePath));
 
       await new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -236,6 +271,7 @@ router.post('/process-uploaded', async (req, res) => {
           })
           .on('end', () => {
             allTrades = allTrades.concat(trades);
+            console.log(`✅ Completed processing ${path.basename(filePath)}, found ${trades.length} trades`);
             resolve();
           })
           .on('error', (error) => {
@@ -245,21 +281,30 @@ router.post('/process-uploaded', async (req, res) => {
       });
     }
 
+    console.log(`📊 Total trades found: ${allTrades.length}`);
+    
     // Process all trades and calculate portfolio
+    console.log('🔄 Processing trades and calculating portfolio...');
     const portfolio = await processTrades(allTrades);
+    console.log('✅ Portfolio calculation completed');
     
     // Store portfolio data
-    portfolios.set(portfolioId, {
+    const portfolioData = {
       id: portfolioId,
       trades: allTrades,
       holdings: portfolio.holdings,
       summary: portfolio.summary,
       createdAt: new Date().toISOString()
-    });
+    };
+    
+    console.log('💾 Storing portfolio data...');
+    portfolios.set(portfolioId, portfolioData);
+    console.log('📊 Current portfolios in memory:', Array.from(portfolios.keys()));
     
     // Save to file
     savePortfolios(portfolios);
 
+    console.log('✅ Portfolio processing completed successfully');
     res.json({
       portfolioId: portfolioId,
       message: `Processed ${allFiles.length} CSV files successfully`,
@@ -269,36 +314,562 @@ router.post('/process-uploaded', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Uploaded files processing error:', error);
+    console.error('❌ Uploaded files processing error:', error);
     res.status(500).json({ error: 'Failed to process uploaded files: ' + error.message });
+  }
+});
+
+// Get historical data for portfolio stocks
+router.get('/:portfolioId/historical', async (req, res) => {
+  try {
+    const { portfolioId } = req.params;
+    const { period = '1y', interval = '1d' } = req.query;
+    
+    const portfolio = portfolios.get(portfolioId);
+    if (!portfolio) {
+      return res.status(404).json({ error: 'Portfolio not found' });
+    }
+
+    if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+      return res.status(400).json({ error: 'Invalid portfolio holdings' });
+    }
+
+    // Extract stock symbols from portfolio holdings
+    const stockSymbols = portfolio.holdings
+      .filter(holding => holding.type === 's' && holding.quantity > 0)
+      .map(holding => holding.symbol);
+
+    if (stockSymbols.length === 0) {
+      return res.json({
+        portfolioId,
+        symbols: [],
+        results: {},
+        message: 'No stock holdings found in portfolio'
+      });
+    }
+
+    console.log(`📊 Fetching historical data for ${stockSymbols.length} portfolio stocks`);
+
+    // Make request to historical endpoint
+    const axios = require('axios');
+    const baseURL = process.env.NODE_ENV === 'production' 
+      ? 'https://yourdomain.com/api' 
+      : 'http://localhost:5000/api';
+    
+    const response = await axios.post(`${baseURL}/historical/stocks/batch`, {
+      symbols: stockSymbols,
+      period,
+      interval
+    }, {
+      timeout: 30000
+    });
+
+    res.json({
+      portfolioId,
+      symbols: stockSymbols,
+      period,
+      interval,
+      ...response.data
+    });
+
+  } catch (error) {
+    console.error('❌ Portfolio historical data error:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch portfolio historical data',
+      message: error.message
+    });
+  }
+});
+
+// Get monthly holdings data with daily resolution
+router.get('/:portfolioId/monthly', async (req, res) => {
+  try {
+    const { portfolioId } = req.params;
+    
+    const portfolio = portfolios.get(portfolioId);
+    if (!portfolio) {
+      return res.status(404).json({ error: 'Portfolio not found' });
+    }
+    
+    if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+      return res.status(400).json({ error: 'Invalid portfolio holdings' });
+    }
+
+    console.log(`📊 Fetching monthly data for portfolio ${portfolioId}`);
+    
+    // Calculate date range for last month (30 days)
+    const now = new Date();
+    const lastMonth = new Date(now);
+    lastMonth.setDate(now.getDate() - 30); // Go back 30 days
+    lastMonth.setHours(0, 0, 0, 0); // Start of day
+    
+    const startTimestamp = Math.floor(lastMonth.getTime() / 1000);
+    const endTimestamp = Math.floor(now.getTime() / 1000);
+    
+    console.log(`📅 Date range: ${lastMonth.toISOString()} to ${now.toISOString()}`);
+
+    // The monthly endpoint should get updated portfolio data with current prices first
+    // Since the stored portfolio might not have the latest prices, use cache-based data
+    let holdingsWithPrices = [];
+    
+    if (portfolio.holdings && Array.isArray(portfolio.holdings)) {
+      holdingsWithPrices = portfolio.holdings.map(holding => {
+        try {
+          if (!holding || !holding.symbol) {
+            return null;
+          }
+          
+          const cachedData = holdingsCache && holdingsCache.get ? holdingsCache.get(holding.symbol) : null;
+          if (cachedData) {
+            const cadPrice = cachedData.cadPrice || 0;
+            const currentValue = cadPrice * (holding.quantity || 0);
+            const unrealizedPnL = currentValue - (holding.totalInvested || 0);
+            const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+            const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+            
+            return {
+              ...holding,
+              companyName: cachedData.companyName || holding.symbol,
+              currentPrice: cadPrice,
+              currentValue: currentValue,
+              unrealizedPnL: unrealizedPnL,
+              totalPnL: totalPnL,
+              totalPnLPercent: totalPnLPercent,
+              usdPrice: cachedData.usdPrice || 0,
+              exchangeRate: cachedData.exchangeRate || 1.35,
+              cacheUsed: true
+            };
+          }
+          
+          // Use fallback prices for holdings not in cache
+          let fallbackPrice = null;
+          let companyName = holding.symbol;
+          
+          if (holding.type === 'c') {
+            fallbackPrice = getCryptoFallbackPrice(holding.symbol);
+            companyName = getCryptoName(holding.symbol);
+          } else if (holding.type === 's') {
+            fallbackPrice = getStockFallbackPrice(holding.symbol);
+            companyName = getStockName(holding.symbol);
+          }
+          
+          if (fallbackPrice) {
+            const exchangeRate = 1.35; // fallback exchange rate
+            const cadPrice = fallbackPrice * exchangeRate;
+            const currentValue = cadPrice * (holding.quantity || 0);
+            const unrealizedPnL = currentValue - (holding.totalInvested || 0);
+            const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+            const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+            
+            return {
+              ...holding,
+              companyName: companyName,
+              currentPrice: cadPrice,
+              currentValue: currentValue,
+              unrealizedPnL: unrealizedPnL,
+              totalPnL: totalPnL,
+              totalPnLPercent: totalPnLPercent,
+              usdPrice: fallbackPrice,
+              exchangeRate: exchangeRate,
+              cacheUsed: false,
+              fallbackUsed: true
+            };
+          }
+          
+          // Return holding with existing price data if available
+          return holding.currentPrice ? holding : null;
+        } catch (error) {
+          console.error(`Error processing holding ${holding?.symbol}:`, error);
+          return null;
+        }
+      }).filter(Boolean);
+    }
+
+    console.log(`📊 Total holdings processed: ${holdingsWithPrices.length}`);
+
+    // Show all holdings, with those having price data first
+    const holdingsWithData = holdingsWithPrices
+      .sort((a, b) => {
+        const aHasData = a.currentPrice !== null && a.currentPrice !== undefined && a.currentPrice > 0;
+        const bHasData = b.currentPrice !== null && b.currentPrice !== undefined && b.currentPrice > 0;
+        
+        // First, prioritize holdings with price data
+        if (aHasData && !bHasData) return -1;
+        if (!aHasData && bHasData) return 1;
+        
+        // Among holdings with data, sort by performance
+        if (aHasData && bHasData) {
+          return (b.totalPnLPercent || 0) - (a.totalPnLPercent || 0);
+        }
+        
+        // Among holdings without data, sort alphabetically
+        return a.symbol.localeCompare(b.symbol);
+      })
+      .slice(0, 15); // Show up to 15 holdings
+      
+    console.log(`📈 Found ${holdingsWithData.length} holdings with price data:`, 
+      holdingsWithData.map(h => ({ symbol: h.symbol, currentPrice: h.currentPrice, totalPnLPercent: h.totalPnLPercent })));
+
+    if (holdingsWithData.length === 0) {
+      return res.json({
+        portfolioId,
+        results: {},
+        dateRange: {
+          start: lastMonth.toISOString(),
+          end: now.toISOString(),
+          days: 30
+        },
+        summary: {
+          total: 0,
+          successful: 0,
+          failed: 0
+        },
+        message: 'No holdings with price data found'
+      });
+    }
+
+    console.log(`📈 Processing ${holdingsWithData.length} top performing holdings`);
+    
+    const results = {};
+    const promises = holdingsWithData.map(async (holding) => {
+      try {
+        const symbol = holding.symbol;
+        const cacheKey = `${symbol}_monthly_1d_${startTimestamp}`;
+        
+        // Skip chart generation for holdings without current price data
+        if (!holding.currentPrice || holding.currentPrice <= 0) {
+          results[symbol] = {
+            data: [],
+            meta: {
+              companyName: holding.companyName || holding.symbol,
+              currentPrice: null,
+              change: null,
+              changePercent: null,
+              currency: 'CAD',
+              monthlyPerformance: null
+            },
+            success: false,
+            noData: true
+          };
+          return;
+        }
+        
+        // Try to get real historical data first (for stocks)
+        if (holding.type === 's') {
+          try {
+            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+            const params = {
+              period1: startTimestamp,
+              period2: endTimestamp,
+              interval: '1d',
+              includePrePost: false
+            };
+
+            const response = await axios.get(yahooUrl, { 
+              params,
+              timeout: 10000 
+            });
+
+            if (response.data.chart?.result?.[0]) {
+              const result = response.data.chart.result[0];
+              const timestamps = result.timestamp || [];
+              const quotes = result.indicators.quote[0];
+              const meta = result.meta;
+              
+              if (timestamps.length && quotes) {
+                const historicalData = timestamps.map((timestamp, index) => ({
+                  date: new Date(timestamp * 1000).toISOString(),
+                  open: quotes.open?.[index] || null,
+                  high: quotes.high?.[index] || null,
+                  low: quotes.low?.[index] || null,
+                  close: quotes.close?.[index] || null,
+                  volume: quotes.volume?.[index] || null
+                })).filter(item => item.close !== null);
+
+                // Calculate monthly performance
+                const firstPrice = historicalData[0]?.close;
+                const lastPrice = historicalData[historicalData.length - 1]?.close;
+                const change = lastPrice - firstPrice;
+                const changePercent = firstPrice ? (change / firstPrice) * 100 : 0;
+
+                results[symbol] = {
+                  data: historicalData,
+                  meta: {
+                    companyName: meta.longName || meta.shortName || holding.companyName || symbol,
+                    currentPrice: meta.regularMarketPrice || lastPrice || holding.currentPrice,
+                    change: change,
+                    changePercent: changePercent,
+                    currency: meta.currency || 'USD',
+                    monthlyPerformance: changePercent
+                  },
+                  success: true
+                };
+                return;
+              }
+            }
+          } catch (error) {
+            console.warn(`⚠️ Yahoo Finance failed for ${symbol}: ${error.message}`);
+          }
+        }
+        
+        // For crypto, don't generate mock data - historical data unavailable
+        if (holding.type === 'c') {
+          results[symbol] = {
+            data: [],
+            meta: {
+              companyName: holding.companyName || holding.symbol,
+              currentPrice: holding.currentPrice,
+              change: null,
+              changePercent: null,
+              currency: 'CAD',
+              monthlyPerformance: null
+            },
+            success: false,
+            noData: true
+          };
+          return;
+        }
+        
+        // Fallback: Generate mock daily data for the last month (stocks only)
+        console.log(`🔄 Generating mock monthly data for ${symbol}`);
+        const mockData = [];
+        const daysInPeriod = 30;
+        const basePrice = holding.currentPrice || 200;
+        // Cap the total change to realistic values (-50% to +50%)
+        const totalChange = Math.max(-50, Math.min(50, holding.totalPnLPercent || 5));
+        const mockChangePercent = totalChange;
+        
+        for (let i = 0; i <= daysInPeriod; i++) {
+          const dayDate = new Date(lastMonth.getTime() + (i * 24 * 60 * 60 * 1000));
+          const progress = i / daysInPeriod;
+          const priceChange = (totalChange / 100) * basePrice * progress;
+          const dailyPrice = basePrice + priceChange + (Math.random() - 0.5) * basePrice * 0.02; // Add daily volatility
+          
+          mockData.push({
+            date: dayDate.toISOString(),
+            open: dailyPrice * (1 + (Math.random() - 0.5) * 0.02),
+            high: dailyPrice * (1 + Math.random() * 0.03),
+            low: dailyPrice * (1 - Math.random() * 0.03),
+            close: dailyPrice,
+            volume: Math.floor(Math.random() * 5000000) + 500000
+          });
+        }
+        
+        results[symbol] = {
+          data: mockData,
+          meta: {
+            companyName: holding.companyName || holding.symbol,
+            currentPrice: holding.currentPrice,
+            change: holding.totalPnL,
+            changePercent: holding.totalPnLPercent,
+            currency: 'CAD',
+            monthlyPerformance: mockChangePercent
+          },
+          success: true,
+          mock: true
+        };
+        
+      } catch (error) {
+        console.error(`❌ Failed to process monthly data for ${holding.symbol}: ${error.message}`);
+        results[holding.symbol] = {
+          error: error.message,
+          success: false
+        };
+      }
+    });
+
+    await Promise.all(promises);
+    const successCount = Object.values(results).filter(r => r.success).length;
+
+    res.json({
+      portfolioId,
+      results,
+      dateRange: {
+        start: lastMonth.toISOString(),
+        end: now.toISOString(),
+        days: 30
+      },
+      summary: {
+        total: Object.keys(results).length,
+        successful: successCount,
+        failed: Object.keys(results).length - successCount
+      },
+      message: `Retrieved monthly data for ${successCount} holdings`
+    });
+
+  } catch (error) {
+    console.error('❌ Portfolio monthly data error:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch portfolio monthly data',
+      message: error.message
+    });
   }
 });
 
 // Get portfolio summary
 router.get('/:portfolioId', async (req, res) => {
   try {
+    console.log('🔍 Portfolio GET request received for ID:', req.params.portfolioId);
+    
     const { portfolioId } = req.params;
+    
+    if (!portfolioId) {
+      console.log('❌ No portfolio ID provided');
+      return res.status(400).json({ error: 'Portfolio ID is required' });
+    }
+    
+    console.log('📊 Current portfolios in memory:', Array.from(portfolios.keys()));
     const portfolio = portfolios.get(portfolioId);
 
     if (!portfolio) {
+      console.log('❌ Portfolio not found:', portfolioId);
       return res.status(404).json({ error: 'Portfolio not found' });
     }
 
-    // Get current prices for holdings
-    const holdingsWithPrices = await getCurrentPrices(portfolio.holdings);
+    console.log('✅ Portfolio found, validating structure...');
+    console.log('Portfolio structure:', {
+      hasHoldings: !!portfolio.holdings,
+      holdingsType: typeof portfolio.holdings,
+      holdingsLength: portfolio.holdings ? portfolio.holdings.length : 'N/A',
+      hasSummary: !!portfolio.summary,
+      summaryType: typeof portfolio.summary
+    });
 
+    // Validate portfolio structure
+    if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+      console.error('❌ Invalid portfolio structure:', portfolio);
+      return res.status(500).json({ error: 'Invalid portfolio data structure' });
+    }
+
+    console.log('🔄 Starting price fetching for', portfolio.holdings.length, 'holdings...');
+    
+    // Skip live price fetching for now to prevent crashes - use cache only
+    let holdingsWithPrices;
+    try {
+      console.log('ℹ️ Using cache-only mode to prevent API timeouts');
+      holdingsWithPrices = portfolio.holdings.map(holding => {
+        try {
+          if (!holding || !holding.symbol) {
+            console.warn('Invalid holding object:', holding);
+            return null;
+          }
+          
+          const cachedData = holdingsCache && holdingsCache.get ? holdingsCache.get(holding.symbol) : null;
+          if (cachedData) {
+            const cadPrice = cachedData.cadPrice || 0;
+            const currentValue = cadPrice * (holding.quantity || 0);
+            const unrealizedPnL = currentValue - (holding.totalInvested || 0);
+            const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+            const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+            
+            return {
+              ...holding,
+              companyName: cachedData.companyName || holding.symbol,
+              currentPrice: cadPrice,
+              currentValue: currentValue,
+              unrealizedPnL: unrealizedPnL,
+              totalPnL: totalPnL,
+              totalPnLPercent: totalPnLPercent,
+              usdPrice: cachedData.usdPrice || 0,
+              exchangeRate: cachedData.exchangeRate || 1.35,
+              cacheUsed: true
+            };
+          }
+          
+          // Use fallback prices for holdings not in cache
+          let fallbackPrice = null;
+          let companyName = holding.symbol;
+          
+          if (holding.type === 'c') {
+            fallbackPrice = getCryptoFallbackPrice(holding.symbol);
+            companyName = getCryptoName(holding.symbol);
+          } else if (holding.type === 's') {
+            fallbackPrice = getStockFallbackPrice(holding.symbol);
+            companyName = getStockName(holding.symbol);
+          }
+          
+          if (fallbackPrice) {
+            const exchangeRate = 1.35; // fallback exchange rate
+            const cadPrice = fallbackPrice * exchangeRate;
+            const currentValue = cadPrice * (holding.quantity || 0);
+            const unrealizedPnL = currentValue - (holding.totalInvested || 0);
+            const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+            const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+            
+            return {
+              ...holding,
+              companyName: companyName,
+              currentPrice: cadPrice,
+              currentValue: currentValue,
+              unrealizedPnL: unrealizedPnL,
+              totalPnL: totalPnL,
+              totalPnLPercent: totalPnLPercent,
+              usdPrice: fallbackPrice,
+              exchangeRate: exchangeRate,
+              cacheUsed: false,
+              fallbackUsed: true
+            };
+          }
+          
+          // Return holding with null values if no data available
+          return {
+            ...holding,
+            companyName: holding.symbol,
+            currentPrice: null,
+            currentValue: null,
+            unrealizedPnL: null,
+            totalPnL: null,
+            totalPnLPercent: null,
+            usdPrice: null,
+            exchangeRate: null,
+            cacheUsed: false,
+            fallbackUsed: false
+          };
+        } catch (holdingError) {
+          console.error(`Error processing holding ${holding?.symbol}:`, holdingError);
+          return holding;
+        }
+      }).filter(Boolean); // Remove null entries
+      console.log('✅ Cache-only processing completed');
+    } catch (error) {
+      console.error('❌ Cache processing failed:', error);
+      // Ultimate fallback - return original holdings with basic structure
+      holdingsWithPrices = portfolio.holdings.map(holding => ({
+        ...holding,
+        companyName: holding.symbol,
+        currentPrice: null,
+        currentValue: null,
+        unrealizedPnL: null,
+        totalPnL: null,
+        totalPnLPercent: null,
+        usdPrice: null,
+        exchangeRate: null,
+        cacheUsed: false,
+        fallbackUsed: false
+      }));
+    }
+
+    // Validate holdingsWithPrices
+    if (!holdingsWithPrices || !Array.isArray(holdingsWithPrices)) {
+      console.error('❌ Failed to process holdings with prices');
+      return res.status(500).json({ error: 'Failed to process portfolio holdings' });
+    }
+
+    console.log('📤 Sending portfolio response...');
     res.json({
       id: portfolioId,
-      summary: portfolio.summary,
+      summary: portfolio.summary || {},
       holdings: holdingsWithPrices,
-      trades: portfolio.trades,
+      trades: portfolio.trades || [],
       createdAt: portfolio.createdAt,
       lastUpdated: new Date().toISOString(),
       dataSource: 'API'
     });
+    console.log('✅ Portfolio response sent successfully');
   } catch (error) {
-    console.error('Portfolio retrieval error:', error);
-    res.status(500).json({ error: 'Failed to retrieve portfolio' });
+    console.error('❌ Portfolio retrieval error:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to retrieve portfolio', details: error.message });
   }
 });
 
@@ -454,10 +1025,23 @@ async function processTrades(trades) {
 
 // Helper function to get current prices for holdings with cache fallback
 async function getCurrentPrices(holdings) {
+  if (!holdings || !Array.isArray(holdings)) {
+    console.warn('Invalid holdings array provided to getCurrentPrices');
+    return [];
+  }
+  
+  console.log(`📊 Processing ${holdings.length} holdings for price data`);
   const holdingsWithPrices = [];
   
+  // Process holdings sequentially to avoid overwhelming APIs
   for (const holding of holdings) {
     try {
+      if (!holding || !holding.symbol) {
+        console.warn('Invalid holding object, skipping:', holding);
+        holdingsWithPrices.push(holding);
+        continue;
+      }
+      
       let currentPrice = null;
       let companyName = holding.symbol;
       let exchangeRate = null;
@@ -469,81 +1053,28 @@ async function getCurrentPrices(holdings) {
       let usdPrice = null;
       let cacheUsed = false;
       
-      console.log(`🔍 Fetching price for ${holding.symbol} (type: ${holding.type})`);
+      console.log(`🔍 Processing ${holding.symbol} (type: ${holding.type})`);
       
-      // Check cache first
-      const cachedData = holdingsCache.get(holding.symbol);
-      if (cachedData) {
-        console.log(`📦 Found cached data for ${holding.symbol}: $${cachedData.cadPrice} CAD (from ${cachedData.lastUpdated})`);
-        currentPrice = cachedData.usdPrice;
-        companyName = cachedData.companyName || holding.symbol;
-        exchangeRate = cachedData.exchangeRate;
-        cadPrice = cachedData.cadPrice;
-        currentValue = cadPrice * holding.quantity;
-        unrealizedPnL = currentValue - holding.totalInvested;
-        totalPnL = unrealizedPnL + holding.realizedPnL;
-        totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
-        usdPrice = cachedData.usdPrice;
-        cacheUsed = true;
-      }
-      
-      // Try to fetch fresh data from API
-      if (!cacheUsed) {
+      // Try to fetch fresh data from API first
+      try {
         if (holding.type === 'c') {
-          try {
-            // Use crypto API for crypto holdings
-            const cryptoResponse = await axios.get(`http://localhost:5000/api/crypto/price/${holding.symbol.toLowerCase()}`);
-            currentPrice = cryptoResponse.data.price;
-            console.log(`✅ Fetched fresh crypto price for ${holding.symbol}: $${currentPrice} USD`);
+          // Fetch crypto price from CoinGecko
+          const coinGeckoUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${getCoinGeckoId(holding.symbol)}&vs_currencies=usd`;
+          const cryptoResponse = await axios.get(coinGeckoUrl, { timeout: 8000 });
+          const coinId = getCoinGeckoId(holding.symbol);
+          const fetchedPrice = cryptoResponse.data[coinId]?.usd;
+          
+          if (fetchedPrice) {
+            console.log(`✅ Fetched fresh crypto price for ${holding.symbol}: $${fetchedPrice} USD`);
+            currentPrice = fetchedPrice;
+            companyName = getCryptoName(holding.symbol);
             
-            // Update cache with fresh data
+            // Get exchange rate and calculate CAD price
             exchangeRate = await getUSDtoCADRate();
             cadPrice = currentPrice * exchangeRate;
-            holdingsCache.update(holding.symbol, {
-              price: currentPrice,
-              usdPrice: currentPrice,
-              cadPrice: cadPrice,
-              companyName: getCryptoName(holding.symbol),
-              exchangeRate: exchangeRate
-            });
-          } catch (cryptoError) {
-            console.warn(`❌ Could not fetch crypto price for ${holding.symbol}:`, cryptoError.message);
-            
-            // Try to use cached data as fallback
-            if (cachedData) {
-              console.log(`🔄 Using cached data as fallback for ${holding.symbol}`);
-              currentPrice = cachedData.usdPrice;
-              companyName = cachedData.companyName || holding.symbol;
-              exchangeRate = cachedData.exchangeRate;
-              cadPrice = cachedData.cadPrice;
-              currentValue = cadPrice * holding.quantity;
-              unrealizedPnL = currentValue - holding.totalInvested;
-              totalPnL = unrealizedPnL + holding.realizedPnL;
-              totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
-              usdPrice = cachedData.usdPrice;
-              cacheUsed = true;
-            } else {
-              // Use hardcoded fallback prices for crypto
-              currentPrice = getCryptoFallbackPrice(holding.symbol);
-              if (currentPrice) {
-                console.log(`🔄 Using hardcoded fallback price for ${holding.symbol}: $${currentPrice} USD`);
-                exchangeRate = await getUSDtoCADRate();
-                cadPrice = currentPrice * exchangeRate;
-                companyName = getCryptoName(holding.symbol);
-              }
-            }
-          }
-        } else if (holding.type === 's') {
-          try {
-            // Use stock API for stock holdings
-            const stockResponse = await axios.get(`http://localhost:5000/api/stocks/quote/${holding.symbol}`);
-            currentPrice = stockResponse.data.price;
-            companyName = stockResponse.data.name || holding.symbol;
-            console.log(`✅ Fetched fresh stock price for ${holding.symbol}: $${currentPrice} USD`);
+            usdPrice = currentPrice;
             
             // Update cache with fresh data
-            exchangeRate = await getUSDtoCADRate();
-            cadPrice = currentPrice * exchangeRate;
             holdingsCache.update(holding.symbol, {
               price: currentPrice,
               usdPrice: currentPrice,
@@ -551,38 +1082,82 @@ async function getCurrentPrices(holdings) {
               companyName: companyName,
               exchangeRate: exchangeRate
             });
-          } catch (stockError) {
-            console.warn(`❌ Could not fetch stock price for ${holding.symbol}:`, stockError.message);
-            
-            // Try to use cached data as fallback
-            if (cachedData) {
-              console.log(`🔄 Using cached data as fallback for ${holding.symbol}`);
-              currentPrice = cachedData.usdPrice;
-              companyName = cachedData.companyName || holding.symbol;
-              exchangeRate = cachedData.exchangeRate;
-              cadPrice = cachedData.cadPrice;
-              currentValue = cadPrice * holding.quantity;
-              unrealizedPnL = currentValue - holding.totalInvested;
-              totalPnL = unrealizedPnL + holding.realizedPnL;
-              totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
-              usdPrice = cachedData.usdPrice;
-              cacheUsed = true;
-            }
+          } else {
+            throw new Error('No price data returned from CoinGecko');
           }
+        } else if (holding.type === 's') {
+          // Fetch stock price from Yahoo Finance
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${holding.symbol}`;
+          const stockResponse = await axios.get(yahooUrl, { timeout: 8000 });
+          
+          if (stockResponse.data?.chart?.result?.[0]) {
+            const result = stockResponse.data.chart.result[0];
+            const meta = result.meta;
+            const fetchedPrice = meta.regularMarketPrice || meta.previousClose;
+            
+            if (fetchedPrice) {
+              console.log(`✅ Fetched fresh stock price for ${holding.symbol}: $${fetchedPrice} USD`);
+              currentPrice = fetchedPrice;
+              companyName = meta.longName || meta.shortName || getStockName(holding.symbol);
+              
+              // Get exchange rate and calculate CAD price
+              exchangeRate = await getUSDtoCADRate();
+              cadPrice = currentPrice * exchangeRate;
+              usdPrice = currentPrice;
+              
+              // Update cache with fresh data
+              holdingsCache.update(holding.symbol, {
+                price: currentPrice,
+                usdPrice: currentPrice,
+                cadPrice: cadPrice,
+                companyName: companyName,
+                exchangeRate: exchangeRate
+              });
+            } else {
+              throw new Error('No price data in Yahoo Finance response');
+            }
+          } else {
+            throw new Error('Invalid response format from Yahoo Finance');
+          }
+        }
+      } catch (apiError) {
+        console.warn(`❌ API fetch failed for ${holding.symbol}: ${apiError.message}`);
+        
+        // Fall back to cached data if API fails
+        const cachedData = holdingsCache.get(holding.symbol);
+        if (cachedData) {
+          console.log(`🔄 Using cached data as fallback for ${holding.symbol}`);
+          currentPrice = cachedData.usdPrice || 0;
+          companyName = cachedData.companyName || holding.symbol;
+          exchangeRate = cachedData.exchangeRate || 1.35;
+          cadPrice = cachedData.cadPrice || 0;
+          usdPrice = cachedData.usdPrice || 0;
+          cacheUsed = true;
         } else {
-          console.warn(`⚠️ Unknown type '${holding.type}' for ${holding.symbol}, skipping price fetch`);
+          // Final fallback to hardcoded prices
+          if (holding.type === 'c') {
+            currentPrice = getCryptoFallbackPrice(holding.symbol);
+            companyName = getCryptoName(holding.symbol);
+          } else if (holding.type === 's') {
+            currentPrice = getStockFallbackPrice(holding.symbol);
+            companyName = getStockName(holding.symbol);
+          }
+          
+          if (currentPrice) {
+            console.log(`🔄 Using hardcoded fallback price for ${holding.symbol}: $${currentPrice} USD`);
+            exchangeRate = 1.35; // fallback exchange rate
+            cadPrice = currentPrice * exchangeRate;
+            usdPrice = currentPrice;
+          }
         }
       }
       
-      // Calculate values if we have a price
-      if (currentPrice && !cacheUsed) {
-        exchangeRate = exchangeRate || await getUSDtoCADRate();
-        cadPrice = currentPrice * exchangeRate;
-        currentValue = cadPrice * holding.quantity;
-        unrealizedPnL = currentValue - holding.totalInvested;
-        totalPnL = unrealizedPnL + holding.realizedPnL;
-        totalPnLPercent = (totalPnL / holding.totalInvested) * 100;
-        usdPrice = currentPrice;
+      // Calculate financial metrics
+      if (cadPrice && holding.quantity) {
+        currentValue = cadPrice * (holding.quantity || 0);
+        unrealizedPnL = currentValue - (holding.totalInvested || 0);
+        totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+        totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
       }
 
       holdingsWithPrices.push({
@@ -598,11 +1173,13 @@ async function getCurrentPrices(holdings) {
         cacheUsed: cacheUsed // Flag to indicate if cache was used
       });
     } catch (error) {
-      console.error(`Error fetching price for ${holding.symbol}:`, error);
+      console.error(`Critical error processing holding ${holding?.symbol}:`, error);
+      // Return the holding without price data rather than failing completely
       holdingsWithPrices.push(holding);
     }
   }
 
+  console.log(`✅ Completed processing ${holdingsWithPrices.length} holdings`);
   return holdingsWithPrices;
 }
 
@@ -618,6 +1195,18 @@ function getCryptoName(symbol) {
   return cryptoNames[symbol] || symbol;
 }
 
+// Helper function to get CoinGecko IDs for crypto symbols
+function getCoinGeckoId(symbol) {
+  const coinGeckoIds = {
+    'BTC': 'bitcoin',
+    'ETH': 'ethereum',
+    'ADA': 'cardano',
+    'SOL': 'solana',
+    'DOGE': 'dogecoin'
+  };
+  return coinGeckoIds[symbol] || symbol.toLowerCase();
+}
+
 // Helper function to get crypto fallback prices
 function getCryptoFallbackPrice(symbol) {
   const fallbackPrices = {
@@ -628,6 +1217,56 @@ function getCryptoFallbackPrice(symbol) {
     'SOL': 100
   };
   return fallbackPrices[symbol] || null;
+}
+
+// Helper function to get stock fallback prices
+function getStockFallbackPrice(symbol) {
+  const fallbackPrices = {
+    'AAPL': 150.00,
+    'GOOGL': 2800.00,
+    'MSFT': 330.00,
+    'TSLA': 200.00,
+    'AMZN': 3200.00,
+    'META': 320.00,
+    'NVDA': 450.00,
+    'NFLX': 400.00,
+    'AMD': 110.00,
+    'INTC': 45.00,
+    'SPY': 450.00,
+    'QQQ': 380.00,
+    'VTI': 220.00,
+    'RIVN': 12.00,
+    'VOO': 400.00,
+    'TSM': 120.00,
+    'ACHR': 8.00,
+    'MSTR': 350.00
+  };
+  return fallbackPrices[symbol] || null;
+}
+
+// Helper function to get stock names
+function getStockName(symbol) {
+  const stockNames = {
+    'AAPL': 'Apple Inc.',
+    'GOOGL': 'Alphabet Inc.',
+    'MSFT': 'Microsoft Corporation',
+    'TSLA': 'Tesla, Inc.',
+    'AMZN': 'Amazon.com Inc.',
+    'META': 'Meta Platforms Inc.',
+    'NVDA': 'NVIDIA Corporation',
+    'NFLX': 'Netflix Inc.',
+    'AMD': 'Advanced Micro Devices',
+    'INTC': 'Intel Corporation',
+    'SPY': 'SPDR S&P 500 ETF',
+    'QQQ': 'Invesco QQQ Trust',
+    'VTI': 'Vanguard Total Stock Market ETF',
+    'RIVN': 'Rivian Automotive Inc.',
+    'VOO': 'Vanguard S&P 500 ETF',
+    'TSM': 'Taiwan Semiconductor Manufacturing',
+    'ACHR': 'Archer Aviation Inc.',
+    'MSTR': 'MicroStrategy Incorporated'
+  };
+  return stockNames[symbol] || symbol;
 }
 
 // Helper function to process crypto format rows
@@ -762,9 +1401,16 @@ router.get('/cache/stats', (req, res) => {
 router.get('/cache/data', (req, res) => {
   try {
     const cacheData = {};
-    for (const [symbol, data] of holdingsCache.cache.entries()) {
-      cacheData[symbol] = data;
+    
+    // Check if holdingsCache and its cache property exist
+    if (holdingsCache && holdingsCache.cache) {
+      for (const [symbol, data] of holdingsCache.cache.entries()) {
+        cacheData[symbol] = data;
+      }
+    } else {
+      console.warn('Holdings cache not available or not properly initialized');
     }
+    
     res.json({
       success: true,
       cache: cacheData,
