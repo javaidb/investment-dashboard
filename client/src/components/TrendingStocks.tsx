@@ -29,7 +29,7 @@ interface StockData {
 }
 
 const TrendingStocks: React.FC = () => {
-  // Fetch trending stocks with hourly charts from Monday to now
+  // Fetch trending stocks (only on initial load, no automatic refetching)
   const { data: trendingData, isLoading, error } = useQuery(
     'trendingWeekly',
     async () => {
@@ -37,8 +37,12 @@ const TrendingStocks: React.FC = () => {
       return response.data;
     },
     {
-      refetchInterval: 300000, // Refetch every 5 minutes
-      staleTime: 300000, // Consider data fresh for 5 minutes
+      staleTime: Infinity, // Never consider stale - recent trends don't need constant updates
+      cacheTime: Infinity, // Keep cached forever
+      refetchOnWindowFocus: false,
+      refetchOnMount: true, // Only fetch on initial mount
+      refetchOnReconnect: false,
+      refetchInterval: false,
     }
   );
 
