@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const holdingsCache = require('../cache');
+const historicalDataCache = require('../historical-cache');
 const router = express.Router();
 
 // Configure multer for file uploads
@@ -98,9 +99,48 @@ function savePortfolios(portfolios) {
 // In-memory storage for portfolio data (in production, use a database)
 const portfolios = loadPortfolios();
 
+// Processing locks and request deduplication
+let isProcessing = false;
+const activeRequests = new Map(); // Track active requests to prevent duplicates
+const portfolioRequestQueue = new Map(); // Queue for portfolio requests
+
 // Currency conversion cache
 const currencyCache = new Map();
 const CURRENCY_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+// Request deduplication utility
+function deduplicateRequest(key, requestPromise) {
+  if (activeRequests.has(key)) {
+    console.log(`🔄 Deduplicating request for key: ${key}`);
+    return activeRequests.get(key);
+  }
+  
+  const promise = requestPromise()
+    .finally(() => {
+      activeRequests.delete(key);
+    });
+  
+  activeRequests.set(key, promise);
+  return promise;
+}
+
+// Request queue utility for expensive operations
+async function queueRequest(queueKey, operation) {
+  if (portfolioRequestQueue.has(queueKey)) {
+    console.log(`⏳ Queueing request for: ${queueKey}`);
+    await portfolioRequestQueue.get(queueKey);
+  }
+  
+  const promise = operation();
+  portfolioRequestQueue.set(queueKey, promise);
+  
+  try {
+    const result = await promise;
+    return result;
+  } finally {
+    portfolioRequestQueue.delete(queueKey);
+  }
+}
 
 // Helper function to get USD to CAD exchange rate
 async function getUSDtoCADRate() {
@@ -212,6 +252,16 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
 // Read and process uploaded CSV files
 router.post('/process-uploaded', async (req, res) => {
   try {
+    // Check if already processing to prevent race conditions
+    if (isProcessing) {
+      console.log('⚠️ Portfolio processing already in progress, rejecting request');
+      return res.status(429).json({ 
+        error: 'Portfolio processing already in progress. Please wait and try again.',
+        isProcessing: true
+      });
+    }
+
+    isProcessing = true;
     console.log('🔄 Processing uploaded CSV files...');
     const uploadDir = path.join(__dirname, '../uploads');
     const cryptoDir = path.join(uploadDir, 'crypto');
@@ -232,7 +282,11 @@ router.post('/process-uploaded', async (req, res) => {
     
     if (allFiles.length === 0) {
       console.log('❌ No CSV files found in uploads directory');
-      return res.status(404).json({ error: 'No CSV files found in uploads directory' });
+      res.status(404).json({ 
+        error: 'No CSV files found in uploads directory',
+        suggestion: 'Please place CSV files in server/uploads/wealthsimple/ or server/uploads/crypto/ directories'
+      });
+      return;
     }
 
     let allTrades = [];
@@ -324,6 +378,10 @@ router.post('/process-uploaded', async (req, res) => {
   } catch (error) {
     console.error('❌ Uploaded files processing error:', error);
     res.status(500).json({ error: 'Failed to process uploaded files: ' + error.message });
+  } finally {
+    // Always release the processing lock
+    isProcessing = false;
+    console.log('🔓 Released processing lock');
   }
 });
 
@@ -391,9 +449,9 @@ router.get('/:portfolioId/historical', async (req, res) => {
 
 // Get monthly holdings data with daily resolution
 router.get('/:portfolioId/monthly', async (req, res) => {
+  const { portfolioId } = req.params;
+  
   try {
-    const { portfolioId } = req.params;
-    
     const portfolio = portfolios.get(portfolioId);
     if (!portfolio) {
       return res.status(404).json({ error: 'Portfolio not found' });
@@ -428,12 +486,16 @@ router.get('/:portfolioId/monthly', async (req, res) => {
           }
           
           const cachedData = holdingsCache && holdingsCache.get ? holdingsCache.get(holding.symbol) : null;
-          if (cachedData) {
-            const cadPrice = cachedData.cadPrice || 0;
-            const currentValue = cadPrice * (holding.quantity || 0);
-            const unrealizedPnL = currentValue - (holding.totalInvested || 0);
-            const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-            const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+          if (cachedData && 
+              typeof cachedData === 'object' && 
+              cachedData.cadPrice !== undefined && 
+              cachedData.cadPrice !== null && 
+              !isNaN(cachedData.cadPrice)) {
+            const cadPrice = Number(cachedData.cadPrice) || 0;
+            const currentValue = cadPrice * (Number(holding.quantity) || 0);
+            const unrealizedPnL = currentValue - (Number(holding.totalInvested) || 0);
+            const totalPnL = unrealizedPnL + (Number(holding.realizedPnL) || 0);
+            const totalPnLPercent = (Number(holding.totalInvested) || 0) > 0 ? (totalPnL / Number(holding.totalInvested)) * 100 : 0;
             
             return {
               ...holding,
@@ -443,8 +505,8 @@ router.get('/:portfolioId/monthly', async (req, res) => {
               unrealizedPnL: unrealizedPnL,
               totalPnL: totalPnL,
               totalPnLPercent: totalPnLPercent,
-              usdPrice: cachedData.usdPrice || 0,
-              exchangeRate: cachedData.exchangeRate || 1.35,
+              usdPrice: Number(cachedData.usdPrice) || 0,
+              exchangeRate: Number(cachedData.exchangeRate) || 1.35,
               cacheUsed: true
             };
           }
@@ -509,8 +571,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
         
         // Among holdings without data, sort alphabetically
         return a.symbol.localeCompare(b.symbol);
-      })
-      .slice(0, 15); // Show up to 15 holdings
+      }); // Process ALL holdings as requested
       
     console.log(`📈 Found ${holdingsWithData.length} holdings with price data:`, 
       holdingsWithData.map(h => ({ symbol: h.symbol, currentPrice: h.currentPrice, totalPnLPercent: h.totalPnLPercent })));
@@ -536,6 +597,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
     console.log(`📈 Processing ${holdingsWithData.length} top performing holdings`);
     
     const results = {};
+    const timeout = 15000; // 15 second timeout
     const promises = holdingsWithData.map(async (holding) => {
       try {
         const symbol = holding.symbol;
@@ -559,9 +621,44 @@ router.get('/:portfolioId/monthly', async (req, res) => {
           return;
         }
         
-        // Try to get real historical data first (for stocks)
+        // Try to get historical data from cache first (for stocks)
         if (holding.type === 's') {
+          // Check cache first
+          const cachedHistorical = historicalDataCache.get(symbol, 'monthly', '1d');
+          
+          if (cachedHistorical && !cachedHistorical.needsUpdate) {
+            // Use cached data
+            console.log(`📦 Using cached historical data for ${symbol}`);
+            const historicalData = cachedHistorical.data;
+            const meta = cachedHistorical.meta;
+            
+            if (historicalData && historicalData.length > 0) {
+              // Calculate monthly performance from cached data
+              const firstPrice = historicalData[0]?.close;
+              const lastPrice = historicalData[historicalData.length - 1]?.close;
+              const change = lastPrice - firstPrice;
+              const changePercent = firstPrice ? (change / firstPrice) * 100 : 0;
+
+              results[symbol] = {
+                data: historicalData,
+                meta: {
+                  ...meta,
+                  companyName: meta.companyName || holding.companyName || symbol,
+                  currentPrice: meta.currentPrice || holding.currentPrice,
+                  change: change,
+                  changePercent: changePercent,
+                  monthlyPerformance: changePercent
+                },
+                success: true,
+                fromCache: true
+              };
+              return;
+            }
+          }
+
+          // If no cache or needs update, fetch from Yahoo Finance
           try {
+            console.log(`🌐 Fetching fresh historical data for ${symbol}`);
             const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
             const params = {
               period1: startTimestamp,
@@ -572,7 +669,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
 
             const response = await axios.get(yahooUrl, { 
               params,
-              timeout: 10000 
+              timeout: 8000 
             });
 
             if (response.data.chart?.result?.[0]) {
@@ -613,6 +710,23 @@ router.get('/:portfolioId/monthly', async (req, res) => {
                   console.log(`💾 Cached price data for ${symbol}: $${currentPrice} USD at ${new Date().toISOString()}`);
                 }
 
+                // Cache the historical data
+                const historicalCacheData = {
+                  data: historicalData,
+                  meta: {
+                    companyName: meta.longName || meta.shortName || holding.companyName || symbol,
+                    currentPrice: currentPrice || holding.currentPrice,
+                    currency: meta.currency || 'USD'
+                  },
+                  dateRange: {
+                    start: new Date(startTimestamp * 1000).toISOString(),
+                    end: new Date(endTimestamp * 1000).toISOString(),
+                    days: 30
+                  }
+                };
+                
+                historicalDataCache.update(symbol, historicalCacheData, 'monthly', '1d');
+
                 results[symbol] = {
                   data: historicalData,
                   meta: {
@@ -623,13 +737,42 @@ router.get('/:portfolioId/monthly', async (req, res) => {
                     currency: meta.currency || 'USD',
                     monthlyPerformance: changePercent
                   },
-                  success: true
+                  success: true,
+                  fromCache: false
                 };
                 return;
               }
             }
           } catch (error) {
             console.warn(`⚠️ Yahoo Finance failed for ${symbol}: ${error.message}`);
+            
+            // Try to use stale cache data if available
+            if (cachedHistorical && cachedHistorical.data && cachedHistorical.data.length > 0) {
+              console.log(`📦 Using stale cached data for ${symbol} due to API failure`);
+              const historicalData = cachedHistorical.data;
+              const meta = cachedHistorical.meta;
+              
+              const firstPrice = historicalData[0]?.close;
+              const lastPrice = historicalData[historicalData.length - 1]?.close;
+              const change = lastPrice - firstPrice;
+              const changePercent = firstPrice ? (change / firstPrice) * 100 : 0;
+
+              results[symbol] = {
+                data: historicalData,
+                meta: {
+                  ...meta,
+                  companyName: meta.companyName || holding.companyName || symbol,
+                  currentPrice: meta.currentPrice || holding.currentPrice,
+                  change: change,
+                  changePercent: changePercent,
+                  monthlyPerformance: changePercent
+                },
+                success: true,
+                fromCache: true,
+                stale: true
+              };
+              return;
+            }
           }
         }
         
@@ -699,7 +842,16 @@ router.get('/:portfolioId/monthly', async (req, res) => {
       }
     });
 
-    await Promise.all(promises);
+    try {
+      await Promise.race([
+        Promise.all(promises),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Monthly data timeout')), timeout))
+      ]);
+    } catch (error) {
+      console.warn(`⚠️ Monthly data processing timed out or failed: ${error.message}`);
+      // Continue with whatever results we have
+    }
+    
     const successCount = Object.values(results).filter(r => r.success).length;
 
     res.json({
@@ -729,12 +881,13 @@ router.get('/:portfolioId/monthly', async (req, res) => {
 
 // Get portfolio summary
 router.get('/:portfolioId', async (req, res) => {
+  const { portfolioId } = req.params;
+  
   try {
-    console.log('🔍 Portfolio GET request received for ID:', req.params.portfolioId);
+    console.log('🔍 Portfolio GET request received for ID:', portfolioId);
     
-    const { portfolioId } = req.params;
     const { refresh } = req.query;
-    
+
     if (!portfolioId) {
       console.log('❌ No portfolio ID provided');
       return res.status(400).json({ error: 'Portfolio ID is required' });
@@ -786,12 +939,16 @@ router.get('/:portfolioId', async (req, res) => {
           }
           
           const cachedData = holdingsCache && holdingsCache.get ? holdingsCache.get(holding.symbol) : null;
-          if (cachedData && cachedData.cadPrice !== undefined && cachedData.cadPrice !== null) {
-            const cadPrice = cachedData.cadPrice || 0;
-            const currentValue = cadPrice * (holding.quantity || 0);
-            const unrealizedPnL = currentValue - (holding.totalInvested || 0);
-            const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-            const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+          if (cachedData && 
+              typeof cachedData === 'object' && 
+              cachedData.cadPrice !== undefined && 
+              cachedData.cadPrice !== null && 
+              !isNaN(cachedData.cadPrice)) {
+            const cadPrice = Number(cachedData.cadPrice) || 0;
+            const currentValue = cadPrice * (Number(holding.quantity) || 0);
+            const unrealizedPnL = currentValue - (Number(holding.totalInvested) || 0);
+            const totalPnL = unrealizedPnL + (Number(holding.realizedPnL) || 0);
+            const totalPnLPercent = (Number(holding.totalInvested) || 0) > 0 ? (totalPnL / Number(holding.totalInvested)) * 100 : 0;
             
             console.log(`💰 Using cached data for ${holding.symbol}: $${cadPrice.toFixed(2)} CAD (age: ${cachedData.fetchedAt ? Math.round((Date.now() - new Date(cachedData.fetchedAt).getTime()) / 1000 / 60) : 'unknown'} min)`);
             
@@ -803,8 +960,8 @@ router.get('/:portfolioId', async (req, res) => {
               unrealizedPnL: unrealizedPnL,
               totalPnL: totalPnL,
               totalPnLPercent: totalPnLPercent,
-              usdPrice: cachedData.usdPrice || 0,
-              exchangeRate: cachedData.exchangeRate || 1.35,
+              usdPrice: Number(cachedData.usdPrice) || 0,
+              exchangeRate: Number(cachedData.exchangeRate) || 1.35,
               cacheUsed: true
             };
           }
@@ -1596,6 +1753,91 @@ router.delete('/cache/clear', (req, res) => {
   }
 });
 
+// Historical cache management endpoints
+router.get('/cache/historical/stats', (req, res) => {
+  try {
+    const stats = historicalDataCache.getStats();
+    res.json({
+      success: true,
+      cache: stats,
+      message: `Historical cache contains ${stats.totalEntries} entries (${stats.needsUpdateCount} need updates)`
+    });
+  } catch (error) {
+    console.error('Historical cache stats error:', error);
+    res.status(500).json({ error: 'Failed to get historical cache statistics' });
+  }
+});
+
+router.delete('/cache/historical/clear', (req, res) => {
+  try {
+    const count = historicalDataCache.clearAll();
+    res.json({
+      success: true,
+      message: `Cleared ${count} historical cache entries`
+    });
+  } catch (error) {
+    console.error('Historical cache clear error:', error);
+    res.status(500).json({ error: 'Failed to clear historical cache' });
+  }
+});
+
+router.delete('/cache/historical/cleanup', (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 7;
+    const count = historicalDataCache.clearOldEntries(days);
+    res.json({
+      success: true,
+      message: `Cleaned up ${count} historical cache entries older than ${days} days`
+    });
+  } catch (error) {
+    console.error('Historical cache cleanup error:', error);
+    res.status(500).json({ error: 'Failed to cleanup historical cache' });
+  }
+});
+
+// Get historical cache data for a specific symbol
+router.get('/cache/historical/:symbol', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    
+    // Search through all cache entries to find the most recent entry for this symbol
+    let latestEntry = null;
+    let latestTimestamp = 0;
+    
+    for (const [cacheKey, cacheEntry] of historicalDataCache.cache.entries()) {
+      if (cacheEntry.symbol === symbol && cacheEntry.period === 'monthly' && cacheEntry.resolution === '1d') {
+        const timestamp = new Date(cacheEntry.lastUpdated || cacheEntry.fetchedAt).getTime();
+        if (timestamp > latestTimestamp) {
+          latestTimestamp = timestamp;
+          latestEntry = cacheEntry;
+        }
+      }
+    }
+    
+    if (!latestEntry) {
+      return res.json({
+        success: false,
+        symbol: symbol,
+        message: `No historical cache data found for ${symbol}`,
+        data: null
+      });
+    }
+    
+    res.json({
+      success: true,
+      symbol: symbol,
+      data: latestEntry.data || [],
+      meta: latestEntry.meta || {},
+      dateRange: latestEntry.dateRange || {},
+      fromCache: true,
+      stale: historicalDataCache.needsUpdate(symbol, 'monthly', '1d')
+    });
+  } catch (error) {
+    console.error(`Historical cache get error for ${req.params.symbol}:`, error);
+    res.status(500).json({ error: 'Failed to get historical cache data' });
+  }
+});
+
 router.delete('/cache/:symbol', (req, res) => {
   try {
     const { symbol } = req.params;
@@ -1609,6 +1851,51 @@ router.delete('/cache/:symbol', (req, res) => {
   } catch (error) {
     console.error('Cache delete error:', error);
     res.status(500).json({ error: 'Failed to delete cache entry' });
+  }
+});
+
+// Clean up duplicate portfolios
+router.post('/cleanup/duplicates', (req, res) => {
+  try {
+    console.log('🧹 Starting portfolio cleanup...');
+    
+    const portfoliosArray = Array.from(portfolios.entries());
+    const uniquePortfolios = new Map();
+    let duplicatesRemoved = 0;
+    
+    // Group portfolios by their content hash (summary + holdings count)
+    for (const [id, portfolio] of portfoliosArray) {
+      const contentHash = JSON.stringify({
+        totalInvested: portfolio.summary?.totalInvested,
+        totalHoldings: portfolio.summary?.totalHoldings,
+        holdingsCount: portfolio.holdings?.length
+      });
+      
+      if (!uniquePortfolios.has(contentHash)) {
+        // Keep the first occurrence (oldest)
+        uniquePortfolios.set(contentHash, { id, portfolio });
+      } else {
+        // Remove duplicate
+        portfolios.delete(id);
+        duplicatesRemoved++;
+        console.log(`🗑️ Removed duplicate portfolio: ${id}`);
+      }
+    }
+    
+    // Save cleaned up portfolios
+    savePortfolios(portfolios);
+    
+    console.log(`✅ Cleanup completed. Removed ${duplicatesRemoved} duplicates, kept ${portfolios.size} unique portfolios`);
+    
+    res.json({
+      success: true,
+      message: `Cleanup completed successfully`,
+      duplicatesRemoved: duplicatesRemoved,
+      remainingPortfolios: portfolios.size
+    });
+  } catch (error) {
+    console.error('Portfolio cleanup error:', error);
+    res.status(500).json({ error: 'Failed to cleanup portfolios' });
   }
 });
 

@@ -17,6 +17,7 @@ const historicalRoutes = require('./routes/historical');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
+const historicalDataCache = require('./historical-cache');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -105,6 +106,112 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
+// Initialize historical cache with portfolio holdings
+async function initializeHistoricalCache(holdings) {
+  try {
+    const axios = require('axios');
+    const { getUSDtoCADRate } = require('./routes/portfolio');
+    
+    // Filter for stock holdings only
+    const stockHoldings = holdings.filter(holding => holding.type === 's' && holding.symbol);
+    
+    if (stockHoldings.length === 0) {
+      console.log('📈 No stock holdings found for historical cache');
+      return;
+    }
+    
+    console.log(`📈 Fetching historical data for ${stockHoldings.length} stock holdings...`);
+    
+    // Calculate date range (30 days ago to today)
+    const endTimestamp = Math.floor(Date.now() / 1000);
+    const startTimestamp = endTimestamp - (30 * 24 * 60 * 60); // 30 days ago
+    
+    // Process holdings in batches to avoid overwhelming the API
+    const batchSize = 5;
+    for (let i = 0; i < stockHoldings.length; i += batchSize) {
+      const batch = stockHoldings.slice(i, i + batchSize);
+      
+      const promises = batch.map(async (holding) => {
+        try {
+          const symbol = holding.symbol;
+          
+          // Check if we already have recent data in cache
+          const cachedHistorical = historicalDataCache.get(symbol, 'monthly', '1d');
+          if (cachedHistorical && !cachedHistorical.needsUpdate) {
+            console.log(`📦 Historical data for ${symbol} already cached and fresh`);
+            return;
+          }
+          
+          console.log(`🌐 Fetching historical data for ${symbol}...`);
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+          const params = {
+            period1: startTimestamp,
+            period2: endTimestamp,
+            interval: '1d',
+            includePrePost: false
+          };
+          
+          const response = await axios.get(yahooUrl, { 
+            params,
+            timeout: 8000 
+          });
+          
+          if (response.data.chart?.result?.[0]) {
+            const result = response.data.chart.result[0];
+            const timestamps = result.timestamp || [];
+            const quotes = result.indicators.quote[0];
+            const meta = result.meta;
+            
+            if (timestamps.length && quotes) {
+              const historicalData = timestamps.map((timestamp, index) => ({
+                date: new Date(timestamp * 1000).toISOString(),
+                open: quotes.open?.[index] || null,
+                high: quotes.high?.[index] || null,
+                low: quotes.low?.[index] || null,
+                close: quotes.close?.[index] || null,
+                volume: quotes.volume?.[index] || null
+              })).filter(item => item.close !== null);
+              
+              // Cache the historical data
+              const historicalCacheData = {
+                data: historicalData,
+                meta: {
+                  companyName: meta.longName || meta.shortName || holding.companyName || symbol,
+                  currentPrice: meta.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
+                  currency: meta.currency || 'USD'
+                },
+                dateRange: {
+                  start: new Date(startTimestamp * 1000).toISOString(),
+                  end: new Date(endTimestamp * 1000).toISOString(),
+                  days: 30
+                }
+              };
+              
+              historicalDataCache.update(symbol, historicalCacheData, 'monthly', '1d');
+              console.log(`💾 Cached historical data for ${symbol}: ${historicalData.length} data points`);
+            }
+          }
+        } catch (error) {
+          console.warn(`⚠️ Failed to fetch historical data for ${holding.symbol}: ${error.message}`);
+        }
+      });
+      
+      await Promise.all(promises);
+      
+      // Add small delay between batches to be respectful to the API
+      if (i + batchSize < stockHoldings.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    const historicalStats = historicalDataCache.getStats();
+    console.log(`📊 Historical cache initialized: ${historicalStats.totalEntries} symbols cached`);
+    
+  } catch (error) {
+    console.warn('⚠️ Historical cache initialization failed:', error.message);
+  }
+}
+
 // Startup cache initialization function
 async function initializeCache() {
   try {
@@ -143,6 +250,10 @@ async function initializeCache() {
           
           const statsAfter = holdingsCache.getStats();
           console.log(`📊 Cache after initialization: ${statsAfter.totalEntries} entries`);
+          
+          // Initialize historical cache for performance charts
+          console.log('📈 Initializing historical cache for performance charts...');
+          await initializeHistoricalCache(mostRecentPortfolio.holdings);
         } else {
           console.log('⚠️ No holdings found in most recent portfolio');
         }

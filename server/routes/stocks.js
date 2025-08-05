@@ -2,6 +2,9 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
+// Import historical data cache for performance graphs
+const historicalDataCache = require('../historical-cache');
+
 // Finnhub API configuration
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
@@ -484,6 +487,146 @@ router.get('/historical/:symbol', async (req, res) => {
     }
     
     res.status(500).json({ error: 'Failed to fetch historical data' });
+  }
+});
+
+// Get historical data for multiple stocks (batch endpoint)
+router.post('/historical/stocks/batch', async (req, res) => {
+  try {
+    const { symbols, period = '3mo', interval = '1d' } = req.body;
+    
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      return res.status(400).json({ error: 'Symbols array is required' });
+    }
+
+    if (symbols.length > 10) {
+      return res.status(400).json({ error: 'Maximum 10 symbols allowed per request' });
+    }
+
+    console.log(`📊 Fetching batch historical data for ${symbols.length} symbols: ${symbols.join(', ')}`);
+
+    const results = {};
+    const errors = {};
+    
+    // Process each symbol sequentially to avoid overwhelming the API
+    for (const symbol of symbols) {
+      try {
+        const upperSymbol = symbol.toUpperCase();
+        console.log(`🔍 Processing historical data for ${upperSymbol}`);
+        
+        // Check historical cache first
+        const cached = historicalDataCache.get(upperSymbol, period, interval);
+        if (cached && !cached.needsUpdate) {
+          console.log(`💾 Using cached historical data for ${upperSymbol} (${cached.data.length} points)`);
+          
+          results[upperSymbol] = {
+            symbol: upperSymbol,
+            data: cached.data,
+            period: period,
+            interval: interval,
+            dataPoints: cached.data.length,
+            success: true,
+            cached: true
+          };
+          continue;
+        }
+        
+        console.log(`🌐 Fetching fresh historical data for ${upperSymbol}`);
+        
+        // Map period to Yahoo Finance range
+        let yahooRange = period;
+        if (period === '1y' || period === '12mo') yahooRange = '1y';
+        else if (period === '6mo') yahooRange = '6mo';
+        else if (period === '3mo') yahooRange = '3mo';
+        else if (period === '1mo') yahooRange = '1mo';
+        else if (period === '5d') yahooRange = '5d';
+        else yahooRange = '3mo'; // Default to 3 months for performance graphs
+
+        const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${upperSymbol}`, {
+          params: {
+            range: yahooRange,
+            interval: interval
+          },
+          timeout: 15000
+        });
+
+        if (yahooResponse.data && yahooResponse.data.chart && yahooResponse.data.chart.result) {
+          const result = yahooResponse.data.chart.result[0];
+          const timestamps = result.timestamp;
+          const quotes = result.indicators.quote[0];
+          
+          const historicalData = timestamps.map((timestamp, index) => ({
+            date: new Date(timestamp * 1000).toISOString(),
+            open: quotes.open[index] || 0,
+            high: quotes.high[index] || 0,
+            low: quotes.low[index] || 0,
+            close: quotes.close[index] || 0,
+            volume: quotes.volume[index] || 0
+          })).filter(item => item.close > 0);
+
+          // Store in historical cache for future use
+          historicalDataCache.update(upperSymbol, {
+            data: historicalData,
+            meta: {
+              period: period,
+              interval: interval,
+              source: 'yahoo_finance'
+            }
+          }, period, interval);
+
+          results[upperSymbol] = {
+            symbol: upperSymbol,
+            data: historicalData,
+            period: period,
+            interval: interval,
+            dataPoints: historicalData.length,
+            success: true,
+            cached: false
+          };
+
+          console.log(`✅ ${upperSymbol}: ${historicalData.length} data points (cached for future use)`);
+        } else {
+          throw new Error('No data returned from Yahoo Finance');
+        }
+      } catch (error) {
+        console.error(`❌ Error fetching ${symbol.toUpperCase()}:`, error.message);
+        errors[symbol.toUpperCase()] = {
+          symbol: symbol.toUpperCase(),
+          error: error.message,
+          success: false
+        };
+      }
+      
+      // Small delay between requests to be respectful to the API
+      if (symbols.indexOf(symbol) < symbols.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    const successCount = Object.keys(results).length;
+    const errorCount = Object.keys(errors).length;
+    
+    console.log(`📊 Batch historical complete: ${successCount} successful, ${errorCount} errors`);
+
+    res.json({
+      success: true,
+      period: period,
+      interval: interval,
+      results: results,
+      errors: errorCount > 0 ? errors : undefined,
+      summary: {
+        requested: symbols.length,
+        successful: successCount,
+        failed: errorCount
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Batch historical data error:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch batch historical data',
+      message: error.message
+    });
   }
 });
 
