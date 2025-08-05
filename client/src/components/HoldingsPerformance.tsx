@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from 'react-query';
 import axios from 'axios';
+import { useCache } from '../contexts/CacheContext';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import {
   XAxis,
@@ -15,52 +16,17 @@ import {
 
 
 const HoldingsPerformance: React.FC = () => {
-  const [portfolioId, setPortfolioId] = React.useState<string | null>(null);
-  
-  // First get portfolio ID by processing uploaded files
-  React.useEffect(() => {
-    const getPortfolioId = async () => {
-      try {
-        const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
-          method: 'POST',
-        });
-        if (uploadResponse.ok) {
-          const uploadResult = await uploadResponse.json();
-          setPortfolioId(uploadResult.portfolioId);
-        }
-      } catch (error) {
-        console.error('Failed to get portfolio ID:', error);
-      }
-    };
-    
-    getPortfolioId();
-  }, []);
+  const { holdings: cachedHoldings, holdingsTimestamp, isLoading, error } = useCache();
 
-  // Fetch monthly holdings data with daily resolution
-  const { data: monthlyData, isLoading, error } = useQuery(
-    ['monthlyHoldingsData', portfolioId],
-    async () => {
-      if (!portfolioId) throw new Error('No portfolio ID available');
-      const response = await axios.get(`/api/portfolio/${portfolioId}/monthly`);
-      return response.data;
-    },
-    {
-      enabled: !!portfolioId,
-      refetchInterval: 300000, // Refetch every 5 minutes
-      retry: 2,
-    }
-  );
-
-  // Debug logging for monthly data
+  // Debug logging for cache data
   React.useEffect(() => {
-    if (monthlyData) {
-      console.log('Monthly data received:', {
-        resultsKeys: Object.keys(monthlyData.results || {}),
-        dateRange: monthlyData.dateRange,
-        summary: monthlyData.summary
+    if (cachedHoldings) {
+      console.log('Cache data received:', {
+        cacheKeys: Object.keys(cachedHoldings || {}),
+        cacheEntries: Object.entries(cachedHoldings || {}).length
       });
     }
-  }, [monthlyData]);
+  }, [cachedHoldings]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -90,13 +56,32 @@ const HoldingsPerformance: React.FC = () => {
     });
   };
 
-  // Monthly chart component for each holding (similar to TrendingStocks)
-  const MonthlyChart: React.FC<{ symbol: string; stockInfo: any }> = ({ symbol, stockInfo }) => {
-    const chartData = stockInfo.data || [];
-    const meta = stockInfo.meta || {};
-    
-    if (chartData.length === 0) {
-      const message = stockInfo.noData ? 'Chart data unavailable' : 'Loading chart data...';
+  // Chart component that reads from historical cache via direct API calls
+  const CachedChart: React.FC<{ symbol: string; holdingData: any }> = ({ symbol, holdingData }) => {
+    const { data: chartData, isLoading: chartLoading } = useQuery(
+      ['symbol-chart', symbol],
+      async () => {
+        try {
+          // Read directly from historical cache
+          const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
+          return response.data;
+        } catch (error) {
+          console.warn(`No historical cache data available for ${symbol}`);
+          return null;
+        }
+      },
+      {
+        retry: 1,
+        staleTime: Infinity, // Never consider stale - historical cache data doesn't need updates
+        cacheTime: Infinity, // Keep cached forever
+        refetchOnWindowFocus: false,
+        refetchOnMount: true, // Only fetch when symbol changes
+        refetchOnReconnect: false,
+        refetchInterval: false, // No automatic refetching
+      }
+    );
+
+    if (chartLoading) {
       return (
         <div className="trending-chart-placeholder">
           <div style={{
@@ -107,25 +92,57 @@ const HoldingsPerformance: React.FC = () => {
             color: '#9CA3AF',
             fontSize: '0.75rem'
           }}>
-            {message}
+            Loading...
           </div>
         </div>
       );
     }
 
+    if (!chartData || !chartData.success || !chartData.data || chartData.data.length === 0) {
+      return (
+        <div className="trending-chart-placeholder">
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: '#10B981',
+            fontSize: '0.75rem',
+            flexDirection: 'column'
+          }}>
+            <div>Cached {new Date(holdingData.lastUpdated || holdingData.fetchedAt).toLocaleTimeString()}</div>
+            <div style={{ fontSize: '0.625rem', marginTop: '0.25rem', opacity: 0.7 }}>
+              ${holdingData.usdPrice || holdingData.price || 0} USD
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const data = chartData.data;
+    const meta = chartData.meta || {};
+    
+    // Calculate monthly performance from the data
+    let performance = 0;
+    if (data && data.length > 1) {
+      const firstPrice = data[0].close;
+      const lastPrice = data[data.length - 1].close;
+      performance = ((lastPrice - firstPrice) / firstPrice) * 100;
+    }
+
     return (
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+        <AreaChart data={data} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
           <defs>
-            <linearGradient id={`monthlyColor${symbol}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`cachedColor${symbol}`} x1="0" y1="0" x2="0" y2="1">
               <stop 
                 offset="5%" 
-                stopColor={meta.monthlyPerformance && meta.monthlyPerformance > 0 ? "#10B981" : "#EF4444"} 
+                stopColor={performance > 0 ? "#10B981" : "#EF4444"} 
                 stopOpacity={0.3}
               />
               <stop 
                 offset="95%" 
-                stopColor={meta.monthlyPerformance && meta.monthlyPerformance > 0 ? "#10B981" : "#EF4444"} 
+                stopColor={performance > 0 ? "#10B981" : "#EF4444"} 
                 stopOpacity={0}
               />
             </linearGradient>
@@ -157,13 +174,84 @@ const HoldingsPerformance: React.FC = () => {
           <Area
             type="monotone"
             dataKey="close"
-            stroke={meta.monthlyPerformance && meta.monthlyPerformance > 0 ? "#10B981" : "#EF4444"}
+            stroke={performance > 0 ? "#10B981" : "#EF4444"}
             strokeWidth={1.5}
             fillOpacity={1}
-            fill={`url(#monthlyColor${symbol})`}
+            fill={`url(#cachedColor${symbol})`}
           />
         </AreaChart>
       </ResponsiveContainer>
+    );
+  };
+
+  // Individual holding card component that calculates its own performance
+  const HoldingCard: React.FC<{ symbol: string; holdingData: any }> = ({ symbol, holdingData }) => {
+    const { data: chartData } = useQuery(
+      ['symbol-chart', symbol],
+      async () => {
+        try {
+          const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
+          return response.data;
+        } catch (error) {
+          return null;
+        }
+      },
+      {
+        retry: 1,
+        staleTime: Infinity, // Never consider stale
+        cacheTime: Infinity, // Keep cached forever
+        refetchOnWindowFocus: false,
+        refetchOnMount: true, // Only fetch when symbol changes
+        refetchOnReconnect: false,
+        refetchInterval: false, // No automatic refetching
+      }
+    );
+
+    // Calculate monthly performance from chart data
+    let monthlyPerformance = 0;
+    if (chartData?.success && chartData.data && chartData.data.length > 1) {
+      const firstPrice = chartData.data[0].close;
+      const lastPrice = chartData.data[chartData.data.length - 1].close;
+      monthlyPerformance = ((lastPrice - firstPrice) / firstPrice) * 100;
+    }
+
+    return (
+      <div className="trending-card">
+        {/* Stock Info */}
+        <div className="trending-header">
+          <div>
+            <h4 className="trending-symbol">{symbol}</h4>
+            <p className="trending-name">{holdingData.companyName || symbol}</p>
+          </div>
+          <div className="trending-price">
+            <div className="trending-price-value">
+              {formatCurrency(holdingData.cadPrice || holdingData.price || 0)}
+            </div>
+            <div className={`trending-change ${
+              monthlyPerformance > 0
+                ? 'positive'
+                : monthlyPerformance < 0
+                ? 'negative'
+                : 'neutral'
+            }`}>
+              {monthlyPerformance > 0 ? (
+                <TrendingUp style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
+              ) : monthlyPerformance < 0 ? (
+                <TrendingDown style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
+              ) : null}
+              {monthlyPerformance !== 0 ? `${monthlyPerformance > 0 ? '+' : ''}${monthlyPerformance.toFixed(2)}%` : 'N/A'}
+            </div>
+          </div>
+        </div>
+
+        {/* Cached Chart */}
+        <div className="trending-chart">
+          <CachedChart 
+            symbol={symbol} 
+            holdingData={holdingData}
+          />
+        </div>
+      </div>
     );
   };
 
@@ -207,7 +295,7 @@ const HoldingsPerformance: React.FC = () => {
             <p style={{ color: '#6b7280' }}>Upload your portfolio to see performance data</p>
             {error && (
               <p style={{ color: '#ef4444', fontSize: '0.875rem', marginTop: '0.5rem' }}>
-                Error: {error instanceof Error ? error.message : 'Failed to load portfolio data'}
+                Error: {typeof error === 'string' ? error : 'Failed to load portfolio data'}
               </p>
             )}
           </>
@@ -216,20 +304,20 @@ const HoldingsPerformance: React.FC = () => {
     );
   }
 
-  // Check if we have monthly data
-  if (!monthlyData?.results || Object.keys(monthlyData.results).length === 0) {
+  // Check if we have cache data
+  if (!cachedHoldings || Object.keys(cachedHoldings).length === 0) {
     return (
       <div style={{ width: '100%' }}>
         <div style={{ marginBottom: '1rem' }}>
           <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
-            Holdings Performance (Monthly)
+            Holdings Performance (Cached)
           </h3>
           <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
-            No holdings with monthly data available
+            No cached holdings data available
           </p>
         </div>
         <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-          <p style={{ color: '#6b7280' }}>Price data is being updated...</p>
+          <p style={{ color: '#6b7280' }}>Cache is being updated...</p>
         </div>
       </div>
     );
@@ -239,53 +327,23 @@ const HoldingsPerformance: React.FC = () => {
     <div style={{ width: '100%' }}>
       <div style={{ marginBottom: '1rem' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
-          Holdings Performance (Monthly)
+          Holdings Performance (Cached)
         </h3>
-        <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
-          Daily performance from {monthlyData?.dateRange?.start ? new Date(monthlyData.dateRange.start).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'last month'} to now
-        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
+            Real-time cached price data for your holdings
+          </p>
+          {holdingsTimestamp && (
+            <div style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>
+              Cache updated: {holdingsTimestamp.toLocaleString()}
+            </div>
+          )}
+        </div>
       </div>
       <div className="trending-grid">
-        {monthlyData?.results && Object.entries(monthlyData.results).slice(0, 15).map(([symbol, stockInfo]: [string, any]) => {
-          const meta = stockInfo.meta || {};
-          
+        {cachedHoldings && Object.entries(cachedHoldings).slice(0, 15).map(([symbol, holdingData]: [string, any]) => {
           return (
-            <div key={symbol} className="trending-card">
-              {/* Stock Info */}
-              <div className="trending-header">
-                <div>
-                  <h4 className="trending-symbol">{symbol}</h4>
-                  <p className="trending-name">{meta.companyName || symbol}</p>
-                </div>
-                <div className="trending-price">
-                  <div className="trending-price-value">
-                    {formatCurrency(meta.currentPrice || 0)}
-                  </div>
-                  <div className={`trending-change ${
-                    meta.monthlyPerformance && meta.monthlyPerformance > 0
-                      ? 'positive'
-                      : meta.monthlyPerformance && meta.monthlyPerformance < 0
-                      ? 'negative'
-                      : 'neutral'
-                  }`}>
-                    {meta.monthlyPerformance && meta.monthlyPerformance > 0 ? (
-                      <TrendingUp style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
-                    ) : meta.monthlyPerformance && meta.monthlyPerformance < 0 ? (
-                      <TrendingDown style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} />
-                    ) : null}
-                    {meta.monthlyPerformance ? `${meta.monthlyPerformance > 0 ? '+' : ''}${meta.monthlyPerformance.toFixed(2)}%` : 'N/A'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Monthly Chart */}
-              <div className="trending-chart">
-                <MonthlyChart 
-                  symbol={symbol} 
-                  stockInfo={stockInfo}
-                />
-              </div>
-            </div>
+            <HoldingCard key={symbol} symbol={symbol} holdingData={holdingData} />
           );
         })}
       </div>

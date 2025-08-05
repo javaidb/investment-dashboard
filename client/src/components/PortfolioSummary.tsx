@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCache } from '../contexts/CacheContext';
 
 interface Trade {
   symbol: string;
@@ -45,237 +46,134 @@ const PortfolioSummary: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-  const [loading, setLoading] = useState(false); // Start with false to show initial state
   const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-  const [initialized, setInitialized] = useState(true); // Changed to true for auto-loading
+  
+  const { 
+    holdings: cachedHoldings, 
+    latestPortfolio, 
+    holdingsTimestamp, 
+    portfolioTimestamp, 
+    isLoading,
+    error: cacheError,
+    refreshCache
+  } = useCache();
 
-  console.log('🔍 PortfolioSummary component rendered. State:', { loading, error, retryCount, initialized });
+  console.log('🔍 PortfolioSummary component rendered from cache context');
 
   useEffect(() => {
-    console.log('🔄 PortfolioSummary useEffect triggered with retryCount:', retryCount);
-    if (!initialized) {
-      setInitialized(true);
-      // Automatically load data on mount
-      loadPortfolioData();
+    if (!latestPortfolio || !cachedHoldings || Object.keys(cachedHoldings).length === 0) {
+      console.log('⏳ Waiting for cache data...');
       return;
     }
-    loadPortfolioData();
+
+    console.log('📦 Processing portfolio data from cache context');
+    setError(null); // Clear any previous errors
+    processPortfolioData();
     // eslint-disable-next-line
-  }, [retryCount, initialized]);
+  }, [latestPortfolio, cachedHoldings]);
 
-  const loadPortfolioData = async () => {
+  const processPortfolioData = () => {
     try {
-      console.log('🔄 PortfolioSummary: Starting to load portfolio data...');
-      setLoading(true);
-      setError(null);
-      
-      // Test if we can reach the backend at all
-      console.log('🔍 PortfolioSummary: Testing backend connectivity...');
-      try {
-        const testResponse = await fetch('/api/health', { 
-          signal: AbortSignal.timeout(5000) // 5 second timeout for health check
-        });
-        console.log('✅ Health check response:', testResponse.status, testResponse.statusText);
-        if (!testResponse.ok) {
-          throw new Error(`Health check failed: ${testResponse.status}`);
-        }
-        const health = await testResponse.json();
-        if (health.status !== 'OK') {
-          throw new Error('Backend health check failed. Please check backend logs.');
-        }
-        console.log('✅ Backend health check passed');
-      } catch (healthError: any) {
-        console.error('❌ Health check failed:', healthError);
-        setError(`Backend server is not responding: ${healthError.message}`);
-        setLoading(false);
-        return;
-      }
-      
-      console.log('✅ Backend health check passed, processing uploaded files...');
-      // Process uploaded CSV files instead of sample data
-      const uploadResponse = await fetch('/api/portfolio/process-uploaded', {
-        method: 'POST',
+      console.log('📦 Processing portfolio data from cache context');
+      console.log('📦 Portfolio structure:', {
+        hasHoldings: !!latestPortfolio.holdings,
+        hasTrades: !!latestPortfolio.trades,
+        holdingsLength: latestPortfolio.holdings?.length || 0,
+        tradesLength: latestPortfolio.trades?.length || 0
       });
-      console.log('Process-uploaded response:', uploadResponse);
-      if (!uploadResponse.ok) {
-        let msg = 'Failed to process uploaded portfolio data';
-        try {
-          const errJson = await uploadResponse.json();
-          msg = errJson.error || msg;
-        } catch {}
-        setError(msg + ` (Status: ${uploadResponse.status})`);
-        setLoading(false);
-        return;
-      }
-      const uploadResult = await uploadResponse.json();
-      console.log('✅ Upload processing completed:', uploadResult);
       
-      // Get the portfolio with current prices
-      let portfolioResponse;
-      try {
-        console.log('🔄 Fetching portfolio data for ID:', uploadResult.portfolioId);
-        portfolioResponse = await fetch(`/api/portfolio/${uploadResult.portfolioId}`, {
-          signal: AbortSignal.timeout(60000) // 60 second timeout
-        });
-        console.log('Portfolio fetch response:', portfolioResponse);
-      } catch (fetchError: any) {
-        console.error('Portfolio fetch error:', fetchError);
-        if (fetchError.name === 'TimeoutError' || fetchError.name === 'AbortError') {
-          setError('Request timed out. The server is taking too long to fetch current prices. Please try again.');
-        } else {
-          setError(`Failed to fetch portfolio data: ${fetchError.message || 'Unknown error'}`);
-        }
-        setLoading(false);
+      // Check if we have detailed portfolio data or just summary
+      if (!latestPortfolio.holdings || !Array.isArray(latestPortfolio.holdings)) {
+        console.warn('⚠️ PortfolioSummary: No holdings array found in portfolio data');
+        setError('Portfolio holdings data not available');
         return;
       }
-      if (!portfolioResponse.ok) {
-        let msg = 'Failed to fetch portfolio data';
-        if (portfolioResponse.status === 404) {
-          msg = 'Portfolio not found. Please check your uploaded files.';
-        } else if (portfolioResponse.status === 500) {
-          try {
-            const errJson = await portfolioResponse.json();
-            msg = errJson.error || msg;
-          } catch {}
-        } else if (portfolioResponse.status === 408 || portfolioResponse.status === 504) {
-          msg = 'Request timed out. The server is taking too long to fetch current prices.';
-        }
-        setError(msg + ` (Status: ${portfolioResponse.status})`);
-        setLoading(false);
-        return;
-      }
+      
+      // Extract trades data from portfolio
+      const portfolioTrades = (latestPortfolio.trades || []).map((trade: any) => ({
+        symbol: trade.symbol,
+        date: trade.date,
+        action: trade.action,
+        quantity: trade.quantity,
+        price: trade.price
+      }));
+      setTrades(portfolioTrades);
+      
+      // Merge portfolio holdings with current cached prices
+      const safeHoldings = (latestPortfolio.holdings || []).map((holding: any) => {
+        const symbol = holding.symbol;
+        const cachedPrice = cachedHoldings[symbol];
+        
+        // Calculate current values using cached prices
+        const currentPrice = cachedPrice?.cadPrice || cachedPrice?.price || null;
+        const currentValue = currentPrice ? (holding.quantity || 0) * currentPrice : null;
+        const unrealizedPnL = currentValue && holding.totalInvested ? 
+          currentValue - holding.totalInvested : null;
+        const totalPnL = unrealizedPnL !== null ? 
+          unrealizedPnL + (holding.realizedPnL || 0) : (holding.realizedPnL || 0);
+        const totalPnLPercent = holding.totalInvested > 0 ? 
+          (totalPnL / holding.totalInvested) * 100 : 0;
+        
+        return {
+          symbol: symbol || 'UNKNOWN',
+          quantity: holding.quantity || 0,
+          averagePrice: holding.averagePrice || 0,
+          totalInvested: holding.totalInvested || 0,
+          totalAmountInvested: holding.totalAmountInvested || holding.totalInvested || 0,
+          realizedPnL: holding.realizedPnL || 0,
+          amountSold: holding.amountSold || 0,
+          type: holding.type || 's',
+          currency: holding.currency || 'CAD',
+          companyName: cachedPrice?.companyName || holding.companyName || symbol || 'UNKNOWN',
+          currentPrice: currentPrice,
+          currentValue: currentValue,
+          unrealizedPnL: unrealizedPnL,
+          totalPnL: totalPnL,
+          totalPnLPercent: totalPnLPercent,
+          cacheUsed: !!cachedPrice
+        };
+      });
+      
+      // Sort holdings by P&L amount (highest to lowest)
+      const sortedHoldings = safeHoldings.sort((a: Holding, b: Holding) => {
+        const aPnL = a.totalPnL || 0;
+        const bPnL = b.totalPnL || 0;
+        return bPnL - aPnL; // Descending order (highest P&L first)
+      });
+      
+      setHoldings(sortedHoldings);
+      
+      // Calculate summary with cached values
+      const currentTotalValue = safeHoldings.reduce((sum: number, h: Holding) => 
+        sum + (h.currentValue || 0), 0);
+      const totalUnrealizedPnL = safeHoldings.reduce((sum: number, h: Holding) => 
+        sum + (h.unrealizedPnL || 0), 0);
+      const totalRealizedPnL = safeHoldings.reduce((sum: number, h: Holding) => 
+        sum + (h.realizedPnL || 0), 0);
+      const totalPnL = totalUnrealizedPnL + totalRealizedPnL;
+      const totalInvested = safeHoldings.reduce((sum: number, h: Holding) => 
+        sum + (h.totalInvested || 0), 0);
+      const totalAmountSold = safeHoldings.reduce((sum: number, h: Holding) => 
+        sum + (h.amountSold || 0), 0);
+      const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
 
-             const portfolioData = await portfolioResponse.json();
-             console.log('✅ Portfolio data received:', portfolioData);
-       
-       try {
-         // Extract trades data
-         const portfolioTrades = (portfolioData.trades || []).map((trade: any) => ({
-           symbol: trade.symbol,
-           date: trade.date,
-           action: trade.action,
-           quantity: trade.quantity,
-           price: trade.price
-         }));
-         setTrades(portfolioTrades);
-         
-         // Ensure holdings data is properly formatted with null checks
-         const safeHoldings = (portfolioData.holdings || []).map((holding: any) => ({
-           symbol: holding.symbol || 'UNKNOWN',
-           quantity: holding.quantity || 0,
-           averagePrice: holding.averagePrice || 0,
-           totalInvested: holding.totalInvested || 0,
-           totalAmountInvested: holding.totalAmountInvested || holding.totalInvested || 0, // Use totalAmountInvested if available, fallback to totalInvested
-           realizedPnL: holding.realizedPnL || 0,
-           amountSold: holding.amountSold || 0,
-           type: holding.type || 's', // Default to stock if type is missing
-           currency: holding.currency || 'CAD', // Default to CAD
-           companyName: holding.companyName || holding.symbol || 'UNKNOWN',
-           currentPrice: holding.currentPrice || null,
-           currentValue: holding.currentValue || null,
-           unrealizedPnL: holding.unrealizedPnL || null,
-           totalPnL: holding.totalPnL || null,
-           totalPnLPercent: holding.totalPnLPercent || null,
-           cacheUsed: holding.cacheUsed || false
-         }));
-         
-         // Sort holdings by P&L amount (highest to lowest)
-         const sortedHoldings = safeHoldings.sort((a: Holding, b: Holding) => {
-           const aPnL = a.totalPnL || 0;
-           const bPnL = b.totalPnL || 0;
-           return bPnL - aPnL; // Descending order (highest P&L first)
-         });
-         
-         setHoldings(sortedHoldings);
-         
-         // Calculate summary with current values
-         const currentTotalValue = safeHoldings.reduce((sum: number, h: Holding) => 
-           sum + (h.currentValue || 0), 0);
-         const totalUnrealizedPnL = safeHoldings.reduce((sum: number, h: Holding) => 
-           sum + (h.unrealizedPnL || 0), 0);
-         const totalPnL = totalUnrealizedPnL + (portfolioData.summary?.totalRealized || 0);
-         const totalPnLPercent = (portfolioData.summary?.totalInvested || 0) > 0 ? 
-           (totalPnL / (portfolioData.summary?.totalInvested || 1)) * 100 : 0;
-
-         setSummary({
-           totalInvested: portfolioData.summary?.totalInvested || 0,
-           totalRealized: portfolioData.summary?.totalRealized || 0,
-           totalAmountSold: portfolioData.summary?.totalAmountSold || 0,
-           totalHoldings: portfolioData.summary?.totalHoldings || 0,
-           totalQuantity: portfolioData.summary?.totalQuantity || 0,
-           currentTotalValue,
-           totalUnrealizedPnL,
-           totalPnL,
-           totalPnLPercent
-         });
-         
-         console.log('✅ Portfolio data processing completed successfully');
-       } catch (processingError) {
-         console.error('Error processing portfolio data:', processingError);
-         setError('Failed to process portfolio data');
-       }
-     } catch (err) {
-       console.error('Portfolio loading error:', err);
-       
-       // Try to get cache data as fallback
-       try {
-         console.log('🔄 Attempting to load cached data as fallback...');
-         const cacheResponse = await fetch('/api/portfolio/cache/data');
-         if (cacheResponse.ok) {
-           const cacheData = await cacheResponse.json();
-           console.log('📦 Found cached data:', cacheData);
-           
-           // Create holdings from cache data with actual prices
-           const cachedHoldings: Holding[] = Object.entries(cacheData.cache).map(([symbol, data]: [string, any]) => {
-             const isCrypto = symbol === 'BTC' || symbol === 'ETH' || symbol === 'DOGE' || symbol === 'ADA' || symbol === 'SOL';
-             
-             return {
-               symbol: symbol,
-               quantity: 1, // Default quantity for display purposes
-               averagePrice: 0,
-               totalInvested: 0,
-               totalAmountInvested: 0,
-               realizedPnL: 0,
-               amountSold: 0,
-               type: isCrypto ? 'c' : 's',
-               currency: 'CAD',
-               companyName: data.companyName || symbol,
-               currentPrice: data.cadPrice || undefined,
-               currentValue: data.cadPrice || undefined, // For display, use price as value
-               unrealizedPnL: undefined,
-               totalPnL: undefined,
-               totalPnLPercent: undefined,
-               cacheUsed: true
-             };
-           });
-           
-           // Sort by symbol for better organization
-           const sortedCachedHoldings = cachedHoldings.sort((a, b) => a.symbol.localeCompare(b.symbol));
-           
-           setHoldings(sortedCachedHoldings);
-           setSummary({
-             totalInvested: 0,
-             totalRealized: 0,
-             totalAmountSold: 0,
-             totalHoldings: cachedHoldings.length,
-             totalQuantity: cachedHoldings.length,
-             currentTotalValue: 0,
-             totalUnrealizedPnL: 0,
-             totalPnL: 0,
-             totalPnLPercent: 0
-           });
-           setError('Using cached data - portfolio information may be incomplete');
-         } else {
-           throw new Error('Cache not available');
-         }
-       } catch (fallbackError) {
-         console.error('Cache fallback failed:', fallbackError);
-         setError('Failed to load portfolio data and cache fallback failed');
-       }
-     } finally {
-       setLoading(false);
-     }
+      setSummary({
+        totalInvested: totalInvested,
+        totalRealized: totalRealizedPnL,
+        totalAmountSold: totalAmountSold,
+        totalHoldings: safeHoldings.length,
+        totalQuantity: safeHoldings.reduce((sum: number, h: Holding) => sum + (h.quantity || 0), 0),
+        currentTotalValue,
+        totalUnrealizedPnL,
+        totalPnL,
+        totalPnLPercent
+      });
+      
+      console.log('✅ Portfolio data processing completed successfully');
+    } catch (processingError) {
+      console.error('Error processing portfolio data:', processingError);
+      setError(`Failed to process portfolio data: ${processingError instanceof Error ? processingError.message : 'Unknown error'}`);
+    }
   };
 
   const formatCurrency = (value: number | null | undefined) => {
@@ -306,9 +204,9 @@ const PortfolioSummary: React.FC = () => {
     return (totalInvested || 0) - (amountSold || 0);
   };
 
-  console.log('🔍 PortfolioSummary render state:', { loading, error, holdings: holdings.length, summary: !!summary, initialized });
+  console.log('🔍 PortfolioSummary render state:', { isLoading, error: cacheError, holdings: holdings.length, summary: !!summary });
 
-  if (loading) {
+  if (isLoading) {
     console.log('🔄 PortfolioSummary: Rendering loading state');
     return (
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
@@ -336,19 +234,14 @@ const PortfolioSummary: React.FC = () => {
     );
   }
 
-  if (error) {
-    console.log('❌ PortfolioSummary: Rendering error state:', error);
-    const isTimeoutError = error.includes('timed out') || error.includes('Timeout');
+  if (cacheError || error) {
+    console.log('❌ PortfolioSummary: Rendering error state:', { cacheError, error });
     return (
       <div style={{ color: 'red', padding: '1rem', background: '#fff0f0', border: '1px solid #ffcccc', borderRadius: 8 }}>
         <div><b>Portfolio Summary</b></div>
-        <div>Error: {error}</div>
-        {isTimeoutError && (
-          <div style={{ marginTop: 8, fontSize: '14px', color: '#666' }}>
-            💡 Tip: Try refreshing the page or wait a few minutes before retrying. The server might be busy fetching current prices.
-          </div>
-        )}
-        <button onClick={() => setRetryCount(c => c + 1)} style={{ marginTop: 12, padding: '6px 16px', borderRadius: 4, border: '1px solid #ccc', background: '#f9f9f9', cursor: 'pointer' }}>Retry</button>
+        <div>Cache Error: {cacheError}</div>
+        {error && <div>Processing Error: {error}</div>}
+        <button onClick={refreshCache} style={{ marginTop: 12, padding: '6px 16px', borderRadius: 4, border: '1px solid #ccc', background: '#f9f9f9', cursor: 'pointer' }}>Refresh Cache</button>
       </div>
     );
   }
@@ -361,9 +254,19 @@ const PortfolioSummary: React.FC = () => {
         <div className="absolute inset-0 bg-black/10"></div>
         <div className="relative z-10">
           <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
-          <p className="text-indigo-100 text-base font-medium">Current holdings and performance based on sample trades</p>
-          <div className="mt-3 text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
-            💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first) • 💰 Net Invested = Total Invested - Amount Sold
+          <p className="text-indigo-100 text-base font-medium">Current holdings and performance from cached data</p>
+          <div className="mt-3 space-y-2">
+            <div className="text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
+              💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first) • 💰 Net Invested = Total Invested - Amount Sold
+            </div>
+            <div className="flex gap-4 text-xs text-indigo-300">
+              {portfolioTimestamp && (
+                <div>📊 Portfolio: {portfolioTimestamp.toLocaleString()}</div>
+              )}
+              {holdingsTimestamp && (
+                <div>💰 Prices: {holdingsTimestamp.toLocaleString()}</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
