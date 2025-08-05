@@ -43,7 +43,7 @@ const StockChart: React.FC<StockChartProps> = ({ defaultSymbol = 'AAPL' }) => {
   const [showSearch, setShowSearch] = useState(false);
   const [timeRange, setTimeRange] = useState('1M'); // 1D, 1W, 1M, 3M, 1Y, ALL
 
-  // Fetch stock search results
+  // Fetch stock search results (only when user searches)
   const { data: searchData, refetch: refetchSearch } = useQuery(
     ['stockSearch', searchQuery],
     async () => {
@@ -52,38 +52,46 @@ const StockChart: React.FC<StockChartProps> = ({ defaultSymbol = 'AAPL' }) => {
       return response.data;
     },
     {
-      enabled: searchQuery.length >= 2,
-      staleTime: 300000, // 5 minutes
+      enabled: false, // Disable automatic execution
+      staleTime: Infinity, // Never consider stale - only fetch when manually triggered
+      cacheTime: Infinity, // Keep cached forever
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
     }
   );
 
-  // Fetch historical data using Yahoo Finance
+  // Fetch historical data (only when user changes symbol/timerange)
   const { data: historicalData, isLoading, error } = useQuery(
     ['stockHistorical', selectedSymbol, timeRange],
     async () => {
-      // Map time range to Yahoo Finance range parameter
+      // Map time range to period parameter
       const rangeMap: { [key: string]: string } = {
-        '1D': '1d',
+        '1D': '5d',
         '1W': '5d',
-        '1M': '1mo',
-        '3M': '3mo',
+        '1M': '1m',
+        '3M': '3m',
         '1Y': '1y',
-        'ALL': 'max' // Use 'max' to get maximum available historical data
+        'ALL': 'max'
       };
       
-      const range = rangeMap[timeRange] || '1mo';
+      const period = rangeMap[timeRange] || '1m';
       
-      const response = await axios.get(`/api/stocks/yahoo/historical/${selectedSymbol}`, {
+      const response = await axios.get(`/api/historical/stock/${selectedSymbol}`, {
         params: {
-          range: range,
+          period: period,
           interval: '1d'
         }
       });
-      return response.data;
+      return response.data.data;
     },
     {
-      staleTime: 300000, // 5 minutes
-      refetchInterval: 300000, // Refetch every 5 minutes
+      staleTime: Infinity, // Never consider stale - only fetch when user changes symbol/timerange
+      cacheTime: Infinity, // Keep cached forever
+      refetchOnWindowFocus: false,
+      refetchOnMount: true, // Only fetch on initial mount or when key changes
+      refetchOnReconnect: false,
+      refetchInterval: false,
     }
   );
 
@@ -119,6 +127,7 @@ const StockChart: React.FC<StockChartProps> = ({ defaultSymbol = 'AAPL' }) => {
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
+    // Only manually trigger search when user types
     if (query.length >= 2) {
       refetchSearch();
     }
