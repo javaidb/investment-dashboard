@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Upload, FileText, Trash2, TrendingUp, TrendingDown, RefreshCw, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 
 interface PortfolioSummary {
@@ -42,9 +42,39 @@ interface Portfolio {
   lastUpdated: string;
 }
 
+interface FileTrackingStatus {
+  success: boolean;
+  stats: {
+    totalFiles: number;
+    trackedFiles: number;
+    processedFiles: number;
+    unprocessedFiles: number;
+  };
+  changes: {
+    hasChanges: boolean;
+    newFiles: Array<{ name: string; type: string }>;
+    modifiedFiles: Array<{ name: string; type: string }>;
+    deletedFiles: Array<{ name: string }>;
+  };
+  message: string;
+}
+
 const Portfolio: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
+
+  // Check file tracking status
+  const { data: fileTrackingStatus, isLoading: isLoadingFileStatus, refetch: refetchFileStatus } = useQuery<FileTrackingStatus>(
+    'fileTrackingStatus',
+    async () => {
+      const response = await axios.get('/api/portfolio/files/tracking/stats');
+      return response.data;
+    },
+    {
+      refetchInterval: 30000, // Check every 30 seconds
+      staleTime: 10000, // Consider data stale after 10 seconds
+    }
+  );
 
   // First, get the list of portfolios
   const { data: portfolioSummaries, isLoading: isLoadingSummaries } = useQuery<PortfolioSummary[]>(
@@ -120,6 +150,19 @@ const Portfolio: React.FC = () => {
     }
   );
 
+  const autoProcessMutation = useMutation(
+    async () => {
+      const response = await axios.post('/api/portfolio/auto-process');
+      return response.data;
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('portfolios');
+        refetchFileStatus();
+      },
+    }
+  );
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setUploadedFile(acceptedFiles[0]);
   }, []);
@@ -162,6 +205,81 @@ const Portfolio: React.FC = () => {
       {/* Main Content */}
       <div className="dashboard-content">
         <div className="dashboard-section">
+          
+        {/* File Status Section */}
+        {fileTrackingStatus && (
+          <div className="card mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-medium text-gray-900">File Status</h2>
+              <button
+                onClick={() => refetchFileStatus()}
+                disabled={isLoadingFileStatus}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoadingFileStatus ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {fileTrackingStatus.stats.totalFiles}
+                </div>
+                <div className="text-sm text-gray-500">Total Files</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">
+                  {fileTrackingStatus.stats.processedFiles}
+                </div>
+                <div className="text-sm text-gray-500">Processed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-orange-600">
+                  {fileTrackingStatus.stats.unprocessedFiles}
+                </div>
+                <div className="text-sm text-gray-500">Unprocessed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">
+                  {fileTrackingStatus.changes.newFiles.length + fileTrackingStatus.changes.modifiedFiles.length}
+                </div>
+                <div className="text-sm text-gray-500">Changes</div>
+              </div>
+            </div>
+
+            {fileTrackingStatus.changes.hasChanges && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-orange-500 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-medium text-orange-800 mb-2">File Changes Detected</h3>
+                    <div className="text-sm text-orange-700 space-y-1">
+                      {fileTrackingStatus.changes.newFiles.length > 0 && (
+                        <div>New files: {fileTrackingStatus.changes.newFiles.map(f => f.name).join(', ')}</div>
+                      )}
+                      {fileTrackingStatus.changes.modifiedFiles.length > 0 && (
+                        <div>Modified files: {fileTrackingStatus.changes.modifiedFiles.map(f => f.name).join(', ')}</div>
+                      )}
+                      {fileTrackingStatus.changes.deletedFiles.length > 0 && (
+                        <div>Deleted files: {fileTrackingStatus.changes.deletedFiles.map(f => f.name).join(', ')}</div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => autoProcessMutation.mutate()}
+                    disabled={autoProcessMutation.isLoading}
+                    className="btn-primary flex items-center gap-2"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${autoProcessMutation.isLoading ? 'animate-spin' : ''}`} />
+                    {autoProcessMutation.isLoading ? 'Processing...' : 'Auto-Process'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
       {/* Upload Section */}
       <div className="card">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Upload Portfolio</h2>

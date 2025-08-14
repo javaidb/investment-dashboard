@@ -18,6 +18,7 @@ const historicalRoutes = require('./routes/historical');
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
 const historicalDataCache = require('./historical-cache');
+const fileTracker = require('./file-tracker');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -217,6 +218,16 @@ async function initializeCache() {
   try {
     console.log('💾 Initializing cache with portfolio holdings...');
     
+    // Check for file changes on startup
+    console.log('📋 Checking for CSV file changes...');
+    const fileChanges = fileTracker.checkForChanges();
+    if (fileChanges.hasChanges) {
+      console.log(`🆕 File changes detected on startup: ${fileChanges.newFiles.length} new, ${fileChanges.modifiedFiles.length} modified, ${fileChanges.deletedFiles.length} deleted`);
+      console.log('💡 Consider calling /api/portfolio/auto-process to process new files');
+    } else {
+      console.log('✅ No file changes detected');
+    }
+    
     // Load portfolios from file to get the most recent one
     const fs = require('fs');
     const path = require('path');
@@ -239,6 +250,15 @@ async function initializeCache() {
         
         console.log(`🔄 Found ${portfolios.length} portfolios, using most recent: ${mostRecentPortfolio.id}`);
         
+        // If there are file changes and no recent portfolio, suggest processing
+        if (fileChanges.hasChanges) {
+          const portfolioAge = Date.now() - new Date(mostRecentPortfolio.createdAt).getTime();
+          const oneHour = 60 * 60 * 1000;
+          if (portfolioAge > oneHour) {
+            console.log('🔄 Most recent portfolio is older than 1 hour and files have changed - consider reprocessing');
+          }
+        }
+        
         if (mostRecentPortfolio.holdings && Array.isArray(mostRecentPortfolio.holdings)) {
           console.log(`📈 Initializing cache with ${mostRecentPortfolio.holdings.length} holdings from portfolio ${mostRecentPortfolio.id}`);
           
@@ -259,13 +279,24 @@ async function initializeCache() {
         }
       } else {
         console.log('📝 No portfolios found in file');
+        if (fileChanges.hasChanges) {
+          console.log('💡 New files detected but no portfolios exist - call /api/portfolio/process-uploaded to create your first portfolio');
+        }
       }
     } else {
       console.log('📝 No portfolio file found, cache will be populated on first request');
+      if (fileChanges.hasChanges) {
+        console.log('💡 CSV files detected but no portfolios exist - call /api/portfolio/process-uploaded to get started');
+      }
     }
     
     console.log('✅ Cache initialization completed');
     console.log(`📈 Cache ready for portfolio operations`);
+    
+    // Display file tracking summary
+    const fileStats = fileTracker.getStats();
+    console.log(`📋 File tracking: ${fileStats.totalFiles} total files, ${fileStats.processedFiles} processed`);
+    
   } catch (error) {
     console.warn('⚠️ Cache initialization failed, will populate on first request:', error.message);
   }

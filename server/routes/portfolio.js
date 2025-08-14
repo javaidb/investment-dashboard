@@ -6,6 +6,7 @@ const path = require('path');
 const axios = require('axios');
 const holdingsCache = require('../cache');
 const historicalDataCache = require('../historical-cache');
+const fileTracker = require('../file-tracker');
 const router = express.Router();
 
 // Configure multer for file uploads
@@ -249,140 +250,30 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
   }
 });
 
+// Check for file changes (can be called independently)
+router.get('/check-changes', (req, res) => {
+  try {
+    const changes = fileTracker.checkForChanges();
+    const stats = fileTracker.getStats();
+    
+    res.json({
+      success: true,
+      changes: changes,
+      stats: stats,
+      hasChanges: changes.hasChanges,
+      message: changes.hasChanges ? 
+        `Found ${changes.newFiles.length} new and ${changes.modifiedFiles.length} modified files` :
+        'No file changes detected'
+    });
+  } catch (error) {
+    console.error('File change check error:', error);
+    res.status(500).json({ error: 'Failed to check for file changes' });
+  }
+});
+
 // Read and process uploaded CSV files
 router.post('/process-uploaded', async (req, res) => {
-  try {
-    // Check if already processing to prevent race conditions
-    if (isProcessing) {
-      console.log('⚠️ Portfolio processing already in progress, rejecting request');
-      return res.status(429).json({ 
-        error: 'Portfolio processing already in progress. Please wait and try again.',
-        isProcessing: true
-      });
-    }
-
-    isProcessing = true;
-    console.log('🔄 Processing uploaded CSV files...');
-    const uploadDir = path.join(__dirname, '../uploads');
-    const cryptoDir = path.join(uploadDir, 'crypto');
-    const wealthsimpleDir = path.join(uploadDir, 'wealthsimple');
-    
-    // Get files from both directories
-    const cryptoFiles = fs.existsSync(cryptoDir) ? 
-      fs.readdirSync(cryptoDir).filter(file => file.endsWith('.csv')) : [];
-    const wealthsimpleFiles = fs.existsSync(wealthsimpleDir) ? 
-      fs.readdirSync(wealthsimpleDir).filter(file => file.endsWith('.csv')) : [];
-    
-    const allFiles = [
-      ...cryptoFiles.map(file => ({ path: path.join(cryptoDir, file), type: 'crypto' })),
-      ...wealthsimpleFiles.map(file => ({ path: path.join(wealthsimpleDir, file), type: 'wealthsimple' }))
-    ];
-    
-    console.log('📁 Found files:', allFiles.map(f => path.basename(f.path)));
-    
-    if (allFiles.length === 0) {
-      console.log('❌ No CSV files found in uploads directory');
-      res.status(404).json({ 
-        error: 'No CSV files found in uploads directory',
-        suggestion: 'Please place CSV files in server/uploads/wealthsimple/ or server/uploads/crypto/ directories'
-      });
-      return;
-    }
-
-    let allTrades = [];
-    const portfolioId = Date.now().toString();
-    console.log('🆔 Generated portfolio ID:', portfolioId);
-
-    // Process each CSV file
-    for (const fileInfo of allFiles) {
-      const { path: filePath, type: fileType } = fileInfo;
-      const trades = [];
-      console.log(`📄 Processing ${fileType} file:`, path.basename(filePath));
-
-      await new Promise((resolve, reject) => {
-        fs.createReadStream(filePath)
-          .pipe(csv())
-          .on('data', (row) => {
-            try {
-              let trade = null;
-              
-              if (fileType === 'crypto') {
-                // Process crypto format
-                trade = processCryptoRow(row, path.basename(filePath));
-              } else if (fileType === 'wealthsimple') {
-                // Process Wealthsimple format
-                trade = processWealthsimpleRow(row, path.basename(filePath));
-              }
-              
-              if (trade) {
-                console.log(`Processing trade in ${path.basename(filePath)}:`, trade);
-                trades.push(trade);
-              }
-            } catch (error) {
-              console.warn(`Error processing row in ${path.basename(filePath)}:`, error.message);
-              // Continue processing other rows instead of rejecting the entire file
-            }
-          })
-          .on('end', () => {
-            allTrades = allTrades.concat(trades);
-            console.log(`✅ Completed processing ${path.basename(filePath)}, found ${trades.length} trades`);
-            resolve();
-          })
-          .on('error', (error) => {
-            console.error(`Error processing ${path.basename(filePath)}:`, error.message);
-            resolve(); // Continue with other files instead of rejecting
-          });
-      });
-    }
-
-    console.log(`📊 Total trades found: ${allTrades.length}`);
-    
-    // Process all trades and calculate portfolio
-    console.log('🔄 Processing trades and calculating portfolio...');
-    const portfolio = await processTrades(allTrades);
-    console.log('✅ Portfolio calculation completed');
-    
-    // Proactively cache stock prices for the new portfolio
-    console.log('📊 Proactively caching stock prices for new portfolio...');
-    try {
-      await cacheStockPricesFromHoldings(portfolio.holdings);
-    } catch (cacheError) {
-      console.warn('⚠️ Stock price caching failed for new portfolio:', cacheError.message);
-    }
-    
-    // Store portfolio data
-    const portfolioData = {
-      id: portfolioId,
-      trades: allTrades,
-      holdings: portfolio.holdings,
-      summary: portfolio.summary,
-      createdAt: new Date().toISOString()
-    };
-    
-    console.log('💾 Storing portfolio data...');
-    portfolios.set(portfolioId, portfolioData);
-    console.log('📊 Current portfolios in memory:', Array.from(portfolios.keys()));
-    
-    // Save to file
-    savePortfolios(portfolios);
-
-    console.log('✅ Portfolio processing completed successfully');
-    res.json({
-      portfolioId: portfolioId,
-      message: `Processed ${allFiles.length} CSV files successfully`,
-      summary: portfolio.summary,
-      holdings: portfolio.holdings,
-      filesProcessed: allFiles.map(f => path.basename(f.path))
-    });
-
-  } catch (error) {
-    console.error('❌ Uploaded files processing error:', error);
-    res.status(500).json({ error: 'Failed to process uploaded files: ' + error.message });
-  } finally {
-    // Always release the processing lock
-    isProcessing = false;
-    console.log('🔓 Released processing lock');
-  }
+  return await processUploadedFiles(req, res);
 });
 
 // Get historical data for portfolio stocks
@@ -1854,6 +1745,107 @@ router.delete('/cache/:symbol', (req, res) => {
   }
 });
 
+// File tracking management endpoints
+router.get('/files/tracking/stats', (req, res) => {
+  try {
+    const stats = fileTracker.getStats();
+    const changes = fileTracker.checkForChanges();
+    
+    res.json({
+      success: true,
+      stats: stats,
+      changes: changes,
+      message: `Tracking ${stats.totalFiles} files (${stats.processedFiles} processed)`
+    });
+  } catch (error) {
+    console.error('File tracking stats error:', error);
+    res.status(500).json({ error: 'Failed to get file tracking statistics' });
+  }
+});
+
+router.post('/files/tracking/update', (req, res) => {
+  try {
+    fileTracker.updateTracking();
+    const stats = fileTracker.getStats();
+    
+    res.json({
+      success: true,
+      stats: stats,
+      message: `Updated tracking for ${stats.totalFiles} files`
+    });
+  } catch (error) {
+    console.error('File tracking update error:', error);
+    res.status(500).json({ error: 'Failed to update file tracking' });
+  }
+});
+
+router.delete('/files/tracking/clear', (req, res) => {
+  try {
+    const count = fileTracker.clearTracking();
+    
+    res.json({
+      success: true,
+      message: `Cleared tracking for ${count} files`
+    });
+  } catch (error) {
+    console.error('File tracking clear error:', error);
+    res.status(500).json({ error: 'Failed to clear file tracking' });
+  }
+});
+
+// Auto-process files if changes detected
+router.post('/auto-process', async (req, res) => {
+  try {
+    const changes = fileTracker.checkForChanges();
+    
+    if (!changes.hasChanges) {
+      return res.json({
+        success: true,
+        processed: false,
+        message: 'No file changes detected, nothing to process',
+        changes: changes
+      });
+    }
+
+    console.log('🔄 Auto-processing due to file changes...');
+    
+    // Call the existing process-uploaded logic
+    const processReq = { ...req };
+    const processRes = {
+      json: (data) => {
+        res.json({
+          success: true,
+          processed: true,
+          message: 'Files auto-processed due to changes',
+          changes: changes,
+          processingResult: data
+        });
+      },
+      status: (code) => ({
+        json: (data) => res.status(code).json({
+          success: false,
+          processed: false,
+          message: 'Auto-processing failed',
+          changes: changes,
+          error: data
+        })
+      })
+    };
+
+    // Redirect to process-uploaded endpoint logic
+    return await processUploadedFiles(processReq, processRes);
+    
+  } catch (error) {
+    console.error('Auto-process error:', error);
+    res.status(500).json({ 
+      success: false,
+      processed: false,
+      error: 'Failed to auto-process files',
+      message: error.message 
+    });
+  }
+});
+
 // Clean up duplicate portfolios
 router.post('/cleanup/duplicates', (req, res) => {
   try {
@@ -1898,6 +1890,141 @@ router.post('/cleanup/duplicates', (req, res) => {
     res.status(500).json({ error: 'Failed to cleanup portfolios' });
   }
 });
+
+// Extract the process-uploaded logic to a reusable function
+async function processUploadedFiles(req, res) {
+  // Check if already processing to prevent race conditions
+  if (isProcessing) {
+    console.log('⚠️ Portfolio processing already in progress, rejecting request');
+    return res.status(429).json({ 
+      error: 'Portfolio processing already in progress. Please wait and try again.',
+      isProcessing: true
+    });
+  }
+
+  isProcessing = true;
+  try {
+    console.log('🔄 Processing uploaded CSV files...');
+    
+    // Check for file changes first
+    const changes = fileTracker.checkForChanges();
+    if (changes.hasChanges) {
+      console.log(`📊 File changes detected: ${changes.newFiles.length} new, ${changes.modifiedFiles.length} modified, ${changes.deletedFiles.length} deleted`);
+    }
+    
+    // Get all current files
+    const allFiles = fileTracker.getAllCSVFiles();
+    
+    console.log('📁 Found files:', allFiles.map(f => f.name));
+    
+    if (allFiles.length === 0) {
+      console.log('❌ No CSV files found in uploads directory');
+      return res.status(404).json({ 
+        error: 'No CSV files found in uploads directory',
+        suggestion: 'Please place CSV files in server/uploads/wealthsimple/ or server/uploads/crypto/ directories'
+      });
+    }
+
+    let allTrades = [];
+    const portfolioId = Date.now().toString();
+    console.log('🆔 Generated portfolio ID:', portfolioId);
+
+    // Process each CSV file
+    for (const fileInfo of allFiles) {
+      const { path: filePath, type: fileType } = fileInfo;
+      const trades = [];
+      console.log(`📄 Processing ${fileType} file:`, fileInfo.name);
+
+      await new Promise((resolve, reject) => {
+        fs.createReadStream(filePath)
+          .pipe(csv())
+          .on('data', (row) => {
+            try {
+              let trade = null;
+              
+              if (fileType === 'crypto') {
+                // Process crypto format
+                trade = processCryptoRow(row, fileInfo.name);
+              } else if (fileType === 'wealthsimple') {
+                // Process Wealthsimple format
+                trade = processWealthsimpleRow(row, fileInfo.name);
+              }
+              
+              if (trade) {
+                console.log(`Processing trade in ${fileInfo.name}:`, trade);
+                trades.push(trade);
+              }
+            } catch (error) {
+              console.warn(`Error processing row in ${fileInfo.name}:`, error.message);
+              // Continue processing other rows instead of rejecting the entire file
+            }
+          })
+          .on('end', () => {
+            allTrades = allTrades.concat(trades);
+            console.log(`✅ Completed processing ${fileInfo.name}, found ${trades.length} trades`);
+            resolve();
+          })
+          .on('error', (error) => {
+            console.error(`Error processing ${fileInfo.name}:`, error.message);
+            resolve(); // Continue with other files instead of rejecting
+          });
+      });
+    }
+
+    console.log(`📊 Total trades found: ${allTrades.length}`);
+    
+    // Process all trades and calculate portfolio
+    console.log('🔄 Processing trades and calculating portfolio...');
+    const portfolio = await processTrades(allTrades);
+    console.log('✅ Portfolio calculation completed');
+    
+    // Proactively cache stock prices for the new portfolio
+    console.log('📊 Proactively caching stock prices for new portfolio...');
+    try {
+      await cacheStockPricesFromHoldings(portfolio.holdings);
+    } catch (cacheError) {
+      console.warn('⚠️ Stock price caching failed for new portfolio:', cacheError.message);
+    }
+    
+    // Store portfolio data
+    const portfolioData = {
+      id: portfolioId,
+      trades: allTrades,
+      holdings: portfolio.holdings,
+      summary: portfolio.summary,
+      createdAt: new Date().toISOString()
+    };
+    
+    console.log('💾 Storing portfolio data...');
+    portfolios.set(portfolioId, portfolioData);
+    console.log('📊 Current portfolios in memory:', Array.from(portfolios.keys()));
+    
+    // Save to file
+    savePortfolios(portfolios);
+
+    // Update file tracking to mark all files as processed
+    fileTracker.updateTracking();
+    fileTracker.markAsProcessed(portfolioId);
+
+    console.log('✅ Portfolio processing completed successfully');
+    res.json({
+      portfolioId: portfolioId,
+      message: `Processed ${allFiles.length} CSV files successfully`,
+      summary: portfolio.summary,
+      holdings: portfolio.holdings,
+      filesProcessed: allFiles.map(f => f.name),
+      fileChanges: changes
+    });
+
+  } catch (error) {
+    console.error('❌ Uploaded files processing error:', error);
+    res.status(500).json({ error: 'Failed to process uploaded files: ' + error.message });
+  } finally {
+    // Always release the processing lock
+    isProcessing = false;
+    console.log('🔓 Released processing lock');
+  }
+}
 
 module.exports = router;
 
