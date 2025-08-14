@@ -4,6 +4,18 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
 import axios from 'axios';
 
+interface PortfolioSummary {
+  id: string;
+  summary: {
+    totalInvested: number;
+    totalRealized: number;
+    totalHoldings: number;
+    totalQuantity: number;
+  };
+  createdAt: string;
+  lastUpdated: string;
+}
+
 interface Portfolio {
   id: string;
   summary: {
@@ -23,21 +35,60 @@ interface Portfolio {
     unrealizedPnL?: number;
     totalPnL?: number;
     totalPnLPercent?: number;
+    companyName?: string;
+    cacheUsed?: boolean;
   }>;
   createdAt: string;
+  lastUpdated: string;
 }
 
 const Portfolio: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: portfolios, isLoading } = useQuery(
+  // First, get the list of portfolios
+  const { data: portfolioSummaries, isLoading: isLoadingSummaries } = useQuery<PortfolioSummary[]>(
     'portfolios',
     async () => {
       const response = await axios.get('/api/portfolio');
       return response.data;
     }
   );
+
+  // Then, fetch detailed data for each portfolio
+  const { data: portfolios, isLoading: isLoadingDetails } = useQuery<Portfolio[]>(
+    ['portfolios-detailed', portfolioSummaries],
+    async () => {
+      if (!portfolioSummaries || portfolioSummaries.length === 0) {
+        return [];
+      }
+      
+      // Fetch detailed data for each portfolio
+      const detailedPortfolios = await Promise.all(
+        portfolioSummaries.map(async (summary) => {
+          try {
+            const response = await axios.get(`/api/portfolio/${summary.id}`);
+            return response.data;
+          } catch (error) {
+            console.error(`Failed to fetch portfolio ${summary.id}:`, error);
+            // Return summary data as fallback
+            return {
+              ...summary,
+              holdings: [],
+              lastUpdated: new Date().toISOString()
+            };
+          }
+        })
+      );
+      
+      return detailedPortfolios;
+    },
+    {
+      enabled: !!portfolioSummaries && portfolioSummaries.length > 0,
+    }
+  );
+
+  const isLoading = isLoadingSummaries || isLoadingDetails;
 
   const uploadMutation = useMutation(
     async (file: File) => {
