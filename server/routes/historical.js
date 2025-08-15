@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const historicalDataCache = require('../historical-cache');
 const router = express.Router();
 
 // Cache for historical data
@@ -47,6 +48,7 @@ router.get('/stock/:symbol', async (req, res) => {
       '5d': '5d',
       '1m': '1mo',
       '3m': '3mo',
+      'monthly': '3mo', // Map monthly to 3 months for consistency
       '6m': '6mo',
       '1y': '1y',
       '2y': '2y',
@@ -171,7 +173,15 @@ router.post('/stocks/batch', async (req, res) => {
               volume: quotes.volume?.[index] || null
             })).filter(item => item.close !== null);
 
-            setCachedData(cacheKey, historicalData);
+            // Cache the data using persistent cache with standardized 3m/1d format
+            historicalDataCache.set(symbol, {
+              data: historicalData,
+              meta: {
+                companyName: result.meta?.longName || result.meta?.shortName || symbol,
+                currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
+                currency: 'USD'
+              }
+            }, '3m', '1d');
             
             results[symbol] = {
               data: historicalData,
@@ -457,7 +467,15 @@ router.get('/trending/intraday', async (req, res) => {
             const change = lastPrice - firstPrice;
             const changePercent = (change / firstPrice) * 100;
 
-            setCachedData(cacheKey, historicalData);
+            // Cache the data using persistent cache with standardized 3m/1d format
+            historicalDataCache.set(symbol, {
+              data: historicalData,
+              meta: {
+                companyName: result.meta?.longName || result.meta?.shortName || symbol,
+                currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
+                currency: 'USD'
+              }
+            }, '3m', '1d');
             
             results[symbol] = {
               data: historicalData,
@@ -610,6 +628,34 @@ function getCompanyName(symbol) {
   return companyNames[symbol] || symbol;
 }
 
+// Helper function to convert crypto symbols to Yahoo Finance format
+function getCryptoYahooSymbol(symbol) {
+  const cryptoMap = {
+    'BTC': 'BTC-USD',
+    'ETH': 'ETH-USD',
+    'ADA': 'ADA-USD',
+    'SOL': 'SOL-USD',
+    'DOT': 'DOT-USD',
+    'LINK': 'LINK-USD',
+    'UNI': 'UNI-USD',
+    'MATIC': 'MATIC-USD',
+    'AVAX': 'AVAX-USD',
+    'ATOM': 'ATOM-USD',
+    'LTC': 'LTC-USD',
+    'BCH': 'BCH-USD',
+    'XRP': 'XRP-USD',
+    'DOGE': 'DOGE-USD',
+    'SHIB': 'SHIB-USD',
+    'TRX': 'TRX-USD',
+    'ETC': 'ETC-USD',
+    'FIL': 'FIL-USD',
+    'NEAR': 'NEAR-USD',
+    'ALGO': 'ALGO-USD'
+  };
+  
+  return cryptoMap[symbol.toUpperCase()] || `${symbol.toUpperCase()}-USD`;
+}
+
 // Helper function to get realistic stock prices for fallback data
 function getRealisticStockPrice(symbol) {
   const stockPrices = {
@@ -627,5 +673,226 @@ function getRealisticStockPrice(symbol) {
   
   return stockPrices[symbol] || 150; // Default to $150 if unknown
 }
+
+// === CRYPTO HISTORICAL DATA ENDPOINTS (Using Yahoo Finance) ===
+
+// Get historical data for a single cryptocurrency using Yahoo Finance
+router.get('/crypto/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { period = '1y', interval = '1d' } = req.query;
+    
+    // Check persistent cache first (always use standardized 3m/1d format)
+    const cached = historicalDataCache.get(symbol, '3m', '1d');
+    
+    if (cached && !cached.needsUpdate) {
+      return res.json({
+        symbol,
+        data: cached.data,
+        cached: true,
+        success: true,
+        message: 'Crypto data retrieved from persistent cache'
+      });
+    }
+
+    // Convert crypto symbol to Yahoo Finance format (e.g., BTC -> BTC-USD)
+    const yahooSymbol = getCryptoYahooSymbol(symbol);
+    
+    console.log(`🪙 Fetching crypto historical data for ${symbol} (${yahooSymbol}) using Yahoo Finance`);
+
+    // Use the same Yahoo Finance endpoint as stocks
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}`;
+    const params = {
+      period1: Math.floor(Date.now() / 1000) - getPeriodInSeconds(period),
+      period2: Math.floor(Date.now() / 1000),
+      interval: interval,
+      includePrePost: false,
+      events: 'div,splits'
+    };
+
+    const response = await axios.get(yahooUrl, { 
+      params,
+      timeout: 10000 
+    });
+
+    if (!response.data.chart?.result?.[0]) {
+      throw new Error('Invalid response from Yahoo Finance');
+    }
+
+    const result = response.data.chart.result[0];
+    const timestamps = result.timestamp || [];
+    const quotes = result.indicators.quote[0];
+    
+    if (!timestamps.length || !quotes) {
+      throw new Error('No historical data available');
+    }
+
+    // Format data to match stock historical data structure
+    const historicalData = timestamps.map((timestamp, index) => ({
+      date: new Date(timestamp * 1000).toISOString(),
+      open: quotes.open?.[index] || null,
+      high: quotes.high?.[index] || null,
+      low: quotes.low?.[index] || null,
+      close: quotes.close?.[index] || null,
+      volume: quotes.volume?.[index] || null
+    })).filter(item => item.close !== null);
+
+    if (historicalData.length === 0) {
+      throw new Error('No historical data available');
+    }
+
+    // Cache the data using persistent cache with standardized 3m/1d format
+    historicalDataCache.set(symbol, {
+      data: historicalData,
+      meta: {
+        companyName: result.meta?.longName || result.meta?.shortName || symbol,
+        currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
+        currency: 'USD'
+      }
+    }, '3m', '1d');
+
+    res.json({
+      symbol,
+      period,
+      interval,
+      data: historicalData,
+      cached: false,
+      success: true,
+      message: `Retrieved ${historicalData.length} crypto data points from Yahoo Finance`
+    });
+
+  } catch (error) {
+    console.error(`❌ Crypto historical data error for ${req.params.symbol}:`, error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch crypto historical data',
+      message: error.message,
+      success: false
+    });
+  }
+});
+
+// Get historical data for multiple cryptocurrencies (batch) using Yahoo Finance
+router.post('/crypto/batch', async (req, res) => {
+  try {
+    const { symbols, period = '1y', interval = '1d' } = req.body;
+    
+    if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
+      return res.status(400).json({ error: 'Symbols array is required' });
+    }
+
+    if (symbols.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 crypto symbols allowed per batch request' });
+    }
+
+    console.log(`🪙 Batch crypto historical data request for ${symbols.length} symbols using Yahoo Finance`);
+    
+    const results = {};
+
+    const promises = symbols.map(async (symbol) => {
+      try {
+        // Check persistent cache first (always use standardized 3m/1d format)
+        const cached = historicalDataCache.get(symbol, '3m', '1d');
+        
+        if (cached && !cached.needsUpdate) {
+          results[symbol] = {
+            data: cached.data,
+            cached: true,
+            success: true
+          };
+          return;
+        }
+
+        // Convert crypto symbol to Yahoo Finance format
+        const yahooSymbol = getCryptoYahooSymbol(symbol);
+        
+        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}`;
+        const params = {
+          period1: Math.floor(Date.now() / 1000) - getPeriodInSeconds(period),
+          period2: Math.floor(Date.now() / 1000),
+          interval: interval,
+          includePrePost: false
+        };
+
+        const response = await axios.get(yahooUrl, { 
+          params,
+          timeout: 8000 
+        });
+
+        if (response.data.chart?.result?.[0]) {
+          const result = response.data.chart.result[0];
+          const timestamps = result.timestamp || [];
+          const quotes = result.indicators.quote[0];
+          
+          if (timestamps.length && quotes) {
+            const historicalData = timestamps.map((timestamp, index) => ({
+              date: new Date(timestamp * 1000).toISOString(),
+              open: quotes.open?.[index] || null,
+              high: quotes.high?.[index] || null,
+              low: quotes.low?.[index] || null,
+              close: quotes.close?.[index] || null,
+              volume: quotes.volume?.[index] || null
+            })).filter(item => item.close !== null);
+
+            // Cache the data using persistent cache with standardized 3m/1d format
+            historicalDataCache.set(symbol, {
+              data: historicalData,
+              meta: {
+                companyName: result.meta?.longName || result.meta?.shortName || symbol,
+                currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
+                currency: 'USD'
+              }
+            }, '3m', '1d');
+            
+            results[symbol] = {
+              data: historicalData,
+              cached: false,
+              success: true
+            };
+          } else {
+            results[symbol] = {
+              error: 'No data available',
+              success: false
+            };
+          }
+        } else {
+          results[symbol] = {
+            error: 'Invalid response format',
+            success: false
+          };
+        }
+      } catch (error) {
+        console.warn(`⚠️ Failed to fetch crypto data for ${symbol}: ${error.message}`);
+        results[symbol] = {
+          error: error.message,
+          success: false
+        };
+      }
+    });
+
+    await Promise.all(promises);
+
+    const successCount = Object.values(results).filter(r => r.success).length;
+    const cachedCount = Object.values(results).filter(r => r.cached).length;
+
+    res.json({
+      period,
+      interval,
+      results,
+      summary: {
+        total: symbols.length,
+        successful: successCount,
+        cached: cachedCount,
+        failed: symbols.length - successCount
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Batch crypto historical data error:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch batch crypto historical data',
+      message: error.message
+    });
+  }
+});
 
 module.exports = router;
