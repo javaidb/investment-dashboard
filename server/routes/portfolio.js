@@ -515,7 +515,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
         // Try to get historical data from cache first (for stocks)
         if (holding.type === 's') {
           // Check cache first
-          const cachedHistorical = historicalDataCache.get(symbol, 'monthly', '1d');
+          const cachedHistorical = historicalDataCache.get(symbol, '3m', '1d');
           
           if (cachedHistorical && !cachedHistorical.needsUpdate) {
             // Use cached data
@@ -616,7 +616,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
                   }
                 };
                 
-                historicalDataCache.update(symbol, historicalCacheData, 'monthly', '1d');
+                historicalDataCache.update(symbol, historicalCacheData, '3m', '1d');
 
                 results[symbol] = {
                   data: historicalData,
@@ -1696,7 +1696,7 @@ router.get('/cache/historical/:symbol', (req, res) => {
     let latestTimestamp = 0;
     
     for (const [cacheKey, cacheEntry] of historicalDataCache.cache.entries()) {
-      if (cacheEntry.symbol === symbol && cacheEntry.period === 'monthly' && cacheEntry.resolution === '1d') {
+      if (cacheEntry.symbol === symbol && cacheEntry.period === '3m' && cacheEntry.resolution === '1d') {
         const timestamp = new Date(cacheEntry.lastUpdated || cacheEntry.fetchedAt).getTime();
         if (timestamp > latestTimestamp) {
           latestTimestamp = timestamp;
@@ -1705,13 +1705,21 @@ router.get('/cache/historical/:symbol', (req, res) => {
       }
     }
     
+    // If no cache entry found, try to fetch fresh data from historical endpoint
     if (!latestEntry) {
-      return res.json({
-        success: false,
-        symbol: symbol,
-        message: `No historical cache data found for ${symbol}`,
-        data: null
-      });
+      console.log(`🔍 No cache found for ${symbol}, fetching fresh historical data`);
+      
+      // Determine if this is likely a crypto symbol and redirect to appropriate endpoint
+      const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
+      const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
+      
+      if (isCrypto) {
+        // Redirect to crypto historical endpoint for fresh data
+        return res.redirect(`/api/historical/crypto/${symbol}?period=3m&interval=1d`);
+      } else {
+        // Redirect to stock historical endpoint for fresh data  
+        return res.redirect(`/api/historical/stock/${symbol}?period=3m&interval=1d`);
+      }
     }
     
     res.json({
@@ -1721,7 +1729,7 @@ router.get('/cache/historical/:symbol', (req, res) => {
       meta: latestEntry.meta || {},
       dateRange: latestEntry.dateRange || {},
       fromCache: true,
-      stale: historicalDataCache.needsUpdate(symbol, 'monthly', '1d')
+      stale: historicalDataCache.needsUpdate(symbol, '3m', '1d')
     });
   } catch (error) {
     console.error(`Historical cache get error for ${req.params.symbol}:`, error);
