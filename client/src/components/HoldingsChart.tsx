@@ -67,9 +67,14 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     async () => {
       if (!selectedHolding) return [];
       
-      // Use the same historical endpoint for both stocks and crypto with maximum historical data
-      // This ensures consistent data source and format for both asset types
-      const response = await axios.get(`/api/historical/stock/${selectedHolding.symbol}`, {
+      // Use appropriate endpoint based on asset type
+      // Crypto uses /api/historical/crypto/ which handles proper Yahoo Finance symbol conversion (e.g., ETH -> ETH-USD)
+      // Stocks use /api/historical/stock/ which handles stock symbols directly
+      const endpoint = selectedHolding.type === 'c' 
+        ? `/api/historical/crypto/${selectedHolding.symbol}`
+        : `/api/historical/stock/${selectedHolding.symbol}`;
+      
+      const response = await axios.get(endpoint, {
         params: {
           period: 'max', // Maximum historical data
           interval: '1d'
