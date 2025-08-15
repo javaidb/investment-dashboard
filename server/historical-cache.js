@@ -80,12 +80,12 @@ class HistoricalDataCache {
   }
 
   // Generate cache key for historical data (stable keys for performance graphs)
-  generateCacheKey(symbol, period = '3mo', resolution = '1d') {
+  generateCacheKey(symbol, period = '3m', resolution = '1d') {
     return `${symbol}_${period}_${resolution}`;
   }
 
   // Check if cached data needs update (only update if not updated since last working day)
-  needsUpdate(symbol, period = '3mo', resolution = '1d') {
+  needsUpdate(symbol, period = '3m', resolution = '1d') {
     const cacheKey = this.generateCacheKey(symbol, period, resolution);
     const cached = this.cache.get(cacheKey);
     
@@ -101,7 +101,7 @@ class HistoricalDataCache {
   }
 
   // Get cached historical data
-  get(symbol, period = '3mo', resolution = '1d') {
+  get(symbol, period = '3m', resolution = '1d') {
     const cacheKey = this.generateCacheKey(symbol, period, resolution);
     const cached = this.cache.get(cacheKey);
     
@@ -117,7 +117,7 @@ class HistoricalDataCache {
   }
 
   // Set historical data in cache
-  set(symbol, data, period = '3mo', resolution = '1d') {
+  set(symbol, data, period = '3m', resolution = '1d') {
     const cacheKey = this.generateCacheKey(symbol, period, resolution);
     
     const cacheEntry = {
@@ -139,7 +139,7 @@ class HistoricalDataCache {
   }
 
   // Update cache with new data (only if not null/empty)
-  update(symbol, data, period = '3mo', resolution = '1d') {
+  update(symbol, data, period = '3m', resolution = '1d') {
     if (!data || !data.data || !Array.isArray(data.data) || data.data.length === 0) {
       console.log(`⚠️ Skipping historical cache update for ${symbol}: no valid data`);
       return;
@@ -149,7 +149,7 @@ class HistoricalDataCache {
   }
 
   // Get all cached symbols for a specific period/resolution
-  getAllSymbols(period = '3mo', resolution = '1d') {
+  getAllSymbols(period = '3m', resolution = '1d') {
     const symbols = [];
     for (const [key, value] of this.cache.entries()) {
       if (value.period === period && value.resolution === resolution) {
