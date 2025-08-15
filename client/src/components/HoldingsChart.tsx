@@ -63,17 +63,19 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
 
   // Fetch maximum historical data for selected holding
   const { data: historicalData, isLoading, error } = useQuery(
-    ['holdingHistorical', selectedHolding?.symbol],
+    ['holdingHistorical', selectedHolding?.symbol, selectedHolding?.type],
     async () => {
       if (!selectedHolding) return [];
       
-      const response = await axios.get(`/api/stocks/yahoo/historical/${selectedHolding.symbol}`, {
+      // Use the same historical endpoint for both stocks and crypto with maximum historical data
+      // This ensures consistent data source and format for both asset types
+      const response = await axios.get(`/api/historical/stock/${selectedHolding.symbol}`, {
         params: {
-          range: 'max', // Maximum historical data
+          period: 'max', // Maximum historical data
           interval: '1d'
         }
       });
-      return response.data;
+      return response.data.data || [];
     },
     {
       enabled: !!selectedHolding,
@@ -202,7 +204,7 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     return (
       <div className="card">
         <div className="card-header">
-          <h2 className="card-title">Holdings Analysis</h2>
+          <h2 className="card-title">Holdings Analysis (Stocks & Crypto)</h2>
           <p className="card-subtitle">No holdings available</p>
         </div>
         <div className="card-body">
