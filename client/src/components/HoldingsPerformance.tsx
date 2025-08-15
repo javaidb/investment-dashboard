@@ -56,14 +56,14 @@ const HoldingsPerformance: React.FC = () => {
     });
   };
 
-  // Chart component that reads from historical cache via direct API calls
+  // Chart component that reads from historical data API
   const CachedChart: React.FC<{ symbol: string; holdingData: any }> = ({ symbol, holdingData }) => {
     const { data: chartData, isLoading: chartLoading } = useQuery(
       ['symbol-chart', symbol, holdingData.type],
       async () => {
         try {
-          // Use the same historical cache endpoint for both stocks and crypto
-          // This ensures consistent 3-month daily data from the historical cache
+          // Use the fast historical cache endpoint for instant loading
+          // This provides 3-month daily data from cache for quick performance graphs
           const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
           return response.data;
         } catch (error) {
@@ -191,8 +191,8 @@ const HoldingsPerformance: React.FC = () => {
       ['symbol-chart', symbol, holdingData.type],
       async () => {
         try {
-          // Use the same historical cache endpoint for both stocks and crypto
-          // This ensures consistent 3-month daily data from the historical cache
+          // Use the fast historical cache endpoint for instant loading
+          // This provides 3-month daily data from cache for quick performance graphs
           const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
           return response.data;
         } catch (error) {
