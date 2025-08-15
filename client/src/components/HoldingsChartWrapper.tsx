@@ -130,7 +130,7 @@ const HoldingsChartWrapper: React.FC = () => {
     return (
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-4">
-          <h2 className="text-xl font-bold text-white">Holdings Analysis</h2>
+          <h2 className="text-xl font-bold text-white">Holdings Analysis (Stocks & Crypto)</h2>
           <p className="text-green-100 text-sm">Loading your holdings data from cache...</p>
         </div>
         <div className="p-6">
@@ -146,7 +146,7 @@ const HoldingsChartWrapper: React.FC = () => {
     return (
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="bg-gradient-to-r from-red-600 to-pink-600 px-6 py-4">
-          <h2 className="text-xl font-bold text-white">Holdings Analysis</h2>
+          <h2 className="text-xl font-bold text-white">Holdings Analysis (Stocks & Crypto)</h2>
           <p className="text-red-100 text-sm">Error loading holdings data</p>
         </div>
         <div className="p-6">
