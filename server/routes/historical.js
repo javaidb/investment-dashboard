@@ -682,10 +682,11 @@ router.get('/crypto/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const { period = '1y', interval = '1d' } = req.query;
     
-    // Check persistent cache first (always use standardized 3m/1d format)
-    const cached = historicalDataCache.get(symbol, '3m', '1d');
+    // Only use cache for standard 3m requests, bypass cache for max/long periods
+    const useCache = period === '3m' || period === '1m';
+    const cached = useCache ? historicalDataCache.get(symbol, '3m', '1d') : null;
     
-    if (cached && !cached.needsUpdate) {
+    if (cached && !cached.needsUpdate && useCache) {
       return res.json({
         symbol,
         data: cached.data,
@@ -741,15 +742,17 @@ router.get('/crypto/:symbol', async (req, res) => {
       throw new Error('No historical data available');
     }
 
-    // Cache the data using persistent cache with standardized 3m/1d format
-    historicalDataCache.set(symbol, {
-      data: historicalData,
-      meta: {
-        companyName: result.meta?.longName || result.meta?.shortName || symbol,
-        currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
-        currency: 'USD'
-      }
-    }, '3m', '1d');
+    // Only cache data if it's the standard 3m period to avoid memory issues with max data
+    if (useCache) {
+      historicalDataCache.set(symbol, {
+        data: historicalData,
+        meta: {
+          companyName: result.meta?.longName || result.meta?.shortName || symbol,
+          currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
+          currency: 'USD'
+        }
+      }, '3m', '1d');
+    }
 
     res.json({
       symbol,
