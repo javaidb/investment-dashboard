@@ -113,8 +113,8 @@ async function initializeHistoricalCache(holdings) {
     const axios = require('axios');
     const { getUSDtoCADRate } = require('./routes/portfolio');
     
-    // Filter for stock holdings only
-    const stockHoldings = holdings.filter(holding => holding.type === 's' && holding.symbol);
+    // Filter for stock and crypto holdings
+    const stockHoldings = holdings.filter(holding => (holding.type === 's' || holding.type === 'c') && holding.symbol);
     
     if (stockHoldings.length === 0) {
       console.log('📈 No stock holdings found for historical cache');
@@ -137,14 +137,17 @@ async function initializeHistoricalCache(holdings) {
           const symbol = holding.symbol;
           
           // Check if we already have recent data in cache
-          const cachedHistorical = historicalDataCache.get(symbol, 'monthly', '1d');
+          const cachedHistorical = historicalDataCache.get(symbol, '3m', '1d');
           if (cachedHistorical && !cachedHistorical.needsUpdate) {
             console.log(`📦 Historical data for ${symbol} already cached and fresh`);
             return;
           }
           
-          console.log(`🌐 Fetching historical data for ${symbol}...`);
-          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+          // Convert crypto symbols to Yahoo Finance format (e.g., BTC -> BTC-USD)
+          const yahooSymbol = holding.type === 'c' ? `${symbol.toUpperCase()}-USD` : symbol;
+          
+          console.log(`🌐 Fetching historical data for ${symbol} (${yahooSymbol})...`);
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}`;
           const params = {
             period1: startTimestamp,
             period2: endTimestamp,
@@ -188,7 +191,7 @@ async function initializeHistoricalCache(holdings) {
                 }
               };
               
-              historicalDataCache.update(symbol, historicalCacheData, 'monthly', '1d');
+              historicalDataCache.update(symbol, historicalCacheData, '3m', '1d');
               console.log(`💾 Cached historical data for ${symbol}: ${historicalData.length} data points`);
             }
           }
