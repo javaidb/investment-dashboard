@@ -59,14 +59,15 @@ const HoldingsPerformance: React.FC = () => {
   // Chart component that reads from historical cache via direct API calls
   const CachedChart: React.FC<{ symbol: string; holdingData: any }> = ({ symbol, holdingData }) => {
     const { data: chartData, isLoading: chartLoading } = useQuery(
-      ['symbol-chart', symbol],
+      ['symbol-chart', symbol, holdingData.type],
       async () => {
         try {
-          // Read directly from historical cache
+          // Use the same historical cache endpoint for both stocks and crypto
+          // This ensures consistent 3-month daily data from the historical cache
           const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
           return response.data;
         } catch (error) {
-          console.warn(`No historical cache data available for ${symbol}`);
+          console.warn(`No historical data available for ${symbol} (${holdingData.type === 'c' ? 'crypto' : 'stock'})`);
           return null;
         }
       },
@@ -187,9 +188,11 @@ const HoldingsPerformance: React.FC = () => {
   // Individual holding card component that calculates its own performance
   const HoldingCard: React.FC<{ symbol: string; holdingData: any }> = ({ symbol, holdingData }) => {
     const { data: chartData } = useQuery(
-      ['symbol-chart', symbol],
+      ['symbol-chart', symbol, holdingData.type],
       async () => {
         try {
+          // Use the same historical cache endpoint for both stocks and crypto
+          // This ensures consistent 3-month daily data from the historical cache
           const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
           return response.data;
         } catch (error) {
@@ -327,11 +330,11 @@ const HoldingsPerformance: React.FC = () => {
     <div style={{ width: '100%' }}>
       <div style={{ marginBottom: '1rem' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1F2937', marginBottom: '0.5rem' }}>
-          Holdings Performance (Cached)
+          Holdings Performance (Stocks & Crypto)
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
           <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
-            Real-time cached price data for your holdings
+            Historical price charts for your stock and cryptocurrency holdings
           </p>
           {holdingsTimestamp && (
             <div style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>
