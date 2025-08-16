@@ -532,8 +532,12 @@ const PortfolioSummary: React.FC = () => {
                       <td className="py-4 px-6" style={{
                         padding: '20px 24px', 
                         backgroundColor: (() => {
-                          const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
                           const currentValue = holding.currentValue || 0;
+                          const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
+                          
+                          // Grey background for zero or very small values
+                          if (currentValue <= 0.01) return '#f9fafb';
+                          
                           return currentValue > netInvested ? '#dcfce7' : '#fef2f2';
                         })()
                       }}>
@@ -541,8 +545,12 @@ const PortfolioSummary: React.FC = () => {
                           fontSize: '16px',
                           fontWeight: '600',
                           color: (() => {
-                            const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
                             const currentValue = holding.currentValue || 0;
+                            const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
+                            
+                            // Grey text for zero or very small values
+                            if (currentValue <= 0.01) return '#9ca3af';
+                            
                             return currentValue > netInvested ? '#166534' : '#dc2626';
                           })()
                         }}>
