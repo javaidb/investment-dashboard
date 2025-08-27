@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, RefreshCw, Database, Clock, DollarSign } from 'lucide-react';
+import { useCache } from '../contexts/CacheContext';
 
 interface CacheStats {
   totalEntries: number;
@@ -37,6 +38,9 @@ const CacheManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
+  const [refreshingPortfolio, setRefreshingPortfolio] = useState(false);
+  
+  const { refreshCache } = useCache();
 
   useEffect(() => {
     loadCacheStats();
@@ -66,6 +70,28 @@ const CacheManagement: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to load cache');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshPortfolioData = async () => {
+    if (!window.confirm('This will refresh all portfolio and holdings data with fresh API calls. Continue?')) {
+      return;
+    }
+
+    try {
+      setRefreshingPortfolio(true);
+      setError(null);
+      
+      console.log('🔄 Cache Management: Refreshing portfolio data...');
+      await refreshCache(); // This will trigger fresh API calls
+      await loadCacheStats(); // Reload cache stats to reflect changes
+      
+      console.log('✅ Cache Management: Portfolio refresh completed');
+    } catch (err) {
+      console.error('❌ Cache Management: Portfolio refresh failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to refresh portfolio data');
+    } finally {
+      setRefreshingPortfolio(false);
     }
   };
 
@@ -151,7 +177,15 @@ const CacheManagement: React.FC = () => {
                   className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
                 >
                   <RefreshCw className="w-4 h-4" />
-                  <span>Refresh</span>
+                  <span>Refresh Stats</span>
+                </button>
+                <button
+                  onClick={refreshPortfolioData}
+                  disabled={refreshingPortfolio}
+                  className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                >
+                  <RefreshCw className={`w-4 h-4 ${refreshingPortfolio ? 'animate-spin' : ''}`} />
+                  <span>{refreshingPortfolio ? 'Refreshing...' : 'Refresh Portfolio'}</span>
                 </button>
                 <button
                   onClick={clearCache}
