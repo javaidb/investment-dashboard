@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import { TrendingUp, TrendingDown } from 'lucide-react';
@@ -16,17 +16,45 @@ import {
 
 
 const HoldingsPerformance: React.FC = () => {
+  const queryClient = useQueryClient();
   const { holdings: cachedHoldings, holdingsTimestamp, isLoading, error } = useCache();
+
+  // Use React Query for persistent holdings cache that survives browser sessions
+  const { data: persistentHoldings } = useQuery(
+    'persistent-holdings-cache',
+    () => cachedHoldings, // Initialize from cache context
+    {
+      enabled: !!cachedHoldings && Object.keys(cachedHoldings).length > 0,
+      staleTime: Infinity, // Never consider stale
+      cacheTime: Infinity, // Keep cached forever
+      refetchOnWindowFocus: false,
+      refetchOnMount: false, // Don't refetch on mount if we have data
+      refetchOnReconnect: false,
+      refetchInterval: false,
+    }
+  );
+
+  // Transfer cache context data to React Query when available
+  React.useEffect(() => {
+    if (cachedHoldings && Object.keys(cachedHoldings).length > 0) {
+      console.log('🔄 Transferring cache context data to React Query persistent cache');
+      queryClient.setQueryData('persistent-holdings-cache', cachedHoldings);
+    }
+  }, [cachedHoldings, queryClient]);
+
+  // Use persistent holdings if available, fallback to cache context
+  const activeHoldings = persistentHoldings || cachedHoldings;
 
   // Debug logging for cache data
   React.useEffect(() => {
-    if (cachedHoldings) {
-      console.log('Cache data received:', {
-        cacheKeys: Object.keys(cachedHoldings || {}),
-        cacheEntries: Object.entries(cachedHoldings || {}).length
+    if (activeHoldings) {
+      console.log('📊 HoldingsPerformance active data:', {
+        source: persistentHoldings ? 'React Query persistent cache' : 'Cache context',
+        cacheKeys: Object.keys(activeHoldings || {}),
+        cacheEntries: Object.entries(activeHoldings || {}).length
       });
     }
-  }, [cachedHoldings]);
+  }, [activeHoldings, persistentHoldings]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -62,12 +90,28 @@ const HoldingsPerformance: React.FC = () => {
       ['symbol-chart', symbol, holdingData.type],
       async () => {
         try {
-          // Use the fast historical cache endpoint for instant loading
-          // This provides 3-month daily data from cache for quick performance graphs
-          const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
-          return response.data;
+          // Determine symbol type first
+          const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
+          const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
+          
+          // Try cache endpoint first
+          try {
+            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
+            // If we get here, data was cached
+            console.log(`💾 Cache hit for ${symbol}`);
+            return cacheResponse.data;
+          } catch (cacheError) {
+            // Cache miss - call the appropriate live endpoint directly
+            const endpoint = isCrypto 
+              ? `/api/historical/crypto/${symbol}?period=3m&interval=1d`
+              : `/api/historical/stock/${symbol}?period=3m&interval=1d`;
+            
+            console.log(`📊 Cache miss for ${symbol}, fetching from ${endpoint}`);
+            const liveResponse = await axios.get(endpoint);
+            return liveResponse.data;
+          }
         } catch (error) {
-          console.warn(`No historical data available for ${symbol} (${holdingData.type === 'c' ? 'crypto' : 'stock'})`);
+          console.warn(`No historical data available for ${symbol} (${holdingData.type === 'c' ? 'crypto' : 'stock'}):`, error instanceof Error ? error.message : error);
           return null;
         }
       },
@@ -99,7 +143,7 @@ const HoldingsPerformance: React.FC = () => {
       );
     }
 
-    if (!chartData || !chartData.success || !chartData.data || chartData.data.length === 0) {
+    if (!chartData || !chartData.data || chartData.data.length === 0) {
       return (
         <div className="trending-chart-placeholder">
           <div style={{
@@ -191,11 +235,28 @@ const HoldingsPerformance: React.FC = () => {
       ['symbol-chart', symbol, holdingData.type],
       async () => {
         try {
-          // Use the fast historical cache endpoint for instant loading
-          // This provides 3-month daily data from cache for quick performance graphs
-          const response = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
-          return response.data;
+          // Determine symbol type first
+          const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
+          const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
+          
+          // Try cache endpoint first
+          try {
+            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
+            // If we get here, data was cached
+            console.log(`💾 Cache hit for ${symbol}`);
+            return cacheResponse.data;
+          } catch (cacheError) {
+            // Cache miss - call the appropriate live endpoint directly
+            const endpoint = isCrypto 
+              ? `/api/historical/crypto/${symbol}?period=3m&interval=1d`
+              : `/api/historical/stock/${symbol}?period=3m&interval=1d`;
+            
+            console.log(`📊 Cache miss for ${symbol}, fetching from ${endpoint}`);
+            const liveResponse = await axios.get(endpoint);
+            return liveResponse.data;
+          }
         } catch (error) {
+          console.warn(`No historical data available for ${symbol} (${holdingData.type === 'c' ? 'crypto' : 'stock'}):`, error instanceof Error ? error.message : error);
           return null;
         }
       },
@@ -212,7 +273,7 @@ const HoldingsPerformance: React.FC = () => {
 
     // Calculate monthly performance from chart data
     let monthlyPerformance = 0;
-    if (chartData?.success && chartData.data && chartData.data.length > 1) {
+    if (chartData?.data && chartData.data.length > 1) {
       const firstPrice = chartData.data[0].close;
       const lastPrice = chartData.data[chartData.data.length - 1].close;
       monthlyPerformance = ((lastPrice - firstPrice) / firstPrice) * 100;
@@ -258,7 +319,11 @@ const HoldingsPerformance: React.FC = () => {
     );
   };
 
-  if (isLoading) {
+  // Show data immediately if we have cached data, even if context is loading
+  const hasDataToShow = (persistentHoldings && Object.keys(persistentHoldings).length > 0) || 
+                        (activeHoldings && Object.keys(activeHoldings).length > 0);
+
+  if (isLoading && !hasDataToShow) {
     return (
       <div style={{ width: '100%' }}>
         <div style={{ marginBottom: '1rem' }}>
@@ -307,8 +372,8 @@ const HoldingsPerformance: React.FC = () => {
     );
   }
 
-  // Check if we have cache data
-  if (!cachedHoldings || Object.keys(cachedHoldings).length === 0) {
+  // Check if we have holdings data (from either source)
+  if (!activeHoldings || Object.keys(activeHoldings).length === 0) {
     return (
       <div style={{ width: '100%' }}>
         <div style={{ marginBottom: '1rem' }}>
@@ -316,11 +381,13 @@ const HoldingsPerformance: React.FC = () => {
             Holdings Performance (Cached)
           </h3>
           <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
-            No cached holdings data available
+            {persistentHoldings ? 'Loading from persistent cache...' : 'No cached holdings data available'}
           </p>
         </div>
         <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-          <p style={{ color: '#6b7280' }}>Cache is being updated...</p>
+          <p style={{ color: '#6b7280' }}>
+            {persistentHoldings ? 'Persistent cache available, initializing...' : 'Cache is being updated...'}
+          </p>
         </div>
       </div>
     );
@@ -336,15 +403,16 @@ const HoldingsPerformance: React.FC = () => {
           <p style={{ fontSize: '0.875rem', color: '#6B7280' }}>
             Historical price charts for your stock and cryptocurrency holdings
           </p>
-          {holdingsTimestamp && (
-            <div style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>
-              Cache updated: {holdingsTimestamp.toLocaleString()}
-            </div>
-          )}
+          <div style={{ fontSize: '0.75rem', color: '#9CA3AF', display: 'flex', gap: '1rem' }}>
+            <span>💾 Source: {persistentHoldings ? 'Persistent Cache' : 'Live Cache'}</span>
+            {holdingsTimestamp && (
+              <span>🕒 Cache updated: {holdingsTimestamp.toLocaleString()}</span>
+            )}
+          </div>
         </div>
       </div>
       <div className="trending-grid">
-        {cachedHoldings && Object.entries(cachedHoldings).slice(0, 15).map(([symbol, holdingData]: [string, any]) => {
+        {activeHoldings && Object.entries(activeHoldings).slice(0, 15).map(([symbol, holdingData]: [string, any]) => {
           return (
             <HoldingCard key={symbol} symbol={symbol} holdingData={holdingData} />
           );
