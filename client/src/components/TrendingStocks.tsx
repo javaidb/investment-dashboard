@@ -33,16 +33,41 @@ const TrendingStocks: React.FC = () => {
   const { data: trendingData, isLoading, error } = useQuery(
     'trendingWeekly',
     async () => {
-      const response = await axios.get('/api/historical/trending/weekly');
-      return response.data;
+      console.log('🔄 Fetching trending weekly data...');
+      try {
+        const response = await axios.get('/api/historical/trending/weekly', {
+          timeout: 30000 // 30 seconds timeout for trending data
+        });
+        console.log('✅ Trending weekly data received:', Object.keys(response.data.results || {}).length, 'stocks');
+        return response.data;
+      } catch (error) {
+        const axiosError = error as any;
+        console.error('❌ Axios request failed:', {
+          message: axiosError.message,
+          status: axiosError.response?.status,
+          statusText: axiosError.response?.statusText,
+          data: axiosError.response?.data,
+          url: axiosError.config?.url,
+          baseURL: axiosError.config?.baseURL
+        });
+        throw error;
+      }
     },
     {
-      staleTime: Infinity, // Never consider stale - recent trends don't need constant updates
-      cacheTime: Infinity, // Keep cached forever
+      staleTime: 5 * 60 * 1000, // 5 minutes - reasonable for trending data
+      cacheTime: 30 * 60 * 1000, // 30 minutes cache time
       refetchOnWindowFocus: false,
-      refetchOnMount: true, // Only fetch on initial mount
-      refetchOnReconnect: false,
+      refetchOnMount: true,
+      refetchOnReconnect: false, // Disable to avoid double requests
       refetchInterval: false,
+      retry: 2, // Retry failed requests up to 2 times
+      retryDelay: 1000, // Wait 1 second between retries
+      onError: (error) => {
+        console.error('❌ Trending weekly query failed:', error);
+      },
+      onSuccess: (data) => {
+        console.log('✅ Trending weekly query success:', data);
+      }
     }
   );
 
@@ -86,10 +111,14 @@ const TrendingStocks: React.FC = () => {
   }
 
   if (error) {
+    console.error('TrendingStocks error:', error);
     return (
       <div style={{ width: '100%' }}>
         <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-          <p style={{ color: '#6b7280' }}>Failed to load trending stocks</p>
+          <p style={{ color: '#ef4444', marginBottom: '0.5rem' }}>Failed to load trending stocks</p>
+          <p style={{ color: '#6b7280', fontSize: '0.75rem' }}>
+            {error instanceof Error ? error.message : 'Unknown error'}
+          </p>
         </div>
       </div>
     );
