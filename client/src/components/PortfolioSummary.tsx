@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from 'react-query';
 import { useCache } from '../contexts/CacheContext';
+import { useIcons } from '../hooks/useIcons';
+import CompanyIcon from './CompanyIcon';
 
 interface Trade {
   symbol: string;
@@ -48,6 +51,7 @@ const PortfolioSummary: React.FC = () => {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   
+  const queryClient = useQueryClient();
   const { 
     holdings: cachedHoldings, 
     latestPortfolio, 
@@ -58,39 +62,85 @@ const PortfolioSummary: React.FC = () => {
     refreshCache
   } = useCache();
 
-  console.log('🔍 PortfolioSummary component rendered from cache context');
+  // Use React Query for persistent portfolio cache that survives browser sessions
+  const { data: persistentPortfolio } = useQuery(
+    'persistent-portfolio-cache',
+    () => ({ holdings: cachedHoldings, portfolio: latestPortfolio }), // Initialize from cache context
+    {
+      enabled: !!latestPortfolio && !!cachedHoldings && Object.keys(cachedHoldings).length > 0,
+      staleTime: Infinity, // Never consider stale
+      cacheTime: Infinity, // Keep cached forever
+      refetchOnWindowFocus: false,
+      refetchOnMount: false, // Don't refetch on mount if we have data
+      refetchOnReconnect: false,
+      refetchInterval: false,
+    }
+  );
+
+  // Transfer cache context data to React Query when available
+  useEffect(() => {
+    if (latestPortfolio && cachedHoldings && Object.keys(cachedHoldings).length > 0) {
+      console.log('🔄 Transferring portfolio cache context data to React Query persistent cache');
+      queryClient.setQueryData('persistent-portfolio-cache', { 
+        holdings: cachedHoldings, 
+        portfolio: latestPortfolio 
+      });
+    }
+  }, [latestPortfolio, cachedHoldings, queryClient]);
+
+  // Use persistent data if available, fallback to cache context
+  const activeHoldings = persistentPortfolio?.holdings || cachedHoldings;
+  const activePortfolio = persistentPortfolio?.portfolio || latestPortfolio;
+
+  // Fetch icons for all holdings - ensure we have the right data
+  const symbolsForIcons = holdings.length > 0 ? holdings.map(holding => ({
+    symbol: holding.symbol,
+    type: holding.type || 's'
+  })) : [];
+  
+  const { iconUrls } = useIcons({
+    symbols: symbolsForIcons,
+    enabled: holdings.length > 0
+  });
+
+  console.log('🔍 PortfolioSummary component rendered - Source:', persistentPortfolio ? 'Persistent Cache' : 'Live Cache');
 
   useEffect(() => {
-    if (!latestPortfolio || !cachedHoldings || Object.keys(cachedHoldings).length === 0) {
-      console.log('⏳ Waiting for cache data...');
+    if (!activePortfolio || !activeHoldings || Object.keys(activeHoldings).length === 0) {
+      console.log('⏳ Waiting for portfolio data...', { 
+        hasPortfolio: !!activePortfolio, 
+        hasHoldings: !!activeHoldings,
+        source: persistentPortfolio ? 'persistent' : 'live'
+      });
       return;
     }
 
-    console.log('📦 Processing portfolio data from cache context');
+    console.log('📦 Processing portfolio data from', persistentPortfolio ? 'persistent cache' : 'live cache context');
     setError(null); // Clear any previous errors
     processPortfolioData();
     // eslint-disable-next-line
-  }, [latestPortfolio, cachedHoldings]);
+  }, [activePortfolio, activeHoldings, persistentPortfolio]);
 
   const processPortfolioData = () => {
     try {
-      console.log('📦 Processing portfolio data from cache context');
+      console.log('📦 Processing portfolio data from', persistentPortfolio ? 'persistent cache' : 'live cache context');
       console.log('📦 Portfolio structure:', {
-        hasHoldings: !!latestPortfolio.holdings,
-        hasTrades: !!latestPortfolio.trades,
-        holdingsLength: latestPortfolio.holdings?.length || 0,
-        tradesLength: latestPortfolio.trades?.length || 0
+        hasHoldings: !!activePortfolio.holdings,
+        hasTrades: !!activePortfolio.trades,
+        holdingsLength: activePortfolio.holdings?.length || 0,
+        tradesLength: activePortfolio.trades?.length || 0,
+        source: persistentPortfolio ? 'persistent' : 'live'
       });
       
       // Check if we have detailed portfolio data or just summary
-      if (!latestPortfolio.holdings || !Array.isArray(latestPortfolio.holdings)) {
+      if (!activePortfolio.holdings || !Array.isArray(activePortfolio.holdings)) {
         console.warn('⚠️ PortfolioSummary: No holdings array found in portfolio data');
         setError('Portfolio holdings data not available');
         return;
       }
       
       // Extract trades data from portfolio
-      const portfolioTrades = (latestPortfolio.trades || []).map((trade: any) => ({
+      const portfolioTrades = (activePortfolio.trades || []).map((trade: any) => ({
         symbol: trade.symbol,
         date: trade.date,
         action: trade.action,
@@ -100,9 +150,9 @@ const PortfolioSummary: React.FC = () => {
       setTrades(portfolioTrades);
       
       // Merge portfolio holdings with current cached prices
-      const safeHoldings = (latestPortfolio.holdings || []).map((holding: any) => {
+      const safeHoldings = (activePortfolio.holdings || []).map((holding: any) => {
         const symbol = holding.symbol;
-        const cachedPrice = cachedHoldings[symbol];
+        const cachedPrice = activeHoldings[symbol];
         
         // Calculate current values using cached prices
         const currentPrice = cachedPrice?.cadPrice || cachedPrice?.price || null;
@@ -206,7 +256,11 @@ const PortfolioSummary: React.FC = () => {
 
   console.log('🔍 PortfolioSummary render state:', { isLoading, error: cacheError, holdings: holdings.length, summary: !!summary });
 
-  if (isLoading) {
+  // Show data immediately if we have persistent cached data, even if context is loading
+  const hasDataToShow = (persistentPortfolio?.holdings && persistentPortfolio.holdings.length > 0) || 
+                        (holdings && holdings.length > 0);
+
+  if (isLoading && !hasDataToShow) {
     console.log('🔄 PortfolioSummary: Rendering loading state');
     return (
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
@@ -254,10 +308,10 @@ const PortfolioSummary: React.FC = () => {
         <div className="absolute inset-0 bg-black/10"></div>
         <div className="relative z-10">
           <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
-          <p className="text-indigo-100 text-base font-medium">Current holdings and performance from cached data</p>
+          <p className="text-indigo-100 text-base font-medium">Current holdings and performance from {persistentPortfolio ? 'persistent' : 'live'} cache</p>
           <div className="mt-3 space-y-2">
             <div className="text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
-              💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first) • 💰 Net Invested = Total Invested - Amount Sold
+              💾 Source: {persistentPortfolio ? 'Persistent Cache (Browser Storage)' : 'Live Cache Context'} • 💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first) • 💰 Net Invested = Total Invested - Amount Sold
             </div>
             <div className="flex gap-4 text-xs text-indigo-300">
               {portfolioTimestamp && (
@@ -437,6 +491,9 @@ const PortfolioSummary: React.FC = () => {
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       Symbol
                     </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px', width: '80px'}}>
+                      Icon
+                    </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       Company
                     </th>
@@ -488,6 +545,15 @@ const PortfolioSummary: React.FC = () => {
                         }}>
                           {holding.symbol}
                         </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px', textAlign: 'center'}}>
+                        <CompanyIcon
+                          symbol={holding.symbol}
+                          iconUrl={iconUrls[holding.symbol.toUpperCase()]}
+                          companyName={holding.companyName}
+                          size="md"
+                          showFallback={true}
+                        />
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
                         <div style={{
