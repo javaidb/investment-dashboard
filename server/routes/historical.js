@@ -246,11 +246,10 @@ router.get('/trending/weekly', async (req, res) => {
     mondayThisWeek.setDate(now.getDate() - daysFromMonday);
     mondayThisWeek.setHours(0, 0, 0, 0); // Start of Monday
     
-    // Popular stocks to analyze for trending
+    // Popular stocks to analyze for trending (reduced for faster response)
     const candidateStocks = [
       'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX', 'AMD', 'CRM',
-      'ADBE', 'PYPL', 'SQ', 'ZM', 'SHOP', 'ROKU', 'SPOT', 'UBER', 'DOCU', 'SNOW',
-      'BA', 'JPM', 'V', 'MA', 'DIS', 'BABA', 'INTC', 'PFE', 'KO', 'WMT'
+      'PYPL', 'SQ', 'ROKU', 'BA', 'JPM', 'V', 'MA', 'DIS', 'INTC', 'KO'
     ];
 
     const startTimestamp = Math.floor(mondayThisWeek.getTime() / 1000);
@@ -280,7 +279,7 @@ router.get('/trending/weekly', async (req, res) => {
 
           const response = await axios.get(yahooUrl, { 
             params,
-            timeout: 10000 
+            timeout: 5000  // Reduced timeout for faster response
           });
 
           if (!response.data.chart?.result?.[0]) {
@@ -358,7 +357,16 @@ router.get('/trending/weekly', async (req, res) => {
     
     console.log(`📈 Found ${topTrendingStocks.length} trending stocks with positive performance`);
     
-    // Step 2: Format results for response
+    // Step 2: Refresh portfolio holdings cache (proactive caching)
+    try {
+      const { refreshPortfolioCache } = require('../cache-utils');
+      await refreshPortfolioCache();
+    } catch (error) {
+      console.warn('⚠️ Portfolio cache refresh failed during trending update:', error.message);
+      // Don't fail the trending request if portfolio cache update fails
+    }
+    
+    // Step 3: Format results for response
     const results = {};
     topTrendingStocks.forEach(stock => {
       results[stock.symbol] = {
