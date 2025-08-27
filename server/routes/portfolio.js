@@ -567,7 +567,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
     console.log(`📈 Processing ${holdingsWithData.length} top performing holdings`);
     
     const results = {};
-    const timeout = 15000; // 15 second timeout
+    const timeout = 30000; // 30 second timeout
     const promises = holdingsWithData.map(async (holding) => {
       try {
         const symbol = holding.symbol;
@@ -1184,7 +1184,7 @@ async function cacheStockPricesFromHoldings(holdings) {
     allHoldings.map(h => `${h.symbol}(${h.type})`).join(', '));
 
   // Process assets concurrently but with a reasonable limit to avoid overwhelming APIs
-  const batchSize = 5;
+  const batchSize = 10;
   for (let i = 0; i < allHoldings.length; i += batchSize) {
     const batch = allHoldings.slice(i, i + batchSize);
     
