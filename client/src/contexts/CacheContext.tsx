@@ -26,14 +26,14 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadCacheData = async () => {
+  const loadCacheData = async (forceRefresh = false) => {
     try {
       setIsLoading(true);
       setError(null);
 
-      console.log('🔄 CacheProvider: Loading cache data...');
+      console.log(`🔄 CacheProvider: Loading cache data... ${forceRefresh ? '(force refresh)' : '(cache-first)'}`);
 
-      // Load portfolios and holdings cache in parallel
+      // Always load portfolios and holdings cache (these are just reading cached data, not triggering API calls)
       const [portfoliosResponse, cacheResponse] = await Promise.all([
         axios.get('/api/portfolio'),
         axios.get('/api/portfolio/cache/data')
@@ -45,17 +45,33 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       if (portfoliosData && portfoliosData.length > 0) {
         const latest = portfoliosData[portfoliosData.length - 1];
-        setLatestPortfolio(latest);
-        setPortfolioTimestamp(new Date(latest.lastUpdated || latest.createdAt));
         
-        // Load detailed portfolio data with error handling
-        try {
-          const portfolioDetailResponse = await axios.get(`/api/portfolio/${latest.id}`);
-          setLatestPortfolio(portfolioDetailResponse.data);
-          console.log('✅ CacheProvider: Portfolio details loaded successfully');
-        } catch (portfolioError) {
-          console.warn('⚠️ CacheProvider: Failed to load portfolio details, using summary data:', portfolioError);
-          // Keep the summary data if detailed fetch fails
+        // Cache-first approach: only load detailed portfolio if forceRefresh is true
+        if (forceRefresh) {
+          console.log('🔄 Force refresh: Loading detailed portfolio data with fresh API calls...');
+          try {
+            const portfolioDetailResponse = await axios.get(`/api/portfolio/${latest.id}?refresh=true`);
+            setLatestPortfolio(portfolioDetailResponse.data);
+            setPortfolioTimestamp(new Date());
+            console.log('✅ CacheProvider: Portfolio details refreshed successfully');
+          } catch (portfolioError) {
+            console.warn('⚠️ CacheProvider: Failed to refresh portfolio details, using summary data:', portfolioError);
+            setLatestPortfolio(latest);
+            setPortfolioTimestamp(new Date(latest.lastUpdated || latest.createdAt));
+          }
+        } else {
+          // Try to load cached portfolio details first (instant, no API calls)
+          try {
+            console.log('💾 Loading cached portfolio details (no API calls)...');
+            const cachedPortfolioResponse = await axios.get(`/api/portfolio/${latest.id}/cached`);
+            setLatestPortfolio(cachedPortfolioResponse.data);
+            setPortfolioTimestamp(new Date(latest.lastUpdated || latest.createdAt));
+            console.log('✅ CacheProvider: Cached portfolio details loaded instantly');
+          } catch (cachedError) {
+            console.warn('⚠️ CacheProvider: Failed to load cached portfolio details, using summary data:', cachedError);
+            setLatestPortfolio(latest);
+            setPortfolioTimestamp(new Date(latest.lastUpdated || latest.createdAt));
+          }
         }
       }
 
@@ -90,7 +106,7 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const refreshCache = async () => {
-    await loadCacheData();
+    await loadCacheData(true); // Force refresh with fresh API calls
   };
 
   useEffect(() => {
