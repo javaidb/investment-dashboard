@@ -41,7 +41,7 @@ const upload = multer({
 // File-based storage for portfolio data
 const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
 
-// Load portfolios from file
+// Load portfolios from file (new file-based caching structure)
 function loadPortfolios() {
   try {
     // Ensure portfolio directory exists
@@ -54,29 +54,52 @@ function loadPortfolios() {
     if (fs.existsSync(PORTFOLIO_FILE)) {
       const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
       const portfolioData = JSON.parse(data);
-      const portfolios = new Map(Object.entries(portfolioData));
-      console.log(`📁 Loaded ${portfolios.size} portfolios from file`);
+      const portfolios = new Map();
       
-      // Validate portfolio data structure
-      for (const [id, portfolio] of portfolios.entries()) {
-        if (!portfolio || typeof portfolio !== 'object') {
-          console.warn(`⚠️ Invalid portfolio data for ID ${id}:`, portfolio);
-          portfolios.delete(id);
-          continue;
+      // Check if this is the old format (portfolioId -> portfolio) or new format (filename -> fileData)
+      const isOldFormat = Object.keys(portfolioData).some(key => {
+        const item = portfolioData[key];
+        return item && item.id && item.trades && item.holdings;
+      });
+      
+      if (isOldFormat) {
+        // Convert old format to new format temporarily for backward compatibility
+        console.log('📁 Converting old portfolio format to new file-based format...');
+        const legacyPortfolios = new Map(Object.entries(portfolioData));
+        
+        // Validate legacy portfolio data structure
+        for (const [id, portfolio] of legacyPortfolios.entries()) {
+          if (!portfolio || typeof portfolio !== 'object') {
+            console.warn(`⚠️ Invalid portfolio data for ID ${id}:`, portfolio);
+            legacyPortfolios.delete(id);
+            continue;
+          }
+          
+          if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+            console.warn(`⚠️ Portfolio ${id} has invalid holdings structure:`, portfolio.holdings);
+            portfolio.holdings = [];
+          }
+          
+          if (!portfolio.summary || typeof portfolio.summary !== 'object') {
+            console.warn(`⚠️ Portfolio ${id} has invalid summary structure:`, portfolio.summary);
+            portfolio.summary = {};
+          }
         }
         
-        if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
-          console.warn(`⚠️ Portfolio ${id} has invalid holdings structure:`, portfolio.holdings);
-          portfolio.holdings = [];
+        console.log(`📁 Loaded ${legacyPortfolios.size} legacy portfolios from file`);
+        return legacyPortfolios;
+      } else {
+        // New file-based format: filename -> { fileMetadata, portfolio }
+        let totalPortfolios = 0;
+        for (const [filename, fileData] of Object.entries(portfolioData)) {
+          if (fileData && fileData.portfolio && typeof fileData.portfolio === 'object') {
+            portfolios.set(fileData.portfolio.id, fileData.portfolio);
+            totalPortfolios++;
+          }
         }
-        
-        if (!portfolio.summary || typeof portfolio.summary !== 'object') {
-          console.warn(`⚠️ Portfolio ${id} has invalid summary structure:`, portfolio.summary);
-          portfolio.summary = {};
-        }
+        console.log(`📁 Loaded ${totalPortfolios} portfolios from ${Object.keys(portfolioData).length} files`);
+        return portfolios;
       }
-      
-      return portfolios;
     } else {
       console.log('📁 No portfolio file found, starting with empty portfolios');
     }
@@ -86,12 +109,68 @@ function loadPortfolios() {
   return new Map();
 }
 
-// Save portfolios to file
-function savePortfolios(portfolios) {
+// Save portfolios to file with file-based caching structure
+function savePortfolios(portfolios, fileMetadata = null) {
   try {
-    const portfolioData = Object.fromEntries(portfolios);
+    let portfolioData = {};
+    
+    // Load existing file-based data if it exists
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      try {
+        const existingData = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+        const parsedData = JSON.parse(existingData);
+        
+        // Check if existing data is in new file-based format
+        const isNewFormat = Object.keys(parsedData).some(key => {
+          const item = parsedData[key];
+          return item && item.fileMetadata && item.portfolio;
+        });
+        
+        if (isNewFormat) {
+          portfolioData = parsedData;
+        }
+      } catch (parseError) {
+        console.warn('⚠️ Could not parse existing portfolio data, starting fresh');
+      }
+    }
+    
+    // If fileMetadata is provided, update specific files
+    if (fileMetadata && Array.isArray(fileMetadata)) {
+      for (const fileMeta of fileMetadata) {
+        const portfolio = Array.from(portfolios.values()).find(p => p.id === fileMeta.portfolioId);
+        if (portfolio) {
+          portfolioData[fileMeta.filename] = {
+            fileMetadata: {
+              folder: fileMeta.folder,
+              filename: fileMeta.filename,
+              fileSize: fileMeta.fileSize,
+              lastModified: fileMeta.lastModified,
+              processedAt: new Date().toISOString()
+            },
+            portfolio: portfolio
+          };
+        }
+      }
+    } else {
+      // Fallback: save all portfolios without specific file metadata (legacy mode)
+      const timestamp = new Date().toISOString();
+      for (const [portfolioId, portfolio] of portfolios.entries()) {
+        const filename = `portfolio_${portfolioId}.csv`;
+        portfolioData[filename] = {
+          fileMetadata: {
+            folder: 'unknown',
+            filename: filename,
+            fileSize: 0,
+            lastModified: timestamp,
+            processedAt: timestamp
+          },
+          portfolio: portfolio
+        };
+      }
+    }
+    
     fs.writeFileSync(PORTFOLIO_FILE, JSON.stringify(portfolioData, null, 2));
-    console.log(`💾 Saved ${portfolios.size} portfolios to file`);
+    console.log(`💾 Saved ${Object.keys(portfolioData).length} file entries containing ${portfolios.size} portfolios`);
   } catch (error) {
     console.error('❌ Could not save portfolios to file:', error.message);
   }
@@ -978,13 +1057,93 @@ router.delete('/:portfolioId', (req, res) => {
       return res.status(404).json({ error: 'Portfolio not found' });
     }
 
-    // Save to file after deletion
+    // Save to file after deletion (no specific file metadata needed for deletion)
     savePortfolios(portfolios);
 
     res.json({ message: 'Portfolio deleted successfully' });
   } catch (error) {
     console.error('Portfolio deletion error:', error);
     res.status(500).json({ error: 'Failed to delete portfolio' });
+  }
+});
+
+// Get portfolio data from cache only (no API calls) - for instant loading
+router.get('/:portfolioId/cached', async (req, res) => {
+  const { portfolioId } = req.params;
+  
+  try {
+    console.log('💾 Portfolio CACHED request received for ID:', portfolioId);
+
+    if (!portfolioId) {
+      console.log('❌ No portfolio ID provided');
+      return res.status(400).json({ error: 'Portfolio ID is required' });
+    }
+    
+    const portfolio = portfolios.get(portfolioId);
+
+    if (!portfolio) {
+      console.log('❌ Portfolio not found:', portfolioId);
+      return res.status(404).json({ error: 'Portfolio not found' });
+    }
+
+    console.log('✅ Portfolio found, returning cached data without API calls');
+    
+    // Validate portfolio structure
+    if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+      console.error('❌ Invalid portfolio structure:', portfolio);
+      return res.status(500).json({ error: 'Invalid portfolio data structure' });
+    }
+
+    // Return portfolio data merged with current cached holdings prices (no fresh API calls)
+    const holdingsWithCachedPrices = portfolio.holdings.map(holding => {
+      const symbol = holding.symbol;
+      const cachedHolding = holdingsCache?.cache?.get(symbol);
+      
+      if (cachedHolding) {
+        // Calculate current values using cached prices
+        const currentPrice = cachedHolding.cadPrice || cachedHolding.price || null;
+        const currentValue = currentPrice ? holding.quantity * currentPrice : null;
+        const unrealizedPnL = currentValue && holding.totalInvested ? 
+          currentValue - holding.totalInvested : null;
+        const totalPnL = unrealizedPnL !== null ? 
+          unrealizedPnL + holding.realizedPnL : holding.realizedPnL;
+        
+        return {
+          ...holding,
+          currentPrice: currentPrice,
+          currentValue: currentValue,
+          unrealizedPnL: unrealizedPnL,
+          totalPnL: totalPnL,
+          totalPnLPercent: holding.totalInvested > 0 ? (totalPnL / holding.totalInvested) * 100 : 0,
+          companyName: cachedHolding.companyName || holding.companyName || symbol,
+          cacheUsed: true,
+          cacheTimestamp: cachedHolding.lastUpdated || cachedHolding.fetchedAt
+        };
+      } else {
+        // No cached data available - return holding as-is
+        return {
+          ...holding,
+          cacheUsed: false
+        };
+      }
+    });
+
+    const response = {
+      ...portfolio,
+      holdings: holdingsWithCachedPrices,
+      cached: true,
+      message: 'Data retrieved from cache only, no API calls made'
+    };
+
+    console.log('📦 Returning cached portfolio with', holdingsWithCachedPrices.length, 'holdings');
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Portfolio cached request error:', error);
+    res.status(500).json({ 
+      error: 'Failed to retrieve cached portfolio data',
+      details: error.message 
+    });
   }
 });
 
@@ -1081,32 +1240,39 @@ async function cacheStockPricesFromHoldings(holdings) {
             console.warn(`⚠️ Invalid response format for stock ${symbol}`);
           }
         } else if (holding.type === 'c') {
-          // Fetch crypto price from CoinGecko
-          const coinGeckoUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${getCoinGeckoId(symbol)}&vs_currencies=usd`;
-          const response = await axios.get(coinGeckoUrl, { timeout: 8000 });
-          const coinId = getCoinGeckoId(symbol);
-          const currentPrice = response.data[coinId]?.usd;
+          // Fetch crypto price from Yahoo Finance (e.g., BTC-USD, ETH-USD)
+          const cryptoSymbol = `${symbol.toUpperCase()}-USD`;
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cryptoSymbol}`;
+          const response = await axios.get(yahooUrl, { timeout: 8000 });
           
-          if (currentPrice) {
-            // Get exchange rate and calculate CAD price
-            const exchangeRate = await getUSDtoCADRate();
-            const cadPrice = currentPrice * exchangeRate;
+          if (response.data?.chart?.result?.[0]) {
+            const result = response.data.chart.result[0];
+            const meta = result.meta;
+            const currentPrice = meta.regularMarketPrice || meta.previousClose;
             
-            // Update cache with fresh data
-            holdingsCache.update(symbol, {
-              price: currentPrice,
-              usdPrice: currentPrice,
-              cadPrice: cadPrice,
-              companyName: getCryptoName(symbol),
-              exchangeRate: exchangeRate,
-              fetchedAt: new Date().toISOString(),
-              priceDate: new Date().toISOString(), // When this price is from
-              currency: 'USD'
-            });
-            
-            console.log(`✅ Cached crypto ${symbol}: $${currentPrice} USD ($${cadPrice.toFixed(2)} CAD)`);
+            if (currentPrice) {
+              // Get exchange rate and calculate CAD price
+              const exchangeRate = await getUSDtoCADRate();
+              const cadPrice = currentPrice * exchangeRate;
+              
+              // Update cache with fresh data
+              holdingsCache.update(symbol, {
+                price: currentPrice,
+                usdPrice: currentPrice,
+                cadPrice: cadPrice,
+                companyName: meta.longName || meta.shortName || getCryptoName(symbol),
+                exchangeRate: exchangeRate,
+                fetchedAt: new Date().toISOString(),
+                priceDate: new Date().toISOString(), // When this price is from
+                currency: 'USD'
+              });
+              
+              console.log(`✅ Cached crypto ${symbol}: $${currentPrice} USD ($${cadPrice.toFixed(2)} CAD)`);
+            } else {
+              console.warn(`⚠️ No price data available for crypto ${symbol}`);
+            }
           } else {
-            console.warn(`⚠️ No price data available for crypto ${symbol}`);
+            console.warn(`⚠️ Invalid response format for crypto ${symbol}`);
           }
         }
       } catch (error) {
@@ -1882,7 +2048,7 @@ router.post('/cleanup/duplicates', (req, res) => {
       }
     }
     
-    // Save cleaned up portfolios
+    // Save cleaned up portfolios (no specific file metadata needed for cleanup)
     savePortfolios(portfolios);
     
     console.log(`✅ Cleanup completed. Removed ${duplicatesRemoved} duplicates, kept ${portfolios.size} unique portfolios`);
@@ -1937,11 +2103,23 @@ async function processUploadedFiles(req, res) {
     const portfolioId = Date.now().toString();
     console.log('🆔 Generated portfolio ID:', portfolioId);
 
+    // Collect file metadata for new caching structure
+    const fileMetadataList = [];
+    
     // Process each CSV file
     for (const fileInfo of allFiles) {
       const { path: filePath, type: fileType } = fileInfo;
       const trades = [];
       console.log(`📄 Processing ${fileType} file:`, fileInfo.name);
+      
+      // Get file metadata
+      let fileStats;
+      try {
+        fileStats = fs.statSync(filePath);
+      } catch (statError) {
+        console.error(`Error getting file stats for ${fileInfo.name}:`, statError.message);
+        continue;
+      }
 
       await new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -1970,6 +2148,17 @@ async function processUploadedFiles(req, res) {
           .on('end', () => {
             allTrades = allTrades.concat(trades);
             console.log(`✅ Completed processing ${fileInfo.name}, found ${trades.length} trades`);
+            
+            // Add file metadata for this file
+            fileMetadataList.push({
+              folder: fileType, // 'crypto' or 'wealthsimple'
+              filename: fileInfo.name,
+              fileSize: fileStats.size,
+              lastModified: fileStats.mtime.toISOString(),
+              portfolioId: portfolioId, // Will be set after portfolio creation
+              tradesCount: trades.length
+            });
+            
             resolve();
           })
           .on('error', (error) => {
@@ -2007,8 +2196,13 @@ async function processUploadedFiles(req, res) {
     portfolios.set(portfolioId, portfolioData);
     console.log('📊 Current portfolios in memory:', Array.from(portfolios.keys()));
     
-    // Save to file
-    savePortfolios(portfolios);
+    // Update file metadata with the actual portfolio ID
+    fileMetadataList.forEach(fileMeta => {
+      fileMeta.portfolioId = portfolioId;
+    });
+    
+    // Save to file with metadata
+    savePortfolios(portfolios, fileMetadataList);
 
     // Update file tracking to mark all files as processed
     fileTracker.updateTracking();
