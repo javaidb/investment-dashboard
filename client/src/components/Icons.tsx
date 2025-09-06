@@ -229,7 +229,8 @@ const Icons: React.FC = () => {
               <img
                 src={`${icon.url}?t=${Date.now()}`}
                 alt={`${icon.symbol} icon`}
-                className="w-10 h-10 mx-auto object-contain border rounded-lg"
+                className="mx-auto object-contain border rounded-lg"
+                style={{ width: '50px', height: '50px' }}
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = '/api/icons/image/template.png';
                 }}
