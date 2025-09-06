@@ -2,6 +2,8 @@ import React from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
+import { useIcons } from '../hooks/useIcons';
+import CompanyIcon from './CompanyIcon';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import {
   XAxis,
@@ -18,6 +20,26 @@ import {
 const HoldingsPerformance: React.FC = () => {
   const queryClient = useQueryClient();
   const { holdings: cachedHoldings, holdingsTimestamp, isLoading, error } = useCache();
+  
+  // Get icon URLs for all holdings
+  const symbolsForIcons = cachedHoldings ? Object.entries(cachedHoldings).map(([symbol, data]) => {
+    const holdingData = data as any;
+    // Use the actual type from holdings data, or detect crypto vs stock
+    let assetType = holdingData.type;
+    if (!assetType) {
+      // Fallback: detect crypto symbols
+      const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
+      assetType = cryptoSymbols.includes(symbol.toUpperCase()) ? 'c' : 's';
+    }
+    return {
+      symbol: symbol,
+      type: assetType
+    };
+  }) : [];
+  const { iconUrls } = useIcons({ 
+    symbols: symbolsForIcons,
+    enabled: symbolsForIcons.length > 0 
+  });
 
   // Use React Query for persistent holdings cache that survives browser sessions
   const { data: persistentHoldings } = useQuery(
@@ -230,7 +252,7 @@ const HoldingsPerformance: React.FC = () => {
   };
 
   // Individual holding card component that calculates its own performance
-  const HoldingCard: React.FC<{ symbol: string; holdingData: any }> = ({ symbol, holdingData }) => {
+  const HoldingCard: React.FC<{ symbol: string; holdingData: any; iconUrl?: string }> = ({ symbol, holdingData, iconUrl }) => {
     const { data: chartData } = useQuery(
       ['symbol-chart', symbol, holdingData.type],
       async () => {
@@ -283,9 +305,18 @@ const HoldingsPerformance: React.FC = () => {
       <div className="trending-card">
         {/* Stock Info */}
         <div className="trending-header">
-          <div>
-            <h4 className="trending-symbol">{symbol}</h4>
-            <p className="trending-name">{holdingData.companyName || symbol}</p>
+          <div className="flex items-center gap-3">
+            <CompanyIcon
+              symbol={symbol}
+              iconUrl={iconUrl}
+              companyName={holdingData.companyName || symbol}
+              size="10x10"
+              showTooltip={false}
+            />
+            <div>
+              <h4 className="trending-symbol">{symbol}</h4>
+              <p className="trending-name">{holdingData.companyName || symbol}</p>
+            </div>
           </div>
           <div className="trending-price">
             <div className="trending-price-value">
@@ -414,7 +445,12 @@ const HoldingsPerformance: React.FC = () => {
       <div className="trending-grid">
         {activeHoldings && Object.entries(activeHoldings).slice(0, 15).map(([symbol, holdingData]: [string, any]) => {
           return (
-            <HoldingCard key={symbol} symbol={symbol} holdingData={holdingData} />
+            <HoldingCard 
+              key={symbol} 
+              symbol={symbol} 
+              holdingData={holdingData}
+              iconUrl={iconUrls[symbol.toUpperCase()]}
+            />
           );
         })}
       </div>
