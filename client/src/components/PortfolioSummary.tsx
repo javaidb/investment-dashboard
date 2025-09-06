@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
+import HoldingsChartWrapper from './HoldingsChartWrapper';
 
 interface Trade {
   symbol: string;
@@ -551,7 +552,7 @@ const PortfolioSummary: React.FC = () => {
         </div>
       </div>
 
-      <div className="p-6 bg-gradient-to-br from-gray-50 to-white" style={{width: '100%', maxWidth: '100%'}}>
+      <div className="p-6 bg-gradient-to-br from-gray-50 to-white" style={{width: '100%', maxWidth: 'fit-content', margin: '0 auto'}}>
         {summary && (
           <div style={{
             backgroundColor: 'white',
@@ -675,6 +676,21 @@ const PortfolioSummary: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Holdings Chart */}
+        {holdings.length > 0 && (
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb',
+            overflow: 'hidden',
+            width: '100%',
+            marginBottom: '24px'
+          }}>
+            <HoldingsChartWrapper />
           </div>
         )}
 
