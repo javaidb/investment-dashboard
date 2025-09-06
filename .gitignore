@@ -77,3 +77,7 @@ uploads/
 # Cache and data files
 server/data/cache/
 *.cache
+
+# Icons directory - ignore everything except gnrc.png
+server/data/icons/*
+!server/data/icons/gnrc.png
