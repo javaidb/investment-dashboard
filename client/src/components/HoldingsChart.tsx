@@ -58,6 +58,8 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
   const [zoomEnd, setZoomEnd] = useState<number | null>(null);
   const [isZooming, setIsZooming] = useState(false);
   const [selectionBox, setSelectionBox] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const lastMouseMove = useRef<number>(0);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
@@ -167,6 +169,35 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     setSelectionBox(null);
   }, []);
 
+  const resetDateRange = useCallback(() => {
+    setStartDate('');
+    setEndDate('');
+    resetZoom();
+  }, [resetZoom]);
+
+  const setDateRangePreset = useCallback((months: number) => {
+    if (!historicalData || historicalData.length === 0) return;
+    
+    const latestDate = new Date(historicalData[historicalData.length - 1].date);
+    const presetStartDate = new Date(latestDate);
+    presetStartDate.setMonth(presetStartDate.getMonth() - months);
+    
+    const earliestDate = new Date(historicalData[0].date);
+    const actualStartDate = presetStartDate > earliestDate ? presetStartDate : earliestDate;
+    
+    setStartDate(actualStartDate.toISOString().split('T')[0]);
+    setEndDate(latestDate.toISOString().split('T')[0]);
+    resetZoom();
+  }, [historicalData, resetZoom]);
+
+  // Set default date range when historical data loads - show ALL data by default
+  useEffect(() => {
+    if (historicalData && historicalData.length > 0 && !startDate && !endDate) {
+      // Default to ALL data - no date filtering
+      // Don't set startDate and endDate, leave them empty to show all data
+    }
+  }, [historicalData, startDate, endDate]);
+
   // Filter trades for selected holding and match with chart dates
   const holdingTrades = trades.filter(trade => 
     selectedHolding && trade.symbol === selectedHolding.symbol
@@ -186,14 +217,31 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     };
   }).filter(trade => trade.chartDate);
 
-  // Filter data based on zoom selection
+  // Filter data based on date range or zoom selection
   const getFilteredData = (data: StockData[]) => {
-    if (!data || !zoomStart || !zoomEnd) return data;
+    if (!data) return data;
     
-    const startIndex = Math.max(0, Math.floor(zoomStart));
-    const endIndex = Math.min(data.length - 1, Math.ceil(zoomEnd));
+    let filtered = data;
     
-    return data.slice(startIndex, endIndex + 1);
+    // First apply date range filtering if dates are selected
+    if (startDate || endDate) {
+      filtered = data.filter(item => {
+        const itemDate = new Date(item.date);
+        const start = startDate ? new Date(startDate) : new Date(0);
+        const end = endDate ? new Date(endDate) : new Date();
+        
+        return itemDate >= start && itemDate <= end;
+      });
+    }
+    
+    // Then apply zoom selection if it exists
+    if (zoomStart !== null && zoomEnd !== null && filtered.length > 0) {
+      const startIndex = Math.max(0, Math.floor(zoomStart));
+      const endIndex = Math.min(filtered.length - 1, Math.ceil(zoomEnd));
+      filtered = filtered.slice(startIndex, endIndex + 1);
+    }
+    
+    return filtered;
   };
 
   const filteredData = getFilteredData(historicalData || []);
@@ -224,7 +272,13 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
   return (
     <div className="card">
       <div className="card-header">
-        <div className="chart-controls">
+        {/* First row: Dropdown and Title side by side */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '1rem', 
+          marginBottom: '1rem'
+        }}>
           <div className="search-container">
             <select
               value={selectedHolding?.symbol || ''}
@@ -233,6 +287,7 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
                 setSelectedHolding(holding || null);
               }}
               className="search-input"
+              style={{ width: '16rem' }}
             >
               {holdings.map((holding) => (
                 <option key={holding.symbol} value={holding.symbol}>
@@ -245,11 +300,75 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
           <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827' }}>
             {selectedHolding?.symbol || 'Select Holding'}
           </div>
+        </div>
+
+        {/* Second row: Date Range Controls */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '0.75rem',
+          flexWrap: 'wrap'
+        }}>
+          {/* Date Range Inputs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              max={endDate || undefined}
+              style={{ width: '115px' }}
+            />
+            <span className="text-gray-400 text-xs">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              min={startDate || undefined}
+              style={{ width: '115px' }}
+            />
+          </div>
+          
+          {/* Preset Buttons */}
+          <div className="time-range-buttons">
+            <button
+              onClick={() => setDateRangePreset(1)}
+              className="time-range-btn"
+            >
+              1M
+            </button>
+            <button
+              onClick={() => setDateRangePreset(3)}
+              className="time-range-btn"
+            >
+              3M
+            </button>
+            <button
+              onClick={() => setDateRangePreset(6)}
+              className="time-range-btn"
+            >
+              6M
+            </button>
+            <button
+              onClick={() => setDateRangePreset(12)}
+              className="time-range-btn"
+            >
+              1Y
+            </button>
+            
+            <button
+              onClick={resetDateRange}
+              className={`time-range-btn ${(!startDate && !endDate) ? 'active' : ''}`}
+            >
+              ALL
+            </button>
+          </div>
           
           {(zoomStart !== null || zoomEnd !== null) && (
             <button
               onClick={resetZoom}
-              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-all font-medium"
             >
               Reset Zoom
             </button>
