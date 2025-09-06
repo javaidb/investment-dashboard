@@ -103,6 +103,18 @@ const PortfolioSummary: React.FC = () => {
     enabled: holdings.length > 0
   });
 
+  // Debug logging
+  console.log('🔍 PortfolioSummary Icon Debug:', {
+    holdingsCount: holdings.length,
+    symbolsForIcons,
+    iconUrls,
+    sampleIconLookup: holdings.length > 0 ? {
+      symbol: holdings[0]?.symbol,
+      upperSymbol: holdings[0]?.symbol?.toUpperCase(),
+      iconUrl: iconUrls[holdings[0]?.symbol?.toUpperCase()]
+    } : null
+  });
+
   console.log('🔍 PortfolioSummary component rendered - Source:', persistentPortfolio ? 'Persistent Cache' : 'Live Cache');
 
   useEffect(() => {
@@ -358,10 +370,11 @@ const PortfolioSummary: React.FC = () => {
             }}>
               <div style={{textAlign: 'center'}}>
                 <div style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
+                  fontSize: '28px',
+                  fontWeight: '700',
                   color: '#111827',
-                  marginBottom: '4px'
+                  marginBottom: '4px',
+                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
                 }}>
                   {formatCurrency(summary.currentTotalValue)}
                 </div>
@@ -378,10 +391,11 @@ const PortfolioSummary: React.FC = () => {
               </div>
               <div style={{textAlign: 'center'}}>
                 <div style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#111827',
-                  marginBottom: '4px'
+                  fontSize: '28px',
+                  fontWeight: '700',
+                  color: (summary.totalInvested - (summary.totalAmountSold || 0)) >= 0 ? '#dc2626' : '#166534',
+                  marginBottom: '4px',
+                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
                 }}>
                   {formatCurrency(summary.totalInvested - (summary.totalAmountSold || 0))}
                 </div>
@@ -394,7 +408,7 @@ const PortfolioSummary: React.FC = () => {
                   display: 'inline-block',
                   marginRight: '8px'
                 }}>
-                  Net Spent
+                  Net Cash Flow
                 </div>
                 <span style={{
                   fontSize: '12px',
@@ -406,10 +420,11 @@ const PortfolioSummary: React.FC = () => {
               </div>
               <div style={{textAlign: 'center'}}>
                 <div style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
+                  fontSize: '28px',
+                  fontWeight: '700',
                   color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                  marginBottom: '4px'
+                  marginBottom: '4px',
+                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
                 }}>
                   {formatCurrency(summary.totalPnL)}
                 </div>
@@ -426,10 +441,11 @@ const PortfolioSummary: React.FC = () => {
               </div>
               <div style={{textAlign: 'center'}}>
                 <div style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
+                  fontSize: '28px',
+                  fontWeight: '700',
                   color: summary.totalPnLPercent && summary.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
-                  marginBottom: '4px'
+                  marginBottom: '4px',
+                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
                 }}>
                   {formatPercentage(summary.totalPnLPercent)}
                 </div>
@@ -551,8 +567,9 @@ const PortfolioSummary: React.FC = () => {
                           symbol={holding.symbol}
                           iconUrl={iconUrls[holding.symbol.toUpperCase()]}
                           companyName={holding.companyName}
-                          size="md"
+                          size="10x10"
                           showFallback={true}
+                          showTooltip={false}
                         />
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
