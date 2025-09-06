@@ -8,7 +8,8 @@ import {
   Menu,
   X,
   Database,
-  Image
+  Image,
+  PieChart
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -21,7 +22,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: BarChart3 },
+    { name: 'Breakdown', href: '/breakdown', icon: PieChart },
+    { name: 'Trends', href: '/trends', icon: TrendingUp },
     { name: 'Search', href: '/search', icon: Search },
     { name: 'Portfolio', href: '/portfolio', icon: Upload },
     { name: 'Icons', href: '/icons', icon: Image },
