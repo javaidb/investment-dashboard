@@ -7,7 +7,8 @@ import {
   TrendingUp,
   Menu,
   X,
-  Database
+  Database,
+  Image
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -23,6 +24,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Dashboard', href: '/', icon: BarChart3 },
     { name: 'Search', href: '/search', icon: Search },
     { name: 'Portfolio', href: '/portfolio', icon: Upload },
+    { name: 'Icons', href: '/icons', icon: Image },
     { name: 'Cache', href: '/cache', icon: Database },
   ];
 
