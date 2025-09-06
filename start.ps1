@@ -220,10 +220,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "STARTING SERVERS" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-# Open browser
-Write-Host "Opening dashboard in browser in 5 seconds..." -ForegroundColor Yellow
-Start-Sleep -Seconds 5
-Start-Process "http://localhost:3000"
+# Browser will automatically open when React starts
 
 Write-Host "Starting both frontend and backend servers..." -ForegroundColor Yellow
 Write-Host ""
