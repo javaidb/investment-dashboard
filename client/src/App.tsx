@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Breakdown from './pages/Breakdown';
 import Trends from './pages/Trends';
+import Analysis from './pages/Analysis';
 import Portfolio from './pages/Portfolio';
 import Search from './pages/Search';
 import CacheManagement from './pages/CacheManagement';
@@ -21,6 +22,7 @@ function App() {
             <Route path="/" element={<Breakdown />} />
             <Route path="/breakdown" element={<Breakdown />} />
             <Route path="/trends" element={<Trends />} />
+            <Route path="/analysis" element={<Analysis />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/search" element={<Search />} />
             <Route path="/icons" element={<Icons />} />
