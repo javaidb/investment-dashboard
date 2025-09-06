@@ -7,12 +7,12 @@ I've created a comprehensive investment dashboard that tracks stocks and cryptoc
 ## 🏗️ Architecture
 
 ### Backend (Node.js/Express)
-- **Server**: Express.js with TypeScript support
-- **APIs**: RESTful API endpoints for stocks, crypto, portfolio, and search
+- **Server**: Express.js with comprehensive middleware
+- **APIs**: RESTful API endpoints for stocks, crypto, portfolio, search, historical data, and icons
 - **Data Sources**: 
   - Alpha Vantage API for stock market data
   - CoinGecko API for cryptocurrency data
-- **Features**: Rate limiting, caching, file upload handling, CSV parsing
+- **Features**: Rate limiting, multi-layer caching, file upload handling, CSV parsing, icon management
 
 ### Frontend (React/TypeScript)
 - **Framework**: React 18 with TypeScript
@@ -30,18 +30,30 @@ investment-dashboard/
 │   │   ├── stocks.js          # Stock market endpoints
 │   │   ├── crypto.js          # Cryptocurrency endpoints
 │   │   ├── portfolio.js       # Portfolio management
-│   │   └── search.js          # Search functionality
+│   │   ├── search.js          # Search functionality
+│   │   ├── historical.js      # Historical data endpoints
+│   │   └── icons.js           # Icon management endpoints
+│   ├── data/                  # Data storage and cache
+│   │   ├── cache/             # JSON cache files
+│   │   └── icons/             # Asset icon images
 │   ├── index.js               # Main server file
+│   ├── cache.js               # Caching system
 │   ├── package.json           # Backend dependencies
 │   └── env.example            # Environment variables template
 ├── client/                     # Frontend React app
 │   ├── src/
 │   │   ├── components/        # Reusable UI components
-│   │   │   └── Layout.tsx     # Main layout with navigation
+│   │   │   ├── Layout.tsx     # Main layout with navigation
+│   │   │   ├── CompanyIcon.tsx # Asset icon component
+│   │   │   ├── HoldingsChart.tsx # Chart components
+│   │   │   ├── PortfolioSummary.tsx # Portfolio overview
+│   │   │   ├── Icons.tsx      # Icon management interface
+│   │   │   └── IconDebug.tsx  # Icon debugging tools
 │   │   ├── pages/             # Page components
 │   │   │   ├── Dashboard.tsx  # Main dashboard view
 │   │   │   ├── Search.tsx     # Search functionality
 │   │   │   ├── Portfolio.tsx  # Portfolio management
+│   │   │   ├── CacheManagement.tsx # Cache monitoring
 │   │   │   └── NotFound.tsx   # 404 page
 │   │   ├── App.tsx            # Main app component
 │   │   ├── index.tsx          # React entry point
@@ -53,8 +65,11 @@ investment-dashboard/
 ├── package.json               # Root package.json with scripts
 ├── README.md                  # Project documentation
 ├── SETUP.md                   # Detailed setup guide
-├── start.bat                  # Windows startup script
-└── sample-trades.csv          # Example CSV for testing
+├── start.ps1                  # Enhanced PowerShell startup script
+├── stop.ps1                   # Process cleanup script
+├── check-ports.ps1            # Port monitoring script
+├── CLAUDE.md                  # Development guidelines for Claude Code
+└── PROJECT_SUMMARY.md         # This comprehensive overview
 ```
 
 ## 🚀 Key Features
@@ -62,8 +77,9 @@ investment-dashboard/
 ### 1. Live Data Tracking
 - **Real-time Stock Prices**: Fetched from Alpha Vantage API
 - **Live Crypto Data**: From CoinGecko API with 2-minute refresh
-- **Caching System**: Reduces API calls and improves performance
+- **Multi-layer Caching**: Holdings, historical data, and icon caching
 - **Auto-refresh**: Data updates automatically every few minutes
+- **Historical Data**: Charts and performance tracking over time
 
 ### 2. Search Functionality
 - **Unified Search**: Search both stocks and cryptocurrencies
@@ -84,6 +100,8 @@ investment-dashboard/
 - **Interactive Elements**: Hover effects, loading states
 - **Real-time Updates**: Live data with visual indicators
 - **Intuitive Navigation**: Sidebar navigation with active states
+- **Asset Icons**: Visual representation with custom icon management
+- **Charts & Graphs**: Interactive holdings performance charts
 
 ## 🔧 Technical Features
 
@@ -104,10 +122,12 @@ investment-dashboard/
 - **Accessibility**: ARIA labels and keyboard navigation
 
 ### Data Management
-- **In-Memory Storage**: Fast portfolio data storage (can be upgraded to database)
-- **CSV Parsing**: Robust CSV file processing
+- **File-based Storage**: JSON files for cache persistence across restarts
+- **CSV Parsing**: Robust CSV file processing with multiple format support
 - **Data Validation**: Input validation and error handling
-- **Cache Management**: Intelligent caching strategies
+- **Multi-layer Caching**: Holdings, historical data, icons, and file tracking
+- **Icon Management**: Asset icon storage, processing, and mapping system
+- **Cache Monitoring**: Real-time cache statistics and management interface
 
 ## 📊 API Endpoints
 
@@ -121,6 +141,18 @@ investment-dashboard/
 - `GET /search/:query` - Search cryptocurrencies
 - `GET /trending` - Get trending crypto
 - `POST /prices` - Get multiple crypto prices
+
+### Historical Data (`/api/historical`)
+- `GET /:symbol` - Get historical price data
+- `GET /batch` - Get multiple symbols historical data
+- `GET /performance/:symbol` - Get performance metrics
+
+### Icons (`/api/icons`)
+- `GET /` - List all available icons
+- `POST /upload` - Upload new icon files
+- `GET /:symbol` - Get specific asset icon
+- `POST /mapping` - Update icon mappings
+- `GET /debug` - Icon debugging information
 
 ### Portfolio (`/api/portfolio`)
 - `POST /upload` - Upload CSV trading data
@@ -193,19 +225,30 @@ investment-dashboard/
 6. Start development servers (`npm run dev`)
 
 ### Development Commands
-- `npm run dev` - Start both servers
-- `npm run server` - Start backend only
-- `npm run client` - Start frontend only
+- `npm run dev` - Start both servers concurrently
+- `npm run server` - Start backend only (port 5000)
+- `npm run client` - Start frontend only (port 3000)
 - `npm run build` - Build for production
+- `npm run install-all` - Install all dependencies
+- `./start.ps1` - Enhanced startup with monitoring
+- `./stop.ps1` - Clean process shutdown
+- `./check-ports.ps1` - Monitor port usage
 
 ## 🎯 Next Steps
 
+### Recent Additions
+1. **Icon Management System**: Upload, process, and manage asset icons
+2. **Historical Data Charts**: Interactive performance visualization
+3. **Enhanced Caching**: Multi-layer caching with persistence
+4. **Cache Management Interface**: Real-time monitoring and controls
+5. **Process Management Scripts**: Robust startup/shutdown automation
+
 ### Immediate Improvements
-1. **Database Integration**: Add persistent storage
+1. **Database Integration**: Migrate from file-based to database storage
 2. **User Authentication**: Login/signup system
-3. **Real-time Updates**: WebSocket integration
-4. **Charts & Graphs**: Historical data visualization
-5. **Alerts & Notifications**: Price alerts
+3. **Real-time Updates**: WebSocket integration for live data
+4. **Advanced Analytics**: More detailed portfolio metrics
+5. **Alerts & Notifications**: Price alerts and portfolio notifications
 
 ### Advanced Features
 1. **Portfolio Analytics**: Advanced metrics and charts
@@ -218,8 +261,10 @@ investment-dashboard/
 
 - **README.md**: Project overview and quick start
 - **SETUP.md**: Detailed installation guide
+- **PROJECT_SUMMARY.md**: Comprehensive project overview (this file)
+- **CLAUDE.md**: Development guidelines for Claude Code
+- **server/data/README.md**: Data directory structure and cache files
 - **API Documentation**: Comprehensive endpoint documentation
 - **Component Documentation**: UI component usage
-- **Deployment Guide**: Production deployment instructions
 
 This investment dashboard provides a solid foundation for tracking investments with modern web technologies, real-time data, and an intuitive user interface. The modular architecture makes it easy to extend and customize for specific needs. 
