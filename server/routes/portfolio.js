@@ -179,10 +179,123 @@ function savePortfolios(portfolios, fileMetadata = null) {
 // In-memory storage for portfolio data (in production, use a database)
 const portfolios = loadPortfolios();
 
+// Startup check for file modifications - run automatically when module loads
+(async function startupFileCheck() {
+  try {
+    console.log('🚀 Running startup file modification check...');
+    
+    const modificationCheck = checkFileModifications();
+    
+    if (modificationCheck.hasOutdatedFiles) {
+      console.log(`📄 Startup detected ${modificationCheck.outdatedFiles.length} outdated files, auto-reprocessing...`);
+      console.log(`📄 Outdated files: ${modificationCheck.outdatedFiles.map(f => f.name).join(', ')}`);
+      
+      // Wait a moment for the server to fully initialize
+      setTimeout(async () => {
+        try {
+          const fakeReq = { body: {}, params: {}, query: {} };
+          const fakeRes = {
+            json: (data) => {
+              console.log('✅ Startup auto-reprocessing completed successfully');
+              // Reload portfolios from updated cache
+              const updatedPortfolios = loadPortfolios();
+              portfolios.clear();
+              for (const [id, portfolio] of updatedPortfolios.entries()) {
+                portfolios.set(id, portfolio);
+              }
+              console.log('📊 Reloaded portfolios after startup processing');
+            },
+            status: (code) => ({
+              json: (data) => {
+                console.warn('⚠️ Startup auto-reprocessing failed:', data);
+              }
+            })
+          };
+          
+          await processUploadedFiles(fakeReq, fakeRes);
+        } catch (error) {
+          console.warn('⚠️ Startup auto-reprocessing error:', error.message);
+        }
+      }, 2000); // Wait 2 seconds for server to be ready
+    } else {
+      console.log('✅ Startup check: All files are up to date');
+    }
+  } catch (error) {
+    console.warn('⚠️ Startup file check error:', error.message);
+  }
+})();
+
 // Processing locks and request deduplication
 let isProcessing = false;
 const activeRequests = new Map(); // Track active requests to prevent duplicates
 const portfolioRequestQueue = new Map(); // Queue for portfolio requests
+
+// Middleware to automatically check for file modifications and reprocess if needed
+const autoReprocessMiddleware = async (req, res, next) => {
+  try {
+    // Skip auto-check for certain endpoints to avoid infinite loops
+    const skipPaths = ['/process-uploaded', '/auto-process', '/check-modifications', '/upload'];
+    const shouldSkip = skipPaths.some(path => req.path.includes(path));
+    
+    if (shouldSkip || isProcessing) {
+      console.log(`⏭️ Skipping auto-reprocess check for ${req.path} (${shouldSkip ? 'excluded path' : 'already processing'})`);
+      return next();
+    }
+
+    console.log('🔄 Auto-checking for file modifications...');
+    const modificationCheck = checkFileModifications();
+    
+    if (modificationCheck.hasOutdatedFiles) {
+      console.log(`📄 Found ${modificationCheck.outdatedFiles.length} outdated files, auto-reprocessing...`);
+      console.log(`📄 Outdated files: ${modificationCheck.outdatedFiles.map(f => f.name).join(', ')}`);
+      
+      // Set processing flag to prevent concurrent processing
+      isProcessing = true;
+      
+      try {
+        // Trigger auto-reprocessing synchronously
+        await new Promise((resolve, reject) => {
+          const fakeReq = { body: {}, params: {}, query: {} };
+          const fakeRes = {
+            json: (data) => {
+              console.log('✅ Auto-reprocessing completed successfully');
+              // Reload portfolios from updated cache
+              const updatedPortfolios = loadPortfolios();
+              for (const [id, portfolio] of updatedPortfolios.entries()) {
+                portfolios.set(id, portfolio);
+              }
+              resolve(data);
+            },
+            status: (code) => ({
+              json: (data) => {
+                console.warn('⚠️ Auto-reprocessing failed:', data);
+                resolve(null); // Continue with existing data
+              }
+            })
+          };
+          
+          processUploadedFiles(fakeReq, fakeRes).catch(error => {
+            console.warn('⚠️ Auto-reprocessing error:', error.message);
+            resolve(null); // Continue with existing data
+          });
+        });
+        
+        console.log('📊 Reloaded portfolios after auto-processing');
+      } catch (autoProcessError) {
+        console.warn('⚠️ Auto-reprocessing failed, continuing with existing data:', autoProcessError.message);
+      } finally {
+        isProcessing = false;
+      }
+    } else {
+      console.log('✅ All files are up to date, no reprocessing needed');
+    }
+    
+    next();
+  } catch (error) {
+    console.error('❌ Auto-reprocess middleware error:', error.message);
+    next(); // Continue even if auto-reprocessing fails
+  }
+};
 
 // Currency conversion cache
 const currencyCache = new Map();
@@ -350,6 +463,24 @@ router.get('/check-changes', (req, res) => {
   }
 });
 
+// Check file modifications against cache
+router.get('/check-modifications', (req, res) => {
+  try {
+    const modificationCheck = checkFileModifications();
+    
+    res.json({
+      success: true,
+      ...modificationCheck,
+      message: modificationCheck.hasOutdatedFiles ? 
+        `${modificationCheck.outdatedFiles.length} files need reprocessing` :
+        'All files are up to date'
+    });
+  } catch (error) {
+    console.error('File modification check error:', error);
+    res.status(500).json({ error: 'Failed to check file modifications' });
+  }
+});
+
 // Read and process uploaded CSV files
 router.post('/process-uploaded', async (req, res) => {
   return await processUploadedFiles(req, res);
@@ -418,7 +549,7 @@ router.get('/:portfolioId/historical', async (req, res) => {
 });
 
 // Get monthly holdings data with daily resolution
-router.get('/:portfolioId/monthly', async (req, res) => {
+router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) => {
   const { portfolioId } = req.params;
   
   try {
@@ -433,10 +564,10 @@ router.get('/:portfolioId/monthly', async (req, res) => {
 
     console.log(`📊 Fetching monthly data for portfolio ${portfolioId}`);
     
-    // Calculate date range for last month (30 days)
+    // Calculate date range for last 3 months (90 days)
     const now = new Date();
     const lastMonth = new Date(now);
-    lastMonth.setDate(now.getDate() - 30); // Go back 30 days
+    lastMonth.setDate(now.getDate() - 90); // Go back 90 days (3 months)
     lastMonth.setHours(0, 0, 0, 0); // Start of day
     
     const startTimestamp = Math.floor(lastMonth.getTime() / 1000);
@@ -850,7 +981,7 @@ router.get('/:portfolioId/monthly', async (req, res) => {
 });
 
 // Get portfolio summary
-router.get('/:portfolioId', async (req, res) => {
+router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
   const { portfolioId } = req.params;
   
   try {
@@ -1031,7 +1162,7 @@ router.get('/:portfolioId', async (req, res) => {
 });
 
 // Get all portfolios
-router.get('/', (req, res) => {
+router.get('/', autoReprocessMiddleware, (req, res) => {
   try {
     const portfolioList = Array.from(portfolios.values()).map(portfolio => ({
       id: portfolio.id,
@@ -1162,6 +1293,138 @@ router.get('/currency/rate', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch currency rate' });
   }
 });
+
+// Helper function to check if files have been modified since last cache update
+function checkFileModifications() {
+  try {
+    console.log('🔍 Checking file modifications against cache...');
+    
+    // Load current portfolios cache
+    let portfolioData = {};
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      try {
+        const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+        portfolioData = JSON.parse(data);
+      } catch (error) {
+        console.warn('⚠️ Could not read portfolio cache file:', error.message);
+        return { hasOutdatedFiles: true, outdatedFiles: [], reason: 'Cache file unreadable' };
+      }
+    } else {
+      console.log('📁 No portfolio cache file found, all files need processing');
+      return { hasOutdatedFiles: true, outdatedFiles: [], reason: 'No cache file exists' };
+    }
+
+    // Get all current CSV files
+    const uploadsDirWealthsimple = path.join(__dirname, '../uploads/wealthsimple');
+    const uploadsDirCrypto = path.join(__dirname, '../uploads/crypto');
+    const allFiles = [];
+    
+    // Scan wealthsimple folder
+    if (fs.existsSync(uploadsDirWealthsimple)) {
+      const wealthsimpleFiles = fs.readdirSync(uploadsDirWealthsimple)
+        .filter(file => file.toLowerCase().endsWith('.csv'))
+        .map(file => ({
+          name: file,
+          path: path.join(uploadsDirWealthsimple, file),
+          folder: 'wealthsimple'
+        }));
+      allFiles.push(...wealthsimpleFiles);
+    }
+    
+    // Scan crypto folder
+    if (fs.existsSync(uploadsDirCrypto)) {
+      const cryptoFiles = fs.readdirSync(uploadsDirCrypto)
+        .filter(file => file.toLowerCase().endsWith('.csv'))
+        .map(file => ({
+          name: file,
+          path: path.join(uploadsDirCrypto, file),
+          folder: 'crypto'
+        }));
+      allFiles.push(...cryptoFiles);
+    }
+
+    if (allFiles.length === 0) {
+      console.log('📁 No CSV files found in upload directories');
+      return { hasOutdatedFiles: false, outdatedFiles: [], reason: 'No CSV files found' };
+    }
+
+    const outdatedFiles = [];
+    
+    // Check each file against cache
+    for (const fileInfo of allFiles) {
+      try {
+        const fileStats = fs.statSync(fileInfo.path);
+        const actualModified = fileStats.mtime.toISOString();
+        
+        // Look for this file in cache
+        const cachedFileData = portfolioData[fileInfo.name];
+        
+        if (!cachedFileData || !cachedFileData.fileMetadata) {
+          console.log(`📄 File ${fileInfo.name} not found in cache - needs processing`);
+          outdatedFiles.push({
+            ...fileInfo,
+            reason: 'Not in cache',
+            actualModified: actualModified,
+            cachedModified: null
+          });
+          continue;
+        }
+        
+        const cachedModified = cachedFileData.fileMetadata.lastModified;
+        
+        // Compare timestamps
+        if (actualModified !== cachedModified) {
+          console.log(`📄 File ${fileInfo.name} is outdated:`);
+          console.log(`   Actual: ${actualModified}`);
+          console.log(`   Cached: ${cachedModified}`);
+          
+          outdatedFiles.push({
+            ...fileInfo,
+            reason: 'Modified since cache',
+            actualModified: actualModified,
+            cachedModified: cachedModified
+          });
+        } else {
+          console.log(`✅ File ${fileInfo.name} is up to date`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Error checking file ${fileInfo.name}:`, error.message);
+        outdatedFiles.push({
+          ...fileInfo,
+          reason: 'Error reading file',
+          actualModified: null,
+          cachedModified: null,
+          error: error.message
+        });
+      }
+    }
+    
+    const hasOutdatedFiles = outdatedFiles.length > 0;
+    
+    if (hasOutdatedFiles) {
+      console.log(`🔄 Found ${outdatedFiles.length} outdated files that need reprocessing`);
+    } else {
+      console.log(`✅ All ${allFiles.length} files are up to date`);
+    }
+    
+    return {
+      hasOutdatedFiles,
+      outdatedFiles,
+      totalFiles: allFiles.length,
+      upToDateFiles: allFiles.length - outdatedFiles.length,
+      reason: hasOutdatedFiles ? `${outdatedFiles.length} files need reprocessing` : 'All files up to date'
+    };
+    
+  } catch (error) {
+    console.error('❌ Error checking file modifications:', error.message);
+    return {
+      hasOutdatedFiles: true,
+      outdatedFiles: [],
+      reason: 'Error during check: ' + error.message,
+      error: error.message
+    };
+  }
+}
 
 // Helper function to proactively cache ALL asset prices from portfolio holdings
 async function cacheStockPricesFromHoldings(holdings) {
@@ -1970,18 +2233,20 @@ router.delete('/files/tracking/clear', (req, res) => {
 // Auto-process files if changes detected
 router.post('/auto-process', async (req, res) => {
   try {
-    const changes = fileTracker.checkForChanges();
+    // Check for file modifications against cache
+    const modificationCheck = checkFileModifications();
     
-    if (!changes.hasChanges) {
+    if (!modificationCheck.hasOutdatedFiles) {
       return res.json({
         success: true,
         processed: false,
-        message: 'No file changes detected, nothing to process',
-        changes: changes
+        message: modificationCheck.reason,
+        modificationCheck: modificationCheck
       });
     }
 
-    console.log('🔄 Auto-processing due to file changes...');
+    console.log('🔄 Auto-processing due to file modifications...');
+    console.log(`📄 Outdated files: ${modificationCheck.outdatedFiles.map(f => f.name).join(', ')}`);
     
     // Call the existing process-uploaded logic
     const processReq = { ...req };
@@ -1990,8 +2255,8 @@ router.post('/auto-process', async (req, res) => {
         res.json({
           success: true,
           processed: true,
-          message: 'Files auto-processed due to changes',
-          changes: changes,
+          message: `Files auto-processed due to modifications: ${modificationCheck.outdatedFiles.map(f => f.name).join(', ')}`,
+          modificationCheck: modificationCheck,
           processingResult: data
         });
       },
@@ -2000,7 +2265,7 @@ router.post('/auto-process', async (req, res) => {
           success: false,
           processed: false,
           message: 'Auto-processing failed',
-          changes: changes,
+          modificationCheck: modificationCheck,
           error: data
         })
       })
