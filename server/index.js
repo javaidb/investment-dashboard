@@ -57,7 +57,10 @@ try {
       });
     }
   });
-  app.use('/api/', limiter);
+  // Apply rate limiting only to external API routes (not local file operations)
+  app.use('/api/stocks', limiter);
+  app.use('/api/crypto', limiter);
+  app.use('/api/search', limiter);
 } catch (error) {
   console.warn('Rate limiter configuration failed, continuing without rate limiting:', error.message);
 }
