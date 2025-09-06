@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
+import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
@@ -31,6 +32,7 @@ interface Holding {
   usdPrice?: number; // USD price for reference
   exchangeRate?: number; // Exchange rate used for conversion
   cacheUsed?: boolean; // Flag to indicate if cache was used
+  weeklyChangePercent?: number; // Weekly change percentage
 }
 
 interface PortfolioSummary {
@@ -50,6 +52,7 @@ const PortfolioSummary: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [weeklyChanges, setWeeklyChanges] = useState<{[symbol: string]: number}>({});
   
   const queryClient = useQueryClient();
   const { 
@@ -117,6 +120,86 @@ const PortfolioSummary: React.FC = () => {
 
   console.log('🔍 PortfolioSummary component rendered - Source:', persistentPortfolio ? 'Persistent Cache' : 'Live Cache');
 
+  // Use React Query to get weekly changes from historical cache (same as HoldingsPerformance)
+  const { data: weeklyChangesData, isLoading: isWeeklyChangesLoading, error: weeklyChangesError } = useQuery(
+    ['weekly-changes', holdings.map(h => h.symbol).join(',')],
+    async () => {
+      console.log('🔄 Fetching weekly changes for', holdings.length, 'holdings:', holdings.map(h => h.symbol));
+      const changes: {[symbol: string]: number} = {};
+      
+      await Promise.all(holdings.map(async (holding) => {
+        try {
+          console.log(`📊 Processing weekly change for ${holding.symbol}`);
+          // Determine symbol type (same logic as HoldingsPerformance)
+          const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
+          const isCrypto = cryptoSymbols.includes(holding.symbol.toUpperCase());
+          
+          // Try cache endpoint first (same as HoldingsPerformance)
+          let chartData;
+          try {
+            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${holding.symbol}`);
+            chartData = cacheResponse.data;
+            console.log(`✅ Got cached data for ${holding.symbol}:`, chartData.data?.length, 'data points');
+          } catch (cacheError) {
+            console.log(`⚠️ Cache miss for ${holding.symbol}, trying live endpoint`);
+            // Cache miss - call the appropriate live endpoint directly
+            const endpoint = isCrypto 
+              ? `/api/historical/crypto/${holding.symbol}?period=3m&interval=1d`
+              : `/api/historical/stock/${holding.symbol}?period=3m&interval=1d`;
+            
+            const liveResponse = await axios.get(endpoint);
+            chartData = liveResponse.data;
+            console.log(`✅ Got live data for ${holding.symbol}:`, chartData.data?.length, 'data points');
+          }
+          
+          // Calculate weekly change (7 days)
+          if (chartData?.data && chartData.data.length > 7) {
+            const data = chartData.data;
+            const currentPrice = data[data.length - 1].close;
+            const oneWeekAgoPrice = data[data.length - 8].close; // 7 days ago
+            
+            console.log(`💹 ${holding.symbol}: Current=${currentPrice}, WeekAgo=${oneWeekAgoPrice}`);
+            
+            if (currentPrice && oneWeekAgoPrice) {
+              const changePercent = ((currentPrice - oneWeekAgoPrice) / oneWeekAgoPrice) * 100;
+              changes[holding.symbol] = changePercent;
+              console.log(`📈 ${holding.symbol} weekly change: ${changePercent.toFixed(2)}%`);
+            }
+          } else {
+            console.warn(`❌ Insufficient data for ${holding.symbol}: ${chartData?.data?.length || 0} data points (need >7)`);
+          }
+        } catch (error) {
+          console.warn(`❌ Failed to get weekly change for ${holding.symbol}:`, error);
+        }
+      }));
+      
+      console.log('✅ Weekly changes calculation complete:', changes);
+      return changes;
+    },
+    {
+      enabled: holdings.length > 0,
+      staleTime: 300000, // 5 minutes
+      cacheTime: 900000, // 15 minutes
+      retry: 1
+    }
+  );
+  
+  // Update weeklyChanges when data is available
+  React.useEffect(() => {
+    console.log('🔄 Weekly changes useEffect triggered:', {
+      hasData: !!weeklyChangesData,
+      dataKeys: weeklyChangesData ? Object.keys(weeklyChangesData) : [],
+      data: weeklyChangesData,
+      isLoading: isWeeklyChangesLoading,
+      error: weeklyChangesError
+    });
+    
+    if (weeklyChangesData) {
+      console.log('✅ Setting weekly changes state:', weeklyChangesData);
+      setWeeklyChanges(weeklyChangesData);
+    }
+  }, [weeklyChangesData, isWeeklyChangesLoading, weeklyChangesError]);
+
   useEffect(() => {
     if (!activePortfolio || !activeHoldings || Object.keys(activeHoldings).length === 0) {
       console.log('⏳ Waiting for portfolio data...', { 
@@ -127,11 +210,14 @@ const PortfolioSummary: React.FC = () => {
       return;
     }
 
-    console.log('📦 Processing portfolio data from', persistentPortfolio ? 'persistent cache' : 'live cache context');
+    console.log('📦 Processing portfolio data from', persistentPortfolio ? 'persistent cache' : 'live cache context', {
+      weeklyChangesAvailable: Object.keys(weeklyChanges).length,
+      weeklyChangesData: weeklyChanges
+    });
     setError(null); // Clear any previous errors
     processPortfolioData();
     // eslint-disable-next-line
-  }, [activePortfolio, activeHoldings, persistentPortfolio]);
+  }, [activePortfolio, activeHoldings, persistentPortfolio, weeklyChanges]);
 
   const processPortfolioData = () => {
     try {
@@ -176,6 +262,9 @@ const PortfolioSummary: React.FC = () => {
         const totalPnLPercent = holding.totalInvested > 0 ? 
           (totalPnL / holding.totalInvested) * 100 : 0;
         
+        const weeklyChange = weeklyChanges[symbol];
+        console.log(`🔍 Processing holding ${symbol}: weeklyChange=${weeklyChange}, hasWeeklyChanges=${Object.keys(weeklyChanges).length > 0}`);
+        
         return {
           symbol: symbol || 'UNKNOWN',
           quantity: holding.quantity || 0,
@@ -192,7 +281,8 @@ const PortfolioSummary: React.FC = () => {
           unrealizedPnL: unrealizedPnL,
           totalPnL: totalPnL,
           totalPnLPercent: totalPnLPercent,
-          cacheUsed: !!cachedPrice
+          cacheUsed: !!cachedPrice,
+          weeklyChangePercent: weeklyChange !== undefined ? weeklyChange : null
         };
       });
       
@@ -538,7 +628,7 @@ const PortfolioSummary: React.FC = () => {
                       P&L ↓
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Cache
+                      Weekly Change %
                     </th>
                   </tr>
                 </thead>
@@ -711,7 +801,30 @@ const PortfolioSummary: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                        {holding.cacheUsed && (
+                        {holding.weeklyChangePercent !== null && holding.weeklyChangePercent !== undefined ? (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '6px 12px',
+                            borderRadius: '16px',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            backgroundColor: holding.weeklyChangePercent >= 0 ? '#dcfce7' : '#fef2f2',
+                            color: holding.weeklyChangePercent >= 0 ? '#166534' : '#dc2626',
+                            border: `2px solid ${holding.weeklyChangePercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                          }}>
+                            {holding.weeklyChangePercent >= 0 ? (
+                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                              </svg>
+                            ) : (
+                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                              </svg>
+                            )}
+                            {formatPercentage(holding.weeklyChangePercent)}
+                          </div>
+                        ) : (
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -719,14 +832,14 @@ const PortfolioSummary: React.FC = () => {
                             borderRadius: '12px',
                             fontSize: '12px',
                             fontWeight: '500',
-                            backgroundColor: '#fef3c7',
-                            color: '#92400e',
-                            border: '1px solid #fde68a'
+                            backgroundColor: '#f3f4f6',
+                            color: '#6b7280',
+                            border: '1px solid #d1d5db'
                           }}>
                             <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Cached
+                            Loading...
                           </div>
                         )}
                       </td>
