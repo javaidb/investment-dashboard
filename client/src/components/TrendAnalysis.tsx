@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
-import { TrendingUp, TrendingDown, AlertTriangle, Activity, BarChart3, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Activity, BarChart3, Zap, Minus } from 'lucide-react';
 import {
   XAxis,
   YAxis,
@@ -12,7 +12,10 @@ import {
   Tooltip,
   ResponsiveContainer,
   AreaChart,
-  Area
+  Area,
+  Scatter,
+  ScatterChart,
+  ReferenceDot
 } from 'recharts';
 
 interface TrendAnalysisResult {
@@ -390,11 +393,24 @@ const TrendAnalysis: React.FC = () => {
     }
 
     const getTrendIcon = (trend: string) => {
-      switch (trend) {
-        case 'bullish': return <TrendingUp className="w-4 h-4 text-green-600" />;
-        case 'bearish': return <TrendingDown className="w-4 h-4 text-red-600" />;
-        default: return <Activity className="w-4 h-4 text-gray-600" />;
-      }
+      return (
+        <img
+          src={`/icons/${trend}.png`}
+          alt={`${trend} trend`}
+          style={{ width: '1rem', height: '1rem' }}
+          onError={(e) => {
+            // Fallback to Lucide icons if custom icons fail to load
+            const target = e.target as HTMLImageElement;
+            const fallbackIcon = trend === 'bullish' ? 
+              <TrendingUp className="w-4 h-4 text-green-600" /> : 
+              trend === 'bearish' ? 
+              <TrendingDown className="w-4 h-4 text-red-600" /> : 
+              <Minus className="w-4 h-4 text-gray-600" />;
+            target.style.display = 'none';
+            // Note: This fallback approach is simplified for the icon function
+          }}
+        />
+      );
     };
 
     const getVolatilityColor = (volatility: string) => {
@@ -502,6 +518,27 @@ const TrendAnalysis: React.FC = () => {
                   connectNulls={false}
                   dot={false}
                 />
+                {/* Inflection Point Markers as Reference Dots */}
+                {trendAnalysis && trendAnalysis.inflectionPoints && trendAnalysis.inflectionPoints.map((point, index) => {
+                  const dataPoint = data.find((d: any) => 
+                    new Date(d.date).toDateString() === new Date(point.date).toDateString()
+                  );
+                  
+                  if (!dataPoint) return null;
+                  
+                  return (
+                    <ReferenceDot
+                      key={`inflection-${index}`}
+                      x={dataPoint.date}
+                      y={dataPoint.close}
+                      r={4}
+                      fill={point.type === 'peak' ? '#dc2626' : '#16a34a'}
+                      stroke="white"
+                      strokeWidth={2}
+                      style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+                    />
+                  );
+                })}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -524,15 +561,39 @@ const TrendAnalysis: React.FC = () => {
               
               <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
                 {/* Overall Trend */}
-                <div className="bg-white rounded-md px-3 py-2 border border-gray-300 shadow-sm" style={{ flex: '1', minWidth: '0', textAlign: 'center' }}>
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <span className="text-xs font-medium text-gray-500">TREND</span>
+                <div className="bg-white rounded-md px-3 py-2 border border-gray-300 shadow-sm" style={{ flex: '1', minWidth: '0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    src={`/icons/${trendAnalysis.overallTrend}.png`}
+                    alt={`${trendAnalysis.overallTrend} trend`}
+                    style={{ 
+                      width: '2rem', 
+                      height: '2rem',
+                      objectFit: 'contain'
+                    }}
+                    onError={(e) => {
+                      console.log(`Failed to load icon: /icons/${trendAnalysis.overallTrend}.png`);
+                      // Fallback to Lucide icons if custom icons fail to load
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      const fallback = target.nextElementSibling as HTMLElement;
+                      if (fallback) {
+                        fallback.style.display = 'block';
+                      }
+                    }}
+                  />
+                  {/* Fallback icons */}
+                  <div style={{ display: 'none' }}>
+                    {trendAnalysis.overallTrend === 'bullish' ? (
+                      <TrendingUp style={{ width: '2rem', height: '2rem', color: '#16a34a' }} />
+                    ) : trendAnalysis.overallTrend === 'bearish' ? (
+                      <TrendingDown style={{ width: '2rem', height: '2rem', color: '#dc2626' }} />
+                    ) : (
+                      <Minus style={{ width: '2rem', height: '2rem', color: '#6b7280' }} />
+                    )}
                   </div>
-                  <div className="text-sm font-bold capitalize" style={{ 
-                    color: trendAnalysis.overallTrend === 'bullish' ? '#16a34a' :
-                           trendAnalysis.overallTrend === 'bearish' ? '#dc2626' : '#1f2937'
-                  }}>
-                    {trendAnalysis.overallTrend}
+                  <div className="text-xs font-medium text-gray-500 mt-1">
+                    {trendAnalysis.overallTrend === 'bullish' ? 'BULLISH' : 
+                     trendAnalysis.overallTrend === 'bearish' ? 'BEARISH' : 'SIDEWAYS'}
                   </div>
                 </div>
 
