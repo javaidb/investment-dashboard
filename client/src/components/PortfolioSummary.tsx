@@ -125,60 +125,52 @@ const PortfolioSummary: React.FC = () => {
 
   console.log('🔍 PortfolioSummary component rendered - Source:', persistentPortfolio ? 'Persistent Cache' : 'Live Cache');
 
-  // Use React Query to get weekly changes from historical cache (same as HoldingsPerformance)
+  // Use React Query to get weekly changes from historical cache ONLY
   const { data: weeklyChangesData, isLoading: isWeeklyChangesLoading, error: weeklyChangesError } = useQuery(
     ['weekly-changes', holdings.map(h => h.symbol).join(',')],
     async () => {
-      console.log('🔄 Fetching weekly changes for', holdings.length, 'holdings:', holdings.map(h => h.symbol));
+      console.log('🔄 Fetching weekly changes for', holdings.length, 'holdings from historical cache only:', holdings.map(h => h.symbol));
       const changes: {[symbol: string]: number} = {};
       
       await Promise.all(holdings.map(async (holding) => {
         try {
-          console.log(`📊 Processing weekly change for ${holding.symbol}`);
-          // Determine symbol type (same logic as HoldingsPerformance)
-          const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
-          const isCrypto = cryptoSymbols.includes(holding.symbol.toUpperCase());
+          console.log(`📊 Processing weekly change for ${holding.symbol} from historical cache only`);
           
-          // Try cache endpoint first (same as HoldingsPerformance)
+          // ONLY try cache endpoint - no fallback to live endpoints
           let chartData;
           try {
             const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${holding.symbol}`);
             chartData = cacheResponse.data;
             console.log(`✅ Got cached data for ${holding.symbol}:`, chartData.data?.length, 'data points');
-          } catch (cacheError) {
-            console.log(`⚠️ Cache miss for ${holding.symbol}, trying live endpoint`);
-            // Cache miss - call the appropriate live endpoint directly
-            const endpoint = isCrypto 
-              ? `/api/historical/crypto/${holding.symbol}?period=3m&interval=1d`
-              : `/api/historical/stock/${holding.symbol}?period=3m&interval=1d`;
             
-            const liveResponse = await axios.get(endpoint);
-            chartData = liveResponse.data;
-            console.log(`✅ Got live data for ${holding.symbol}:`, chartData.data?.length, 'data points');
-          }
-          
-          // Calculate weekly change (7 days)
-          if (chartData?.data && chartData.data.length > 7) {
-            const data = chartData.data;
-            const currentPrice = data[data.length - 1].close;
-            const oneWeekAgoPrice = data[data.length - 8].close; // 7 days ago
-            
-            console.log(`💹 ${holding.symbol}: Current=${currentPrice}, WeekAgo=${oneWeekAgoPrice}`);
-            
-            if (currentPrice && oneWeekAgoPrice) {
-              const changePercent = ((currentPrice - oneWeekAgoPrice) / oneWeekAgoPrice) * 100;
-              changes[holding.symbol] = changePercent;
-              console.log(`📈 ${holding.symbol} weekly change: ${changePercent.toFixed(2)}%`);
+            // Calculate weekly change (7 days) using historical cache data
+            if (chartData?.data && chartData.data.length > 7) {
+              const data = chartData.data;
+              // Ensure data is sorted from earliest to latest (which it should already be)
+              const sortedData = data.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              
+              const currentPrice = sortedData[sortedData.length - 1].close;
+              const oneWeekAgoPrice = sortedData[sortedData.length - 8].close; // 7 days ago
+              
+              console.log(`💹 ${holding.symbol}: Current=${currentPrice}, WeekAgo=${oneWeekAgoPrice} (from historical cache)`);
+              
+              if (currentPrice && oneWeekAgoPrice) {
+                const changePercent = ((currentPrice - oneWeekAgoPrice) / oneWeekAgoPrice) * 100;
+                changes[holding.symbol] = changePercent;
+                console.log(`📈 ${holding.symbol} weekly change: ${changePercent.toFixed(2)}% (from historical cache)`);
+              }
+            } else {
+              console.warn(`❌ Insufficient cached data for ${holding.symbol}: ${chartData?.data?.length || 0} data points (need >7)`);
             }
-          } else {
-            console.warn(`❌ Insufficient data for ${holding.symbol}: ${chartData?.data?.length || 0} data points (need >7)`);
+          } catch (cacheError) {
+            console.warn(`⚠️ No cached data available for ${holding.symbol}, skipping weekly change calculation`);
           }
         } catch (error) {
-          console.warn(`❌ Failed to get weekly change for ${holding.symbol}:`, error);
+          console.warn(`❌ Failed to get weekly change from cache for ${holding.symbol}:`, error);
         }
       }));
       
-      console.log('✅ Weekly changes calculation complete:', changes);
+      console.log('✅ Weekly changes calculation complete (historical cache only):', changes);
       return changes;
     },
     {
@@ -244,9 +236,6 @@ const PortfolioSummary: React.FC = () => {
       // For demo purposes, create some sample historical data if none exists
       const weekAgoKey = `positions_${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}`;
       
-      // Clear old position data to force regeneration with new logic
-      localStorage.removeItem(weekAgoKey);
-      
       const existingData = localStorage.getItem(weekAgoKey);
       
       if (!existingData && holdings.length > 0) {
@@ -284,6 +273,32 @@ const PortfolioSummary: React.FC = () => {
         setPositionHistory(samplePositions);
         console.log('🎯 Created sample historical positions for demo:', samplePositions);
       }
+      
+      // Also create some additional historical dates for richer testing
+      const dates = [
+        new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), // 6 days ago
+        new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago  
+        new Date(Date.now() - 4 * 24 * 60 * 60 * 1000), // 4 days ago
+        new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
+        new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+        new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
+      ];
+      
+      dates.forEach((date, dateIndex) => {
+        const dateKey = `positions_${date.toISOString().split('T')[0]}`;
+        if (!localStorage.getItem(dateKey) && holdings.length > 0) {
+          const historicalPositions: {[symbol: string]: number} = {};
+          holdings.forEach((holding, index) => {
+            const currentPos = index + 1;
+            // Create gradual position changes over time
+            const variation = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+            const historicalPos = Math.max(1, Math.min(currentPos + variation, holdings.length));
+            historicalPositions[holding.symbol] = historicalPos;
+          });
+          localStorage.setItem(dateKey, JSON.stringify(historicalPositions));
+          console.log(`📅 Created historical positions for ${dateKey}:`, historicalPositions);
+        }
+      });
     }
   }, [historicalPositions, holdings]);
 
