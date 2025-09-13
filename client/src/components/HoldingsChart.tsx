@@ -63,26 +63,28 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
   const lastMouseMove = useRef<number>(0);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch maximum historical data for selected holding
+  // Fetch historical data ENTIRELY from cache as requested
   const { data: historicalData, isLoading, error } = useQuery(
     ['holdingHistorical', selectedHolding?.symbol, selectedHolding?.type],
     async () => {
       if (!selectedHolding) return [];
       
-      // Use appropriate endpoint based on asset type
-      // Crypto uses /api/historical/crypto/ which handles proper Yahoo Finance symbol conversion (e.g., ETH -> ETH-USD)
-      // Stocks use /api/historical/stock/ which handles stock symbols directly
-      const endpoint = selectedHolding.type === 'c' 
-        ? `/api/historical/crypto/${selectedHolding.symbol}`
-        : `/api/historical/stock/${selectedHolding.symbol}`;
+      console.log(`📊 Fetching historical data for ${selectedHolding.symbol} ENTIRELY from cache`);
       
-      const response = await axios.get(endpoint, {
+      // Use cache endpoint to read entirely from cache
+      const response = await axios.get(`/api/portfolio/cache/historical/${selectedHolding.symbol}`, {
         params: {
-          period: 'max', // Maximum historical data
-          interval: '1d'
+          period: 'max' // Get maximum available data from cache
         }
       });
-      return response.data.data || [];
+      
+      const data = response.data.data || [];
+      console.log(`📊 Retrieved ${data.length} data points from cache for ${selectedHolding.symbol}, sorted earliest to latest`);
+      
+      // Ensure data is sorted from earliest to latest (ascending chronological order)
+      data.sort((a: StockData, b: StockData) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      return data;
     },
     {
       enabled: !!selectedHolding,
@@ -184,6 +186,16 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     
     const earliestDate = new Date(historicalData[0].date);
     const actualStartDate = presetStartDate > earliestDate ? presetStartDate : earliestDate;
+    
+    // Debug logging
+    console.log('🔍 setDateRangePreset DEBUG:', {
+      months,
+      historicalDataLength: historicalData.length,
+      latestDateFromData: historicalData[historicalData.length - 1].date,
+      latestDateParsed: latestDate.toISOString(),
+      actualStartDate: actualStartDate.toISOString().split('T')[0],
+      endDate: latestDate.toISOString().split('T')[0],
+    });
     
     setStartDate(actualStartDate.toISOString().split('T')[0]);
     setEndDate(latestDate.toISOString().split('T')[0]);
