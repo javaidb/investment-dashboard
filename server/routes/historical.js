@@ -31,15 +31,20 @@ router.get('/stock/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const { period = '1y', interval = '1d' } = req.query;
     
-    const cacheKey = `${symbol}_${period}_${interval}`;
-    const cached = getCachedData(cacheKey);
+    // Check persistent cache first
+    const cached = historicalDataCache.get(symbol, period);
     
-    if (cached) {
+    if (cached && !cached.needsUpdate) {
       return res.json({
         symbol,
-        data: cached,
+        data: cached.data,
         cached: true,
-        message: 'Data retrieved from cache'
+        success: true,
+        message: `Stock data retrieved from persistent cache (${cached.filteredDataPoints}/${cached.totalDataPoints} data points)`,
+        meta: {
+          filteredPeriod: cached.filteredPeriod,
+          lastModified: cached.lastModified
+        }
       });
     }
 
@@ -94,7 +99,11 @@ router.get('/stock/:symbol', async (req, res) => {
       volume: quotes.volume?.[index] || null
     })).filter(item => item.close !== null);
 
+    // Sort data from earliest to latest (ascending chronological order)
+    historicalData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
     // Cache the data
+    const cacheKey = `${symbol}_${period}_${interval}`;
     setCachedData(cacheKey, historicalData);
 
     res.json({
@@ -173,15 +182,24 @@ router.post('/stocks/batch', async (req, res) => {
               volume: quotes.volume?.[index] || null
             })).filter(item => item.close !== null);
 
-            // Cache the data using persistent cache with standardized 3m/1d format
-            historicalDataCache.set(symbol, {
-              data: historicalData,
-              meta: {
-                companyName: result.meta?.longName || result.meta?.shortName || symbol,
-                currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
-                currency: 'USD'
+            // Sort data from earliest to latest (ascending chronological order)
+            historicalData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // Update cache with incremental data or full data
+            if (cached && cached.lastDate) {
+              // Incremental update - only add new data points
+              const lastCacheDate = new Date(cached.lastDate);
+              const newDataPoints = historicalData.filter(point => 
+                new Date(point.date) > lastCacheDate
+              );
+              
+              if (newDataPoints.length > 0) {
+                historicalDataCache.updateIncremental(symbol, newDataPoints);
               }
-            }, '3m', '1d');
+            } else {
+              // Full cache update for new symbols
+              historicalDataCache.set(symbol, historicalData);
+            }
             
             results[symbol] = {
               data: historicalData,
@@ -302,6 +320,9 @@ router.get('/trending/weekly', async (req, res) => {
             close: quotes.close?.[index] || null,
             volume: quotes.volume?.[index] || null
           })).filter(item => item.close !== null);
+
+          // Sort data from earliest to latest (ascending chronological order)
+          historicalData.sort((a, b) => new Date(a.date) - new Date(b.date));
 
           // Cache the data
           setCachedData(cacheKey, historicalData);
@@ -469,21 +490,30 @@ router.get('/trending/intraday', async (req, res) => {
               volume: quotes.volume?.[index] || null
             })).filter(item => item.close !== null);
 
+            // Sort data from earliest to latest (ascending chronological order)
+            historicalData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
             // Calculate trend metrics
             const firstPrice = historicalData[0]?.close;
             const lastPrice = historicalData[historicalData.length - 1]?.close;
             const change = lastPrice - firstPrice;
             const changePercent = (change / firstPrice) * 100;
 
-            // Cache the data using persistent cache with standardized 3m/1d format
-            historicalDataCache.set(symbol, {
-              data: historicalData,
-              meta: {
-                companyName: result.meta?.longName || result.meta?.shortName || symbol,
-                currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
-                currency: 'USD'
+            // Update cache with incremental data or full data
+            if (cached && cached.lastDate) {
+              // Incremental update - only add new data points
+              const lastCacheDate = new Date(cached.lastDate);
+              const newDataPoints = historicalData.filter(point => 
+                new Date(point.date) > lastCacheDate
+              );
+              
+              if (newDataPoints.length > 0) {
+                historicalDataCache.updateIncremental(symbol, newDataPoints);
               }
-            }, '3m', '1d');
+            } else {
+              // Full cache update for new symbols
+              historicalDataCache.set(symbol, historicalData);
+            }
             
             results[symbol] = {
               data: historicalData,
@@ -690,17 +720,20 @@ router.get('/crypto/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const { period = '1y', interval = '1d' } = req.query;
     
-    // Only use cache for standard 3m requests, bypass cache for max/long periods
-    const useCache = period === '3m' || period === '1m';
-    const cached = useCache ? historicalDataCache.get(symbol, '3m', '1d') : null;
+    // Check persistent cache first
+    const cached = historicalDataCache.get(symbol, period);
     
-    if (cached && !cached.needsUpdate && useCache) {
+    if (cached && !cached.needsUpdate) {
       return res.json({
         symbol,
         data: cached.data,
         cached: true,
         success: true,
-        message: 'Crypto data retrieved from persistent cache'
+        message: `Crypto data retrieved from persistent cache (${cached.filteredDataPoints}/${cached.totalDataPoints} data points)`,
+        meta: {
+          filteredPeriod: cached.filteredPeriod,
+          lastModified: cached.lastModified
+        }
       });
     }
 
@@ -750,16 +783,25 @@ router.get('/crypto/:symbol', async (req, res) => {
       throw new Error('No historical data available');
     }
 
-    // Only cache data if it's the standard 3m period to avoid memory issues with max data
-    if (useCache) {
-      historicalDataCache.set(symbol, {
-        data: historicalData,
-        meta: {
-          companyName: result.meta?.longName || result.meta?.shortName || symbol,
-          currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
-          currency: 'USD'
+    // Sort data from earliest to latest (ascending chronological order)
+    historicalData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Update cache with incremental data or full data
+    if (historicalData.length > 0) {
+      if (cached && cached.lastDate) {
+        // Incremental update - only add new data points
+        const lastCacheDate = new Date(cached.lastDate);
+        const newDataPoints = historicalData.filter(point => 
+          new Date(point.date) > lastCacheDate
+        );
+        
+        if (newDataPoints.length > 0) {
+          historicalDataCache.updateIncremental(symbol, newDataPoints);
         }
-      }, '3m', '1d');
+      } else {
+        // Full cache update for new symbols
+        historicalDataCache.set(symbol, historicalData);
+      }
     }
 
     res.json({
@@ -801,14 +843,19 @@ router.post('/crypto/batch', async (req, res) => {
 
     const promises = symbols.map(async (symbol) => {
       try {
-        // Check persistent cache first (always use standardized 3m/1d format)
-        const cached = historicalDataCache.get(symbol, '3m', '1d');
+        // Check persistent cache first
+        const cached = historicalDataCache.get(symbol, period);
         
         if (cached && !cached.needsUpdate) {
           results[symbol] = {
             data: cached.data,
             cached: true,
-            success: true
+            success: true,
+            message: `Data retrieved from persistent cache (${cached.filteredDataPoints}/${cached.totalDataPoints} data points)`,
+            meta: {
+              filteredPeriod: cached.filteredPeriod,
+              lastModified: cached.lastModified
+            }
           };
           return;
         }
@@ -844,15 +891,24 @@ router.post('/crypto/batch', async (req, res) => {
               volume: quotes.volume?.[index] || null
             })).filter(item => item.close !== null);
 
-            // Cache the data using persistent cache with standardized 3m/1d format
-            historicalDataCache.set(symbol, {
-              data: historicalData,
-              meta: {
-                companyName: result.meta?.longName || result.meta?.shortName || symbol,
-                currentPrice: result.meta?.regularMarketPrice || historicalData[historicalData.length - 1]?.close,
-                currency: 'USD'
+            // Sort data from earliest to latest (ascending chronological order)
+            historicalData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // Update cache with incremental data or full data
+            if (cached && cached.lastDate) {
+              // Incremental update - only add new data points
+              const lastCacheDate = new Date(cached.lastDate);
+              const newDataPoints = historicalData.filter(point => 
+                new Date(point.date) > lastCacheDate
+              );
+              
+              if (newDataPoints.length > 0) {
+                historicalDataCache.updateIncremental(symbol, newDataPoints);
               }
-            }, '3m', '1d');
+            } else {
+              // Full cache update for new symbols
+              historicalDataCache.set(symbol, historicalData);
+            }
             
             results[symbol] = {
               data: historicalData,
