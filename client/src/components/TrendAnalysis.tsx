@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
-import { TrendingUp, TrendingDown, AlertTriangle, Activity, BarChart3, Zap, Minus } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Activity, BarChart3, Zap, Minus, Info, Calculator, Target } from 'lucide-react';
 import {
   XAxis,
   YAxis,
@@ -143,65 +143,130 @@ const TrendAnalysis: React.FC = () => {
 
   const detectInflectionPoints = (prices: number[], dates: string[]) => {
     const inflectionPoints: any[] = [];
-    const windowSize = 5; // Look at 5-day windows
     
-    for (let i = windowSize; i < prices.length - windowSize; i++) {
-      const leftSlope = (prices[i] - prices[i - windowSize]) / windowSize;
-      const rightSlope = (prices[i + windowSize] - prices[i]) / windowSize;
+    // Step 1: Apply 2-week (14-day) moving average to smooth out noise and spikes
+    const smoothingWindow = 14;
+    const smoothedPrices = calculateMovingAverage(prices, smoothingWindow);
+    
+    // Step 2: Find inflection points on the smoothed curve by detecting slope changes
+    const lookAhead = 21; // 3-week window to confirm trend changes
+    
+    for (let i = lookAhead; i < smoothedPrices.length - lookAhead; i++) {
+      const current = smoothedPrices[i];
       
-      // Detect peaks (positive to negative slope change)
-      if (leftSlope > 0 && rightSlope < 0 && Math.abs(leftSlope - rightSlope) > 0.5) {
+      // Calculate slopes before and after the current point
+      const leftSlope = (current - smoothedPrices[i - lookAhead]) / lookAhead;
+      const rightSlope = (smoothedPrices[i + lookAhead] - current) / lookAhead;
+      
+      // Detect significant slope changes (trend reversals)
+      const slopeChange = Math.abs(leftSlope - rightSlope);
+      
+      // Peak detection: upward slope changes to downward (left positive, right negative)
+      if (leftSlope > 0 && rightSlope < 0 && slopeChange > 0.02) {
+        // Calculate strength based on slope change magnitude and price level
+        const priceStrength = Math.abs((current - smoothedPrices[i - lookAhead]) / smoothedPrices[i - lookAhead]);
+        const strength = slopeChange + priceStrength;
+        
         inflectionPoints.push({
           date: dates[i],
           type: 'peak',
-          strength: Math.abs(leftSlope - rightSlope)
+          strength: strength,
+          priceLevel: prices[i], // Use original price for display
+          smoothedPrice: current
         });
       }
       
-      // Detect valleys (negative to positive slope change)
-      if (leftSlope < 0 && rightSlope > 0 && Math.abs(leftSlope - rightSlope) > 0.5) {
+      // Valley detection: downward slope changes to upward (left negative, right positive)  
+      if (leftSlope < 0 && rightSlope > 0 && slopeChange > 0.02) {
+        // Calculate strength based on slope change magnitude and price drop
+        const priceStrength = Math.abs((smoothedPrices[i - lookAhead] - current) / smoothedPrices[i - lookAhead]);
+        const strength = slopeChange + priceStrength;
+        
         inflectionPoints.push({
           date: dates[i],
-          type: 'valley',
-          strength: Math.abs(leftSlope - rightSlope)
+          type: 'valley', 
+          strength: strength,
+          priceLevel: prices[i], // Use original price for display
+          smoothedPrice: current
         });
       }
     }
     
-    return inflectionPoints.slice(-5); // Return last 5 inflection points
+    // Remove points too close together (within 30 days) keeping strongest
+    const filteredPoints: any[] = [];
+    const sortedByStrength = inflectionPoints.sort((a, b) => b.strength - a.strength);
+    
+    for (const point of sortedByStrength) {
+      const tooClose = filteredPoints.some(existing => 
+        Math.abs(new Date(point.date).getTime() - new Date(existing.date).getTime()) < 30 * 24 * 60 * 60 * 1000
+      );
+      if (!tooClose) {
+        filteredPoints.push(point);
+      }
+    }
+    
+    // Return top 4-6 most significant points chronologically
+    return filteredPoints
+      .slice(0, 6)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  };
+
+  const calculateMovingAverage = (prices: number[], window: number): number[] => {
+    const ma: number[] = [];
+    for (let i = 0; i < prices.length; i++) {
+      if (i < window - 1) {
+        ma.push(prices[i]); // Use actual price for early values
+      } else {
+        const sum = prices.slice(i - window + 1, i + 1).reduce((a, b) => a + b, 0);
+        ma.push(sum / window);
+      }
+    }
+    return ma;
   };
 
   const analyzeTrendChanges = (prices: number[]) => {
     const trendChanges: any[] = [];
-    const periods = [7, 14, 30]; // 1 week, 2 weeks, 1 month
+    const periods = [60, 120, 180]; // 2 months, 4 months, 6 months for better yearly perspective
     
     periods.forEach(period => {
       if (prices.length >= period * 2) {
-        const recentTrend = calculateLinearTrend(prices.slice(-period));
-        const previousTrend = calculateLinearTrend(prices.slice(-period * 2, -period));
+        // Calculate percentage-based trends for better comparison
+        const recentPeriodStart = prices[prices.length - period * 2];
+        const recentPeriodMid = prices[prices.length - period];
+        const recentPeriodEnd = prices[prices.length - 1];
         
-        if (Math.abs(recentTrend - previousTrend) > 0.1) {
+        const firstHalfReturn = ((recentPeriodMid - recentPeriodStart) / recentPeriodStart) * 100;
+        const secondHalfReturn = ((recentPeriodEnd - recentPeriodMid) / recentPeriodMid) * 100;
+        
+        // Only flag significant changes (>15% difference in returns)
+        if (Math.abs(secondHalfReturn - firstHalfReturn) > 15) {
           let changeType: 'acceleration' | 'deceleration' | 'reversal';
+          let magnitude = Math.abs(secondHalfReturn - firstHalfReturn);
           
-          if (Math.sign(recentTrend) !== Math.sign(previousTrend)) {
+          if (Math.sign(secondHalfReturn) !== Math.sign(firstHalfReturn) && magnitude > 20) {
             changeType = 'reversal';
-          } else if (Math.abs(recentTrend) > Math.abs(previousTrend)) {
+          } else if (Math.abs(secondHalfReturn) > Math.abs(firstHalfReturn) * 1.5) {
             changeType = 'acceleration';
-          } else {
+          } else if (Math.abs(secondHalfReturn) < Math.abs(firstHalfReturn) * 0.5) {
             changeType = 'deceleration';
+          } else {
+            return; // Skip minor changes
           }
           
+          const periodLabel = period === 60 ? '2m' : period === 120 ? '4m' : '6m';
           trendChanges.push({
-            period: `${period}d`,
-            oldTrend: previousTrend,
-            newTrend: recentTrend,
-            change: changeType
+            period: periodLabel,
+            oldTrend: firstHalfReturn,
+            newTrend: secondHalfReturn,
+            change: changeType,
+            magnitude: magnitude
           });
         }
       }
     });
     
-    return trendChanges;
+    // Sort by magnitude to show most significant changes first
+    return trendChanges.sort((a, b) => (b.magnitude || 0) - (a.magnitude || 0));
   };
 
   const calculateLinearTrend = (prices: number[]) => {
@@ -219,67 +284,109 @@ const TrendAnalysis: React.FC = () => {
   };
 
   const calculateOverallTrend = (prices: number[]): 'bullish' | 'bearish' | 'sideways' => {
-    const trend = calculateLinearTrend(prices);
-    if (trend > 0.5) return 'bullish';
-    if (trend < -0.5) return 'bearish';
+    // Calculate year-over-year percentage change for better context
+    const startPrice = prices[0];
+    const endPrice = prices[prices.length - 1];
+    const overallReturn = ((endPrice - startPrice) / startPrice) * 100;
+    
+    // Use more meaningful thresholds for yearly performance
+    if (overallReturn > 10) return 'bullish'; // >10% annual return
+    if (overallReturn < -10) return 'bearish'; // <-10% annual return
     return 'sideways';
   };
 
   const calculateVolatility = (prices: number[]): 'high' | 'medium' | 'low' => {
-    const returns = prices.slice(1).map((price, i) => (price - prices[i]) / prices[i]);
+    // Calculate annualized volatility using daily returns
+    const returns = prices.slice(1).map((price, i) => Math.log(price / prices[i]));
     const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - avgReturn, 2), 0) / returns.length;
-    const volatility = Math.sqrt(variance);
+    const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - avgReturn, 2), 0) / (returns.length - 1);
+    const dailyVolatility = Math.sqrt(variance);
+    const annualizedVolatility = dailyVolatility * Math.sqrt(252); // Trading days per year
     
-    if (volatility > 0.05) return 'high';
-    if (volatility > 0.02) return 'medium';
-    return 'low';
+    // Volatility thresholds based on typical market behavior
+    if (annualizedVolatility > 0.4) return 'high';    // >40% annualized
+    if (annualizedVolatility > 0.2) return 'medium';  // 20-40% annualized  
+    return 'low';                                      // <20% annualized
   };
 
   const calculateMomentum = (prices: number[]): 'increasing' | 'decreasing' | 'stable' => {
-    if (prices.length < 10) return 'stable';
+    if (prices.length < 90) return 'stable';
     
-    const recentTrend = calculateLinearTrend(prices.slice(-10));
-    const previousTrend = calculateLinearTrend(prices.slice(-20, -10));
+    // Compare recent 3-month period with previous 3-month period
+    const recent3Months = prices.slice(-90, -1);
+    const previous3Months = prices.slice(-180, -90);
     
-    const momentumChange = recentTrend - previousTrend;
+    if (recent3Months.length === 0 || previous3Months.length === 0) return 'stable';
     
-    if (momentumChange > 0.2) return 'increasing';
-    if (momentumChange < -0.2) return 'decreasing';
+    // Calculate percentage returns for each period
+    const recentReturn = ((recent3Months[recent3Months.length - 1] - recent3Months[0]) / recent3Months[0]) * 100;
+    const previousReturn = ((previous3Months[previous3Months.length - 1] - previous3Months[0]) / previous3Months[0]) * 100;
+    
+    const momentumChange = recentReturn - previousReturn;
+    
+    // More significant thresholds for quarterly momentum shifts
+    if (momentumChange > 15) return 'increasing';  // Recent quarter 15%+ better
+    if (momentumChange < -15) return 'decreasing'; // Recent quarter 15%+ worse
     return 'stable';
+  };
+
+  const colorTrendWords = (text: string) => {
+    return text
+      .replace(/bullish/gi, '<span style="color: #16a34a; font-weight: 600;">bullish</span>')
+      .replace(/bearish/gi, '<span style="color: #dc2626; font-weight: 600;">bearish</span>');
   };
 
   const generateNotableChanges = (inflectionPoints: any[], trendChanges: any[], overallTrend: string, volatility: string, momentum: string) => {
     const changes: string[] = [];
     
-    if (inflectionPoints.length > 0) {
-      const recentInflection = inflectionPoints[inflectionPoints.length - 1];
-      changes.push(`Recent ${recentInflection.type} detected with ${recentInflection.strength > 2 ? 'strong' : 'moderate'} signal strength`);
-    }
-    
-    trendChanges.forEach(change => {
-      if (change.change === 'reversal') {
-        changes.push(`Trend reversal over ${change.period} period`);
-      } else if (change.change === 'acceleration' && Math.abs(change.newTrend) > 1) {
-        changes.push(`Significant trend acceleration over ${change.period} period`);
+    // Analyze inflection points pattern
+    if (inflectionPoints.length >= 2) {
+      const peaks = inflectionPoints.filter(p => p.type === 'peak');
+      const valleys = inflectionPoints.filter(p => p.type === 'valley');
+      
+      if (peaks.length > valleys.length * 2) {
+        changes.push('Multiple resistance levels identified - potential distribution pattern');
+      } else if (valleys.length > peaks.length * 2) {
+        changes.push('Multiple support levels tested - potential accumulation pattern');
+      } else if (inflectionPoints.length >= 4) {
+        const recentPoint = inflectionPoints[inflectionPoints.length - 1];
+        changes.push(`${recentPoint.type === 'peak' ? 'Resistance' : 'Support'} level established at $${recentPoint.priceLevel?.toFixed(2)}`);
       }
-    });
-    
-    if (volatility === 'high') {
-      changes.push('Elevated volatility detected');
     }
     
-    if (momentum === 'increasing' && overallTrend === 'bullish') {
-      changes.push('Strengthening bullish momentum');
-    } else if (momentum === 'increasing' && overallTrend === 'bearish') {
-      changes.push('Accelerating bearish trend');
+    // Highlight most significant trend changes
+    if (trendChanges.length > 0) {
+      const mostSignificant = trendChanges[0]; // Already sorted by magnitude
+      if (mostSignificant.change === 'reversal') {
+        const direction = mostSignificant.newTrend > 0 ? 'bullish' : 'bearish';
+        changes.push(`Major trend reversal to ${direction} over ${mostSignificant.period} (${Math.abs(mostSignificant.magnitude).toFixed(1)}% shift)`);
+      } else if (mostSignificant.change === 'acceleration') {
+        changes.push(`Trend acceleration over ${mostSignificant.period} period (${Math.abs(mostSignificant.newTrend).toFixed(1)}% vs ${Math.abs(mostSignificant.oldTrend).toFixed(1)}%)`);
+      }
+    }
+    
+    // Combine trend and momentum for insights
+    if (overallTrend === 'bullish' && momentum === 'increasing') {
+      changes.push('Strong upward momentum with accelerating gains');
+    } else if (overallTrend === 'bearish' && momentum === 'decreasing') {
+      changes.push('Downtrend intensifying with accelerating losses');
+    } else if (overallTrend === 'sideways' && volatility === 'high') {
+      changes.push('High volatility range-bound trading - breakout potential');
+    } else if (momentum === 'stable' && volatility === 'low') {
+      changes.push('Consolidation phase with low volatility');
+    }
+    
+    // Risk assessment
+    if (volatility === 'high' && momentum === 'decreasing') {
+      changes.push('Elevated risk: high volatility with weakening momentum');
     }
     
     if (changes.length === 0) {
-      changes.push('No significant trend changes detected');
+      changes.push(`Steady ${overallTrend} trend with ${volatility} volatility`);
     }
     
-    return changes;
+    // Limit to top 3 most relevant insights
+    return changes.slice(0, 3);
   };
 
   // Chart component with trend analysis
@@ -294,13 +401,15 @@ const TrendAnalysis: React.FC = () => {
           const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
           
           try {
-            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
-            console.log(`💾 Cache hit for trend analysis ${symbol}`);
+            // First try to get 1-year data from historical cache
+            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}?period=1y`);
+            console.log(`💾 Cache hit for trend analysis ${symbol} (1-year data)`);
             return cacheResponse.data;
           } catch (cacheError) {
+            // Fallback to fetching 1-year data from historical API
             const endpoint = isCrypto 
-              ? `/api/historical/crypto/${symbol}?period=3m&interval=1d`
-              : `/api/historical/stock/${symbol}?period=3m&interval=1d`;
+              ? `/api/historical/crypto/${symbol}?period=1y&interval=1d`
+              : `/api/historical/stock/${symbol}?period=1y&interval=1d`;
             
             console.log(`📊 Cache miss for trend analysis ${symbol}, fetching from ${endpoint}`);
             const liveResponse = await axios.get(endpoint);
@@ -531,11 +640,11 @@ const TrendAnalysis: React.FC = () => {
                       key={`inflection-${index}`}
                       x={dataPoint.date}
                       y={dataPoint.close}
-                      r={4}
-                      fill={point.type === 'peak' ? '#dc2626' : '#16a34a'}
-                      stroke="white"
-                      strokeWidth={2}
-                      style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+                      r={6}
+                      fill="transparent"
+                      stroke={point.type === 'peak' ? '#dc2626' : '#2563eb'}
+                      strokeWidth={3}
+                      style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))' }}
                     />
                   );
                 })}
@@ -591,10 +700,6 @@ const TrendAnalysis: React.FC = () => {
                       <Minus style={{ width: '2rem', height: '2rem', color: '#6b7280' }} />
                     )}
                   </div>
-                  <div className="text-xs font-medium text-gray-500 mt-1">
-                    {trendAnalysis.overallTrend === 'bullish' ? 'BULLISH' : 
-                     trendAnalysis.overallTrend === 'bearish' ? 'BEARISH' : 'SIDEWAYS'}
-                  </div>
                 </div>
 
                 {/* Volatility */}
@@ -643,7 +748,10 @@ const TrendAnalysis: React.FC = () => {
                   <div key={index} className="bg-white rounded-md px-3 py-2 border border-amber-300 shadow-sm">
                     <div className="flex items-start gap-3">
                       <span className="text-xs text-gray-500 mt-0.5">•</span>
-                      <span className="text-xs text-gray-700 leading-relaxed font-medium">{change}</span>
+                      <span 
+                        className="text-xs text-gray-700 leading-relaxed font-medium"
+                        dangerouslySetInnerHTML={{ __html: colorTrendWords(change) }}
+                      />
                     </div>
                   </div>
                 ))}
@@ -731,7 +839,7 @@ const TrendAnalysis: React.FC = () => {
         <div className="header-top">
           <h3>Portfolio Trend Analysis</h3>
         </div>
-        <p>Advanced trend analysis detecting inflection points, momentum changes, and notable patterns over the last month</p>
+        <p>Advanced trend analysis detecting inflection points, momentum changes, and notable patterns over the last year</p>
         <div className="data-info">
           <div className="info-text">
             <Activity className="info-icon" />
@@ -757,6 +865,213 @@ const TrendAnalysis: React.FC = () => {
             iconUrl={iconUrls[symbol.toUpperCase()]}
           />
         ))}
+      </div>
+
+      {/* Calculation Methods Info Graphic - At Bottom */}
+      <div className="mt-12 mb-8">
+        <div className="bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50 rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
+          {/* Header Section */}
+          <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-8 py-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/10 rounded-xl backdrop-blur-sm">
+                <Calculator className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h4 className="text-2xl font-bold text-white mb-1">Calculation Methodology</h4>
+                <p className="text-slate-300 text-sm">Understanding how trend analysis metrics are computed</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Content Grid */}
+          <div className="p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+              
+              {/* Overall Trend Card */}
+              <div className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300 group">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-emerald-100 to-emerald-50 rounded-xl group-hover:from-emerald-200 group-hover:to-emerald-100 transition-all">
+                    <Target className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <h5 className="text-lg font-bold text-gray-800">Overall Trend</h5>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-100">
+                    <img
+                      src="/icons/bullish.png"
+                      alt="Bullish trend"
+                      className="w-5 h-5 flex-shrink-0"
+                      onError={(e) => {
+                        // Fallback to Lucide icon if image fails to load
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const fallback = target.nextElementSibling as HTMLElement;
+                        if (fallback) {
+                          fallback.style.display = 'block';
+                        }
+                      }}
+                    />
+                    <TrendingUp className="w-5 h-5 text-green-600 flex-shrink-0" style={{ display: 'none' }} />
+                    <div>
+                      <div className="text-sm text-green-600">Annual return &gt; 10%</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-red-50 to-rose-50 rounded-lg border border-red-100">
+                    <img
+                      src="/icons/bearish.png"
+                      alt="Bearish trend"
+                      className="w-5 h-5 flex-shrink-0"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const fallback = target.nextElementSibling as HTMLElement;
+                        if (fallback) {
+                          fallback.style.display = 'block';
+                        }
+                      }}
+                    />
+                    <TrendingDown className="w-5 h-5 text-red-600 flex-shrink-0" style={{ display: 'none' }} />
+                    <div>
+                      <div className="text-sm text-red-600">Annual return &lt; -10%</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-gray-50 to-slate-50 rounded-lg border border-gray-100">
+                    <img
+                      src="/icons/sideways.png"
+                      alt="Sideways trend"
+                      className="w-5 h-5 flex-shrink-0"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const fallback = target.nextElementSibling as HTMLElement;
+                        if (fallback) {
+                          fallback.style.display = 'block';
+                        }
+                      }}
+                    />
+                    <Minus className="w-5 h-5 text-gray-600 flex-shrink-0" style={{ display: 'none' }} />
+                    <div>
+                      <div className="text-sm text-gray-600">Return -10% to +10%</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Momentum Card */}
+              <div className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300 group">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-amber-100 to-yellow-50 rounded-xl group-hover:from-amber-200 group-hover:to-yellow-100 transition-all">
+                    <Zap className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <h5 className="text-lg font-bold text-gray-800">Momentum</h5>
+                </div>
+                <div className="space-y-4">
+                  <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
+                    <div className="font-semibold text-blue-800 mb-2">Method</div>
+                    <div className="text-sm text-blue-700">Compare recent 3-month vs previous 3-month period returns</div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <span className="text-sm"><strong>Increasing:</strong> Recent 15%+ better</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                      <span className="text-sm"><strong>Decreasing:</strong> Recent 15%+ worse</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                      <span className="text-sm"><strong>Stable:</strong> &lt; 15% difference</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Volatility Card */}
+              <div className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300 group">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-purple-100 to-violet-50 rounded-xl group-hover:from-purple-200 group-hover:to-violet-100 transition-all">
+                    <Activity className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <h5 className="text-lg font-bold text-gray-800">Volatility</h5>
+                </div>
+                <div className="space-y-4">
+                  <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100">
+                    <div className="font-semibold text-purple-800 mb-2">Method</div>
+                    <div className="text-sm text-purple-700">Annualized standard deviation of daily returns</div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-2 bg-red-50 rounded-lg">
+                      <div className="w-4 h-4 bg-red-500 rounded-full shadow-sm"></div>
+                      <div>
+                        <div className="font-semibold text-red-800 text-sm">High Risk</div>
+                        <div className="text-xs text-red-600">&gt; 40% annualized</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-2 bg-yellow-50 rounded-lg">
+                      <div className="w-4 h-4 bg-yellow-500 rounded-full shadow-sm"></div>
+                      <div>
+                        <div className="font-semibold text-yellow-800 text-sm">Medium Risk</div>
+                        <div className="text-xs text-yellow-600">20% - 40%</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-2 bg-green-50 rounded-lg">
+                      <div className="w-4 h-4 bg-green-500 rounded-full shadow-sm"></div>
+                      <div>
+                        <div className="font-semibold text-green-800 text-sm">Low Risk</div>
+                        <div className="text-xs text-green-600">&lt; 20%</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Inflection Points Card */}
+              <div className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300 group">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-orange-100 to-amber-50 rounded-xl group-hover:from-orange-200 group-hover:to-amber-100 transition-all">
+                    <BarChart3 className="w-6 h-6 text-orange-600" />
+                  </div>
+                  <h5 className="text-lg font-bold text-gray-800">Inflection Points</h5>
+                </div>
+                <div className="space-y-4">
+                  <div className="p-4 bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl border border-orange-100">
+                    <div className="font-semibold text-orange-800 mb-2">Method</div>
+                    <div className="text-sm text-orange-700">14-day smoothing + slope change detection</div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                      <div className="w-5 h-5 rounded-full border-2 border-red-500 bg-transparent shadow-sm flex-shrink-0"></div>
+                      <div>
+                        <div className="font-semibold text-red-800 text-sm">Peak</div>
+                        <div className="text-xs text-red-600">Uptrend → Downtrend</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                      <div className="w-5 h-5 rounded-full border-2 border-blue-500 bg-transparent shadow-sm flex-shrink-0"></div>
+                      <div>
+                        <div className="font-semibold text-blue-800 text-sm">Valley</div>
+                        <div className="text-xs text-blue-600">Downtrend → Uptrend</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer Note */}
+            <div className="mt-8 p-6 bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-gray-100">
+              <div className="flex items-start gap-3">
+                <Info className="w-5 h-5 text-slate-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-slate-600 leading-relaxed">
+                  <strong className="text-slate-700">Note:</strong> All calculations use 1-year historical data with appropriate smoothing to eliminate noise. 
+                  Trend classifications are based on industry-standard thresholds optimized for long-term investment analysis.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
