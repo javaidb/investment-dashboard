@@ -20,6 +20,8 @@ const iconRoutes = require('./routes/icons');
 const holdingsCache = require('./cache');
 const historicalDataCache = require('./historical-cache');
 const fileTracker = require('./file-tracker');
+const historicalDataPreloader = require('./historical-data-preloader');
+const portfolioAssetDiscovery = require('./portfolio-asset-discovery');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -171,10 +173,20 @@ async function initializeCache() {
           const statsAfter = holdingsCache.getStats();
           console.log(`📊 Cache after initialization: ${statsAfter.totalEntries} entries`);
           
-          // Initialize historical cache for performance charts
-          console.log('📈 Initializing historical cache for performance charts...');
-          const { initializeHistoricalCache } = require('./cache-utils');
-          await initializeHistoricalCache(mostRecentPortfolio.holdings);
+          // Pre-populate historical cache for all portfolio assets
+          console.log('📈 Pre-populating historical cache for all portfolio assets...');
+          setTimeout(async () => {
+            try {
+              const preloadResult = await historicalDataPreloader.prePopulateHistoricalCache();
+              if (preloadResult.success) {
+                console.log(`✅ Historical cache pre-population completed: ${preloadResult.symbolsProcessed} symbols processed in ${preloadResult.duration}ms`);
+              } else {
+                console.log(`⚠️ Historical cache pre-population failed: ${preloadResult.message}`);
+              }
+            } catch (error) {
+              console.error('❌ Error during historical cache pre-population:', error.message);
+            }
+          }, 2000); // Start 2 seconds after server startup to avoid overwhelming startup
         } else {
           console.log('⚠️ No holdings found in most recent portfolio');
         }
