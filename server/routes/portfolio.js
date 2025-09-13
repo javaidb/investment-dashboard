@@ -725,7 +725,7 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
         // Try to get historical data from cache first (for stocks)
         if (holding.type === 's') {
           // Check cache first
-          const cachedHistorical = historicalDataCache.get(symbol, '3m', '1d');
+          const cachedHistorical = historicalDataCache.get(symbol, '3m');
           
           if (cachedHistorical && !cachedHistorical.needsUpdate) {
             // Use cached data
@@ -826,7 +826,7 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
                   }
                 };
                 
-                historicalDataCache.update(symbol, historicalCacheData, '3m', '1d');
+                historicalDataCache.updateIncremental(symbol, historicalCacheData.data);
 
                 results[symbol] = {
                   data: historicalData,
@@ -2119,19 +2119,16 @@ router.delete('/cache/historical/cleanup', (req, res) => {
 router.get('/cache/historical/:symbol', (req, res) => {
   try {
     const { symbol } = req.params;
+    const { period = '1m' } = req.query; // Default to 1 month for Holdings Performance
     
     // Search through all cache entries to find the most recent entry for this symbol
     let latestEntry = null;
     let latestTimestamp = 0;
     
-    for (const [cacheKey, cacheEntry] of historicalDataCache.cache.entries()) {
-      if (cacheEntry.symbol === symbol && cacheEntry.period === '3m' && cacheEntry.resolution === '1d') {
-        const timestamp = new Date(cacheEntry.lastUpdated || cacheEntry.fetchedAt).getTime();
-        if (timestamp > latestTimestamp) {
-          latestTimestamp = timestamp;
-          latestEntry = cacheEntry;
-        }
-      }
+    const cacheEntry = historicalDataCache.cache.get(symbol);
+    if (cacheEntry) {
+      latestEntry = cacheEntry;
+      latestTimestamp = new Date(cacheEntry.lastModified).getTime();
     }
     
     // If no cache entry found, try to fetch fresh data from historical endpoint
@@ -2144,21 +2141,52 @@ router.get('/cache/historical/:symbol', (req, res) => {
       
       if (isCrypto) {
         // Redirect to crypto historical endpoint for fresh data
-        return res.redirect(`/api/historical/crypto/${symbol}?period=3m&interval=1d`);
+        return res.redirect(`/api/historical/crypto/${symbol}?period=${period}&interval=1d`);
       } else {
         // Redirect to stock historical endpoint for fresh data  
-        return res.redirect(`/api/historical/stock/${symbol}?period=3m&interval=1d`);
+        return res.redirect(`/api/historical/stock/${symbol}?period=${period}&interval=1d`);
       }
     }
+    
+    // Filter data to requested period and order from earliest to latest
+    let filteredData = latestEntry.data || [];
+    
+    if (period && period !== 'max' && Array.isArray(filteredData)) {
+      const periodDays = {
+        '1m': 30,
+        '3m': 90,
+        '6m': 180,
+        '1y': 365,
+        'max': null // Return all data
+      };
+      
+      const requestedDays = periodDays[period];
+      if (requestedDays) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - requestedDays);
+        
+        filteredData = filteredData.filter(point => new Date(point.date) >= cutoffDate);
+      }
+    }
+    
+    // Sort data from earliest to latest (ascending order)
+    filteredData.sort((a, b) => new Date(a.date) - new Date(b.date));
     
     res.json({
       success: true,
       symbol: symbol,
-      data: latestEntry.data || [],
-      meta: latestEntry.meta || {},
-      dateRange: latestEntry.dateRange || {},
+      data: filteredData,
+      meta: {
+        ...latestEntry.meta,
+        earliestLoggedDate: latestEntry.earliestLoggedDate,
+        latestLoggedDate: latestEntry.latestLoggedDate,
+        dateSpanDays: latestEntry.dateSpanDays,
+        filteredPeriod: period,
+        totalDataPoints: latestEntry.data ? latestEntry.data.length : 0,
+        filteredDataPoints: filteredData.length
+      },
       fromCache: true,
-      stale: historicalDataCache.needsUpdate(symbol, '3m', '1d')
+      stale: historicalDataCache.needsUpdate(symbol).needsUpdate
     });
   } catch (error) {
     console.error(`Historical cache get error for ${req.params.symbol}:`, error);
@@ -2474,6 +2502,24 @@ async function processUploadedFiles(req, res) {
     fileTracker.markAsProcessed(portfolioId);
 
     console.log('✅ Portfolio processing completed successfully');
+    
+    // Pre-populate historical cache for newly discovered symbols
+    setTimeout(async () => {
+      try {
+        console.log('📈 Updating historical cache for newly processed portfolio assets...');
+        const historicalDataPreloader = require('../historical-data-preloader');
+        const updateResult = await historicalDataPreloader.prePopulateHistoricalCache();
+        
+        if (updateResult.success && updateResult.symbolsProcessed > 0) {
+          console.log(`✅ Historical cache updated: ${updateResult.symbolsProcessed} symbols processed`);
+        } else if (updateResult.symbolsProcessed === 0) {
+          console.log('✅ Historical cache already up to date');
+        }
+      } catch (error) {
+        console.error('❌ Error updating historical cache after file processing:', error.message);
+      }
+    }, 1000); // Start 1 second after response to avoid delaying user response
+
     res.json({
       portfolioId: portfolioId,
       message: `Processed ${allFiles.length} CSV files successfully`,
@@ -2492,6 +2538,81 @@ async function processUploadedFiles(req, res) {
     console.log('🔓 Released processing lock');
   }
 }
+
+// Portfolio asset discovery endpoints
+router.get('/discovery/assets', (req, res) => {
+  try {
+    const portfolioAssetDiscovery = require('../portfolio-asset-discovery');
+    const stats = portfolioAssetDiscovery.getDiscoveryStats();
+    
+    res.json({
+      success: true,
+      discovery: stats,
+      message: `Discovered ${stats.totalSymbols} unique portfolio assets`
+    });
+  } catch (error) {
+    console.error('Asset discovery error:', error);
+    res.status(500).json({ error: 'Failed to discover portfolio assets' });
+  }
+});
+
+router.get('/discovery/symbols', (req, res) => {
+  try {
+    const portfolioAssetDiscovery = require('../portfolio-asset-discovery');
+    const allSymbols = portfolioAssetDiscovery.getAllUniqueSymbols();
+    
+    res.json({
+      success: true,
+      symbols: allSymbols,
+      count: allSymbols.length,
+      message: `Found ${allSymbols.length} unique symbols`
+    });
+  } catch (error) {
+    console.error('Symbol discovery error:', error);
+    res.status(500).json({ error: 'Failed to discover symbols' });
+  }
+});
+
+// Historical data pre-population endpoints
+router.post('/historical/preload', async (req, res) => {
+  try {
+    const historicalDataPreloader = require('../historical-data-preloader');
+    const result = await historicalDataPreloader.prePopulateHistoricalCache();
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        result: result,
+        message: `Pre-populated historical data for ${result.symbolsProcessed} symbols`
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.message,
+        result: result
+      });
+    }
+  } catch (error) {
+    console.error('Historical pre-population error:', error);
+    res.status(500).json({ error: 'Failed to pre-populate historical data' });
+  }
+});
+
+router.get('/historical/preload/status', (req, res) => {
+  try {
+    const historicalDataPreloader = require('../historical-data-preloader');
+    const status = historicalDataPreloader.getStatus();
+    
+    res.json({
+      success: true,
+      status: status,
+      message: status.isPreloading ? 'Historical data pre-population in progress' : 'Ready for historical data pre-population'
+    });
+  } catch (error) {
+    console.error('Preloader status error:', error);
+    res.status(500).json({ error: 'Failed to get preloader status' });
+  }
+});
 
 module.exports = router;
 
