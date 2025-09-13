@@ -116,17 +116,17 @@ const HoldingsPerformance: React.FC = () => {
           const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
           const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
           
-          // Try cache endpoint first
+          // Try cache endpoint first - request only last 1 month ordered earliest to latest
           try {
-            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
+            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}?period=1m`);
             // If we get here, data was cached
-            console.log(`💾 Cache hit for ${symbol}`);
+            console.log(`💾 Cache hit for ${symbol} (1 month period)`);
             return cacheResponse.data;
           } catch (cacheError) {
-            // Cache miss - call the appropriate live endpoint directly
+            // Cache miss - call the appropriate live endpoint directly for 1 month
             const endpoint = isCrypto 
-              ? `/api/historical/crypto/${symbol}?period=3m&interval=1d`
-              : `/api/historical/stock/${symbol}?period=3m&interval=1d`;
+              ? `/api/historical/crypto/${symbol}?period=1m&interval=1d`
+              : `/api/historical/stock/${symbol}?period=1m&interval=1d`;
             
             console.log(`📊 Cache miss for ${symbol}, fetching from ${endpoint}`);
             const liveResponse = await axios.get(endpoint);
@@ -261,17 +261,17 @@ const HoldingsPerformance: React.FC = () => {
           const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
           const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
           
-          // Try cache endpoint first
+          // Try cache endpoint first - request only last 1 month ordered earliest to latest
           try {
-            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}`);
+            const cacheResponse = await axios.get(`/api/portfolio/cache/historical/${symbol}?period=1m`);
             // If we get here, data was cached
-            console.log(`💾 Cache hit for ${symbol}`);
+            console.log(`💾 Cache hit for ${symbol} (1 month period)`);
             return cacheResponse.data;
           } catch (cacheError) {
-            // Cache miss - call the appropriate live endpoint directly
+            // Cache miss - call the appropriate live endpoint directly for 1 month
             const endpoint = isCrypto 
-              ? `/api/historical/crypto/${symbol}?period=3m&interval=1d`
-              : `/api/historical/stock/${symbol}?period=3m&interval=1d`;
+              ? `/api/historical/crypto/${symbol}?period=1m&interval=1d`
+              : `/api/historical/stock/${symbol}?period=1m&interval=1d`;
             
             console.log(`📊 Cache miss for ${symbol}, fetching from ${endpoint}`);
             const liveResponse = await axios.get(endpoint);
