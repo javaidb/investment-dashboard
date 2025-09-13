@@ -4,7 +4,7 @@ const path = require('path');
 class HistoricalDataCache {
   constructor() {
     this.cacheFile = path.join(__dirname, 'data', 'cache', 'historical-cache.json');
-    this.cache = new Map();
+    this.cache = new Map(); // Structure: symbol -> {lastModified, data: []}
     this.ensureCacheDirectory();
     this.loadCache();
   }
@@ -56,7 +56,34 @@ class HistoricalDataCache {
     return day >= 1 && day <= 5; // Monday = 1, Friday = 5
   }
 
-  // Get the last working day before today
+  // Get all missing trading days between a start date and today
+  getMissingTradingDays(lastDataDate) {
+    const missingDays = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    
+    if (!lastDataDate) {
+      // No existing data, return empty array (will trigger full fetch)
+      return [];
+    }
+    
+    const startDate = new Date(lastDataDate);
+    startDate.setDate(startDate.getDate() + 1); // Start from day after last data
+    startDate.setHours(0, 0, 0, 0);
+    
+    // Find all working days between lastDataDate and today (inclusive)
+    const currentDate = new Date(startDate);
+    while (currentDate <= today) {
+      if (this.isWorkingDay(currentDate)) {
+        missingDays.push(new Date(currentDate));
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    return missingDays;
+  }
+
+  // Get the last working day before today (kept for compatibility)
   getLastWorkingDay() {
     const today = new Date();
     let lastWorkingDay = new Date(today);
@@ -79,95 +106,217 @@ class HistoricalDataCache {
     return lastWorkingDay;
   }
 
-  // Generate cache key for historical data (stable keys for performance graphs)
-  generateCacheKey(symbol, period = '3m', resolution = '1d') {
-    return `${symbol}_${period}_${resolution}`;
+  // Parse date string to Date object
+  parseDate(dateStr) {
+    return new Date(dateStr);
   }
 
-  // Check if cached data needs update (only update if not updated since last working day)
-  needsUpdate(symbol, period = '3m', resolution = '1d') {
-    const cacheKey = this.generateCacheKey(symbol, period, resolution);
-    const cached = this.cache.get(cacheKey);
+  // Format date for consistent storage
+  formatDate(date) {
+    return date.toISOString().split('T')[0]; // YYYY-MM-DD format
+  }
+
+  // Get local timestamp in ISO format
+  getLocalTimestamp() {
+    const now = new Date();
+    const offset = now.getTimezoneOffset();
+    const localTime = new Date(now.getTime() - (offset * 60 * 1000));
+    return localTime.toISOString().slice(0, -1) + 'Z'; // Keep Z suffix for consistency
+  }
+
+  // Check if cached data needs update by finding missing trading days
+  needsUpdate(symbol) {
+    const cached = this.cache.get(symbol);
     
-    if (!cached || !cached.lastUpdated) {
-      return true; // No cache or no update timestamp
+    if (!cached || !cached.data || cached.data.length === 0) {
+      return { needsUpdate: true, lastDate: null, missingDays: [] }; // No cache data
     }
     
-    const lastUpdated = new Date(cached.lastUpdated);
-    const lastWorkingDay = this.getLastWorkingDay();
+    // Get the last date in our data
+    const sortedData = [...cached.data].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const lastDate = sortedData[0].date;
     
-    // If we haven't updated since the last working day, we need to update
-    return lastUpdated < lastWorkingDay;
+    // Find missing trading days since last data date
+    const missingDays = this.getMissingTradingDays(lastDate);
+    const needsUpdate = missingDays.length > 0;
+    
+    return { 
+      needsUpdate, 
+      lastDate, 
+      missingDays,
+      daysMissing: missingDays.length
+    };
   }
 
-  // Get cached historical data
-  get(symbol, period = '3m', resolution = '1d') {
-    const cacheKey = this.generateCacheKey(symbol, period, resolution);
-    const cached = this.cache.get(cacheKey);
+  // Get cached historical data with optional period filtering
+  get(symbol, period = null) {
+    const cached = this.cache.get(symbol);
     
-    if (!cached) {
+    if (!cached || !cached.data) {
       return null;
     }
     
-    // Return the cached data even if it needs update - let caller decide
+    let data = cached.data;
+    
+    // Filter data to requested period if specified
+    if (period && Array.isArray(data)) {
+      const periodDays = {
+        '1m': 30,
+        '3m': 90,
+        '6m': 180,
+        '1y': 365,
+        'max': null // Return all data
+      };
+      
+      const requestedDays = periodDays[period];
+      if (requestedDays) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - requestedDays);
+        
+        data = data.filter(point => new Date(point.date) >= cutoffDate);
+      }
+    }
+    
+    // Sort data by date (earliest first for consistency)
+    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    const updateStatus = this.needsUpdate(symbol);
+    
     return {
-      ...cached,
-      needsUpdate: this.needsUpdate(symbol, period, resolution)
+      symbol,
+      data,
+      lastModified: cached.lastModified,
+      filteredPeriod: period,
+      totalDataPoints: cached.data ? cached.data.length : 0,
+      filteredDataPoints: data.length,
+      needsUpdate: updateStatus.needsUpdate,
+      lastDate: updateStatus.lastDate
     };
   }
 
-  // Set historical data in cache
-  set(symbol, data, period = '3m', resolution = '1d') {
-    const cacheKey = this.generateCacheKey(symbol, period, resolution);
+  // Calculate date metadata for cache entry
+  calculateDateMetadata(data) {
+    if (!Array.isArray(data) || data.length === 0) {
+      return {
+        earliestLoggedDate: null,
+        latestLoggedDate: null,
+        dateSpanDays: 0
+      };
+    }
+
+    const dates = data.map(d => new Date(d.date)).filter(d => !isNaN(d));
+    if (dates.length === 0) {
+      return {
+        earliestLoggedDate: null,
+        latestLoggedDate: null,
+        dateSpanDays: 0
+      };
+    }
+
+    dates.sort((a, b) => a - b);
+    const earliest = dates[0];
+    const latest = dates[dates.length - 1];
+    const spanMs = latest - earliest;
+    const spanDays = Math.floor(spanMs / (1000 * 60 * 60 * 24));
+
+    return {
+      earliestLoggedDate: earliest.toISOString().split('T')[0],
+      latestLoggedDate: latest.toISOString().split('T')[0],
+      dateSpanDays: spanDays
+    };
+  }
+
+  // Set complete historical data in cache (replaces existing data)
+  set(symbol, data, metadata = null) {
+    const dataArray = Array.isArray(data) ? data : (data.data || []);
+    const dateMetadata = this.calculateDateMetadata(dataArray);
     
     const cacheEntry = {
-      symbol: symbol,
-      period: period,
-      resolution: resolution,
-      data: data.data || [],
-      meta: data.meta || {},
-      dateRange: data.dateRange || {},
-      lastUpdated: new Date().toISOString(),
-      fetchedAt: new Date().toISOString()
+      lastModified: this.getLocalTimestamp(),
+      data: dataArray,
+      ...dateMetadata
     };
 
-    this.cache.set(cacheKey, cacheEntry);
+    // Add asset metadata if provided
+    if (metadata) {
+      cacheEntry.assetInfo = {
+        name: metadata.longName || metadata.shortName || symbol,
+        symbol: metadata.symbol || symbol,
+        instrumentType: metadata.instrumentType || 'UNKNOWN',
+        currency: metadata.currency || 'USD',
+        exchange: metadata.exchangeName || metadata.fullExchangeName || 'UNKNOWN'
+      };
+    }
+
+    this.cache.set(symbol, cacheEntry);
     this.saveCache();
     
-    const dataPoints = Array.isArray(cacheEntry.data) ? cacheEntry.data.length : 0;
-    console.log(`💾 Cached historical data for ${symbol} (${period}/${resolution}): ${dataPoints} data points`);
+    const dataPoints = cacheEntry.data.length;
+    const assetName = metadata?.longName ? ` (${metadata.longName})` : '';
+    const spanInfo = dateMetadata.dateSpanDays > 0 ? ` (${dateMetadata.dateSpanDays} days span)` : '';
+    console.log(`💾 Cached complete historical data for ${symbol}${assetName}: ${dataPoints} data points${spanInfo}`);
   }
 
-  // Update cache with new data (only if not null/empty)
-  update(symbol, data, period = '3m', resolution = '1d') {
-    if (!data || !data.data || !Array.isArray(data.data) || data.data.length === 0) {
-      console.log(`⚠️ Skipping historical cache update for ${symbol}: no valid data`);
+  // Update cache with incremental data (merges with existing)
+  updateIncremental(symbol, newData) {
+    if (!newData || !Array.isArray(newData) || newData.length === 0) {
+      console.log(`⚠️ Skipping incremental cache update for ${symbol}: no valid data`);
       return;
     }
 
-    this.set(symbol, data, period, resolution);
+    const existing = this.cache.get(symbol);
+    let combinedData = [];
+
+    if (existing && existing.data) {
+      // Merge existing data with new data, avoiding duplicates
+      const existingDates = new Set(existing.data.map(d => d.date));
+      const uniqueNewData = newData.filter(d => !existingDates.has(d.date));
+      
+      combinedData = [...existing.data, ...uniqueNewData];
+      console.log(`🔄 Incremental update for ${symbol}: added ${uniqueNewData.length} new data points`);
+    } else {
+      combinedData = newData;
+      console.log(`🆕 Initial data for ${symbol}: ${newData.length} data points`);
+    }
+
+    // Sort by date to maintain chronological order
+    combinedData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Calculate date metadata
+    const dateMetadata = this.calculateDateMetadata(combinedData);
+
+    const cacheEntry = {
+      lastModified: this.getLocalTimestamp(),
+      data: combinedData,
+      ...dateMetadata
+    };
+
+    // Preserve existing asset info if available
+    if (existing && existing.assetInfo) {
+      cacheEntry.assetInfo = existing.assetInfo;
+    }
+
+    this.cache.set(symbol, cacheEntry);
+    this.saveCache();
+    
+    const spanInfo = dateMetadata.dateSpanDays > 0 ? ` (${dateMetadata.dateSpanDays} days span)` : '';
+    console.log(`💾 Updated cache for ${symbol}: ${combinedData.length} total data points${spanInfo}`);
   }
 
-  // Get all cached symbols for a specific period/resolution
-  getAllSymbols(period = '3m', resolution = '1d') {
-    const symbols = [];
-    for (const [key, value] of this.cache.entries()) {
-      if (value.period === period && value.resolution === resolution) {
-        symbols.push(value.symbol);
-      }
-    }
-    return symbols;
+  // Get all cached symbols
+  getAllSymbols() {
+    return Array.from(this.cache.keys());
   }
 
   // Clear cache entries older than a specified number of days
-  clearOldEntries(daysOld = 7) {
+  clearOldEntries(daysOld = 30) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
     
     let removedCount = 0;
-    for (const [key, value] of this.cache.entries()) {
-      if (value.lastUpdated && new Date(value.lastUpdated) < cutoffDate) {
-        this.cache.delete(key);
+    for (const [symbol, value] of this.cache.entries()) {
+      if (value.lastModified && new Date(value.lastModified) < cutoffDate) {
+        this.cache.delete(symbol);
         removedCount++;
       }
     }
@@ -192,28 +341,47 @@ class HistoricalDataCache {
   // Get cache statistics
   getStats() {
     const stats = {
-      totalEntries: this.cache.size,
+      totalSymbols: this.cache.size,
       cacheFile: this.cacheFile,
-      entriesByType: {},
-      needsUpdateCount: 0
+      symbols: {},
+      needsUpdateCount: 0,
+      totalDataPoints: 0
     };
 
-    // Group by period/resolution
-    for (const [key, value] of this.cache.entries()) {
-      const type = `${value.period}/${value.resolution}`;
-      if (!stats.entriesByType[type]) {
-        stats.entriesByType[type] = [];
-      }
-      stats.entriesByType[type].push({
-        symbol: value.symbol,
-        lastUpdated: value.lastUpdated,
-        dataPoints: Array.isArray(value.data) ? value.data.length : 0,
-        needsUpdate: this.needsUpdate(value.symbol, value.period, value.resolution)
-      });
+    // Analyze each symbol
+    for (const [symbol, value] of this.cache.entries()) {
+      const updateStatus = this.needsUpdate(symbol);
+      const dataPoints = Array.isArray(value.data) ? value.data.length : 0;
       
-      if (this.needsUpdate(value.symbol, value.period, value.resolution)) {
+      // Get date range
+      let dateRange = null;
+      if (value.data && value.data.length > 0) {
+        const sortedDates = value.data.map(d => d.date).sort();
+        dateRange = {
+          earliest: sortedDates[0],
+          latest: sortedDates[sortedDates.length - 1]
+        };
+      }
+      
+      stats.symbols[symbol] = {
+        lastModified: value.lastModified,
+        dataPoints,
+        dateRange,
+        earliestLoggedDate: value.earliestLoggedDate,
+        latestLoggedDate: value.latestLoggedDate,
+        dateSpanDays: value.dateSpanDays,
+        needsUpdate: updateStatus.needsUpdate,
+        lastDate: updateStatus.lastDate,
+        missingDays: updateStatus.missingDays || [],
+        daysMissing: updateStatus.daysMissing || 0,
+        assetInfo: value.assetInfo
+      };
+      
+      if (updateStatus.needsUpdate) {
         stats.needsUpdateCount++;
       }
+      
+      stats.totalDataPoints += dataPoints;
     }
 
     return stats;
@@ -223,9 +391,33 @@ class HistoricalDataCache {
 // Create singleton instance
 const historicalDataCache = new HistoricalDataCache();
 
-// Auto-cleanup old entries on startup
-setTimeout(() => {
-  historicalDataCache.clearOldEntries(7); // Remove entries older than 7 days
-}, 5000); // Wait 5 seconds after startup
+// Auto-cleanup old entries and refresh cache on startup
+setTimeout(async () => {
+  try {
+    // First cleanup old entries
+    historicalDataCache.clearOldEntries(30); // Remove entries older than 30 days
+    
+    // Then refresh stale cache entries
+    const stats = historicalDataCache.getStats();
+    if (stats.needsUpdateCount > 0) {
+      console.log(`🔄 Found ${stats.needsUpdateCount} historical cache entries needing updates, refreshing...`);
+      
+      // Import preloader dynamically to avoid circular dependency
+      const historicalDataPreloader = require('./historical-data-preloader');
+      const preloader = historicalDataPreloader;
+      
+      const result = await preloader.prePopulateHistoricalCache();
+      if (result.success) {
+        console.log(`✅ Historical cache startup refresh completed: ${result.symbolsProcessed} symbols processed in ${result.duration}ms`);
+      } else {
+        console.log(`⚠️ Historical cache startup refresh: ${result.message}`);
+      }
+    } else {
+      console.log('✅ All historical cache entries are up to date, no startup refresh needed');
+    }
+  } catch (error) {
+    console.warn('⚠️ Historical cache startup refresh failed:', error.message);
+  }
+}, 10000); // Wait 10 seconds after startup to allow server to fully initialize
 
 module.exports = historicalDataCache;
