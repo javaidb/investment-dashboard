@@ -515,7 +515,7 @@ router.post('/historical/stocks/batch', async (req, res) => {
         console.log(`🔍 Processing historical data for ${upperSymbol}`);
         
         // Check historical cache first
-        const cached = historicalDataCache.get(upperSymbol, period, interval);
+        const cached = historicalDataCache.get(upperSymbol, period);
         if (cached && !cached.needsUpdate) {
           console.log(`💾 Using cached historical data for ${upperSymbol} (${cached.data.length} points)`);
           
@@ -565,14 +565,21 @@ router.post('/historical/stocks/batch', async (req, res) => {
           })).filter(item => item.close > 0);
 
           // Store in historical cache for future use
-          historicalDataCache.update(upperSymbol, {
-            data: historicalData,
-            meta: {
-              period: period,
-              interval: interval,
-              source: 'yahoo_finance'
+          // Update cache with incremental data or full data
+          if (cached && cached.lastDate) {
+            // Incremental update - only add new data points
+            const lastCacheDate = new Date(cached.lastDate);
+            const newDataPoints = historicalData.filter(point => 
+              new Date(point.date) > lastCacheDate
+            );
+            
+            if (newDataPoints.length > 0) {
+              historicalDataCache.updateIncremental(upperSymbol, newDataPoints);
             }
-          }, period, interval);
+          } else {
+            // Full cache update for new symbols
+            historicalDataCache.set(upperSymbol, historicalData);
+          }
 
           results[upperSymbol] = {
             symbol: upperSymbol,
