@@ -58,6 +58,10 @@ const PortfolioSummary: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [weeklyChanges, setWeeklyChanges] = useState<{[symbol: string]: number}>({});
   const [positionHistory, setPositionHistory] = useState<{[symbol: string]: number}>({});
+  const [totalCapital, setTotalCapital] = useState<number>(() => {
+    const saved = localStorage.getItem('portfolio-total-capital');
+    return saved ? parseFloat(saved) : 100000; // Default to $100,000
+  });
   
   const queryClient = useQueryClient();
   const { 
@@ -496,6 +500,12 @@ const PortfolioSummary: React.FC = () => {
     return (totalInvested || 0) - (amountSold || 0);
   };
 
+  // Handle total capital changes and save to localStorage
+  const handleTotalCapitalChange = (value: number) => {
+    setTotalCapital(value);
+    localStorage.setItem('portfolio-total-capital', value.toString());
+  };
+
   console.log('🔍 PortfolioSummary render state:', { isLoading, error: cacheError, holdings: holdings.length, summary: !!summary });
 
   // Show data immediately if we have persistent cached data, even if context is loading
@@ -728,7 +738,7 @@ const PortfolioSummary: React.FC = () => {
               padding: '20px 24px',
               borderBottom: '1px solid #e5e7eb'
             }}>
-              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px'}}>
                 <h3 style={{
                   fontSize: '20px',
                   fontWeight: 'bold',
@@ -743,6 +753,57 @@ const PortfolioSummary: React.FC = () => {
                   borderRadius: '20px',
                   boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
                 }}>{holdings.length} assets</div>
+              </div>
+              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                <label style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#374151'
+                }}>
+                  Total Capital Available:
+                </label>
+                <div style={{position: 'relative'}}>
+                  <input
+                    type="number"
+                    value={totalCapital}
+                    onChange={(e) => handleTotalCapitalChange(parseFloat(e.target.value) || 0)}
+                    style={{
+                      padding: '8px 12px 8px 32px',
+                      borderRadius: '8px',
+                      border: '2px solid #d1d5db',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      width: '150px',
+                      backgroundColor: 'white',
+                      color: '#111827'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.border = '2px solid #3b82f6';
+                      e.target.style.outline = 'none';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.border = '2px solid #d1d5db';
+                    }}
+                  />
+                  <span style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#6b7280',
+                    fontSize: '14px',
+                    pointerEvents: 'none'
+                  }}>C$</span>
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  backgroundColor: '#f3f4f6',
+                  padding: '4px 8px',
+                  borderRadius: '12px'
+                }}>
+                  Used for % calculations
+                </div>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -787,6 +848,9 @@ const PortfolioSummary: React.FC = () => {
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       Weekly Change %
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      % of Portfolio
                     </th>
                   </tr>
                 </thead>
@@ -1058,6 +1122,29 @@ const PortfolioSummary: React.FC = () => {
                             Loading...
                           </div>
                         )}
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        {(() => {
+                          const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
+                          const percentage = totalCapital > 0 ? (netInvested / totalCapital) * 100 : 0;
+                          const isBelow2Percent = percentage < 2;
+
+                          return (
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: isBelow2Percent ? '#dcfce7' : '#dbeafe',
+                              color: isBelow2Percent ? '#166534' : '#2563eb',
+                              border: `2px solid ${isBelow2Percent ? '#bbf7d0' : '#93c5fd'}`
+                            }}>
+                              {percentage.toFixed(2)}%
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
