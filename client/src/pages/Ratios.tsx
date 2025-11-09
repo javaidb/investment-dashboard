@@ -146,13 +146,31 @@ const Ratios: React.FC = () => {
         withShares.sort((a: HoldingWithRisk, b: HoldingWithRisk) => {
           const aOrder = riskOrder[a.riskLevel] || 5;
           const bOrder = riskOrder[b.riskLevel] || 5;
-          return aOrder - bOrder;
+
+          // First sort by risk level
+          if (aOrder !== bOrder) {
+            return aOrder - bOrder;
+          }
+
+          // Then sort by profit/loss (descending - highest profit first)
+          const aPnL = a.totalPnL || 0;
+          const bPnL = b.totalPnL || 0;
+          return bPnL - aPnL;
         });
 
         withoutShares.sort((a: HoldingWithRisk, b: HoldingWithRisk) => {
           const aOrder = riskOrder[a.riskLevel] || 5;
           const bOrder = riskOrder[b.riskLevel] || 5;
-          return aOrder - bOrder;
+
+          // First sort by risk level
+          if (aOrder !== bOrder) {
+            return aOrder - bOrder;
+          }
+
+          // Then sort by profit/loss (descending - highest profit first)
+          const aPnL = a.totalPnL || 0;
+          const bPnL = b.totalPnL || 0;
+          return bPnL - aPnL;
         });
 
         setRiskData([...withShares, ...withoutShares]);
