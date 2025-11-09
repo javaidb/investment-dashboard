@@ -2105,7 +2105,7 @@ function processQuestradeRow(row, filename) {
 
   // Determine if this is a stock or crypto
   // Most Questrade trades are stocks, but we can check for common crypto symbols
-  const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOGE', 'XRP', 'LTC', 'BCH', 'MATIC', 'AVAX'];
+  const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOGE', 'XRP', 'LTC', 'BCH', 'MATIC', 'AVAX', 'DOT', 'LINK', 'UNI', 'ATOM', 'SHIB', 'TRX', 'ETC', 'FIL', 'NEAR', 'ALGO', 'TRUMP'];
   const symbolUpper = symbol.trim().toUpperCase();
   const isCrypto = cryptoSymbols.includes(symbolUpper) || symbolUpper.endsWith('-USD');
 
@@ -2241,9 +2241,9 @@ router.get('/cache/historical/:symbol', (req, res) => {
     // If no cache entry found, try to fetch fresh data from historical endpoint
     if (!latestEntry) {
       console.log(`🔍 No cache found for ${symbol}, fetching fresh historical data`);
-      
+
       // Determine if this is likely a crypto symbol and redirect to appropriate endpoint
-      const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB'];
+      const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB', 'TRX', 'ETC', 'FIL', 'NEAR', 'ALGO', 'TRUMP'];
       const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
       
       if (isCrypto) {
