@@ -165,7 +165,7 @@ const Ratios: React.FC = () => {
 
       {/* Main Content */}
       <div className="dashboard-content">
-        <div className="max-w-full mx-auto px-4">
+        <div className="max-w-5xl mx-auto">
           <div className="dashboard-section">
             {/* Info Box */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
@@ -196,7 +196,9 @@ const Ratios: React.FC = () => {
               boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
               border: '1px solid #e5e7eb',
               overflow: 'hidden',
-              width: '100%'
+              width: '100%',
+              maxWidth: 'fit-content',
+              margin: '0 auto'
             }}>
               <div style={{
                 background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
@@ -224,46 +226,46 @@ const Ratios: React.FC = () => {
                 <table className="min-w-full" style={{backgroundColor: 'white', border: '1px solid #e5e7eb'}}>
                   <thead>
                     <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 12px', width: '80px'}}>
+                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 12px', width: '60px'}}>
                         #
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Symbol
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px', width: '80px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px', width: '60px'}}>
                         Icon
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Company
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Type
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Shares
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Current Value
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Net Invested
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Profit $
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Sharpe Ratio
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Volatility %
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Beta
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Max Drawdown %
                       </th>
-                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Profit $
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Volatility %
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Beta
+                      </th>
+                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Risk Level
                       </th>
                     </tr>
@@ -311,7 +313,7 @@ const Ratios: React.FC = () => {
                                 {index + 1}
                               </div>
                             </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
@@ -330,7 +332,7 @@ const Ratios: React.FC = () => {
                             showTooltip={false}
                           />
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '14px',
                             color: '#6b7280',
@@ -339,7 +341,7 @@ const Ratios: React.FC = () => {
                             {holding.companyName}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '14px',
                             fontWeight: '600',
@@ -352,7 +354,7 @@ const Ratios: React.FC = () => {
                             {holding.type === 'c' ? 'Crypto' : 'Stock'}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
@@ -361,7 +363,7 @@ const Ratios: React.FC = () => {
                             {Number.isInteger(holding.quantity) ? holding.quantity.toLocaleString() : holding.quantity?.toFixed(4)}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
@@ -370,7 +372,7 @@ const Ratios: React.FC = () => {
                             {holding.currentValue ? `C$${holding.currentValue.toFixed(2)}` : 'N/A'}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
@@ -379,17 +381,7 @@ const Ratios: React.FC = () => {
                             {holding.totalInvested ? `C$${holding.totalInvested.toFixed(2)}` : 'N/A'}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                          <div style={{
-                            fontSize: '16px',
-                            fontWeight: '600',
-                            color: holding.totalPnL === null || holding.totalPnL === undefined ? '#6b7280' :
-                                   holding.totalPnL >= 0 ? '#166534' : '#dc2626'
-                          }}>
-                            {holding.totalPnL !== null && holding.totalPnL !== undefined ? `C$${holding.totalPnL.toFixed(2)}` : 'N/A'}
-                          </div>
-                        </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
@@ -401,7 +393,28 @@ const Ratios: React.FC = () => {
                             {holding.sharpeRatio !== null ? holding.sharpeRatio.toFixed(2) : 'N/A'}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: holding.maxDrawdown === null ? '#6b7280' :
+                                   holding.maxDrawdown > 40 ? '#dc2626' :
+                                   holding.maxDrawdown > 20 ? '#d97706' : '#111827'
+                          }}>
+                            {holding.maxDrawdown !== null ? `${holding.maxDrawdown.toFixed(2)}%` : 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: holding.totalPnL === null || holding.totalPnL === undefined ? '#6b7280' :
+                                   holding.totalPnL >= 0 ? '#166534' : '#dc2626'
+                          }}>
+                            {holding.totalPnL !== null && holding.totalPnL !== undefined ? `C$${holding.totalPnL.toFixed(2)}` : 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
@@ -412,22 +425,14 @@ const Ratios: React.FC = () => {
                             {holding.volatility !== null ? `${holding.volatility.toFixed(2)}%` : 'N/A'}
                           </div>
                         </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
-                            color: '#111827'
+                            color: holding.beta === null ? '#6b7280' :
+                                   holding.beta > 3 ? '#dc2626' : '#111827'
                           }}>
                             {holding.beta !== null ? holding.beta.toFixed(2) : 'N/A'}
-                          </div>
-                        </td>
-                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                          <div style={{
-                            fontSize: '16px',
-                            fontWeight: '600',
-                            color: '#dc2626'
-                          }}>
-                            {holding.maxDrawdown !== null ? `${holding.maxDrawdown.toFixed(2)}%` : 'N/A'}
                           </div>
                         </td>
                         <td className="py-4 px-6" style={{padding: '20px 24px', textAlign: 'center'}}>
@@ -730,6 +735,315 @@ const Ratios: React.FC = () => {
                     <div style={{padding: '12px', backgroundColor: '#fecaca', borderRadius: '8px', border: '1px solid #fca5a5'}}>
                       <div style={{fontSize: '13px', fontWeight: '600', color: '#991b1b'}}>Very High Risk</div>
                       <div style={{fontSize: '12px', color: '#991b1b'}}>Max 1-2% per position</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk Indicator Rankings */}
+                <div style={{
+                  marginTop: '24px',
+                  padding: '24px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #fef9c3 0%, #fef3c7 100%)',
+                  border: '2px solid #fbbf24'
+                }}>
+                  <h4 style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#92400e',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <svg style={{width: '24px', height: '24px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                    Risk Indicator Rankings: Which Metrics Matter Most?
+                  </h4>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr',
+                    gap: '16px'
+                  }}>
+                    {/* #1 Sharpe Ratio */}
+                    <div style={{
+                      padding: '16px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '2px solid #10b981'
+                    }}>
+                      <div style={{display: 'flex', alignItems: 'start', gap: '12px'}}>
+                        <div style={{
+                          fontSize: '24px',
+                          fontWeight: 'bold',
+                          color: '#10b981',
+                          minWidth: '32px'
+                        }}>1.</div>
+                        <div style={{flex: 1}}>
+                          <div style={{fontSize: '16px', fontWeight: '700', color: '#059669', marginBottom: '8px'}}>
+                            Sharpe Ratio ⭐⭐⭐⭐⭐ (MOST SIGNIFICANT)
+                          </div>
+                          <div style={{fontSize: '13px', color: '#6b7280', marginBottom: '8px'}}>
+                            <strong>Why #1:</strong> Only metric combining risk AND return. Tells you if you're compensated for risk taken.
+                          </div>
+                          <div style={{fontSize: '12px', color: '#059669', lineHeight: '1.6'}}>
+                            <div>• &lt;0: Losing money, sell immediately</div>
+                            <div>• 0-1: Returns barely justify risk</div>
+                            <div>• 1-2: Good risk-adjusted returns, hold</div>
+                            <div>• &gt;2: Excellent, definitely keep</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* #2 Max Drawdown */}
+                    <div style={{
+                      padding: '16px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '2px solid #f59e0b'
+                    }}>
+                      <div style={{display: 'flex', alignItems: 'start', gap: '12px'}}>
+                        <div style={{
+                          fontSize: '24px',
+                          fontWeight: 'bold',
+                          color: '#f59e0b',
+                          minWidth: '32px'
+                        }}>2.</div>
+                        <div style={{flex: 1}}>
+                          <div style={{fontSize: '16px', fontWeight: '700', color: '#d97706', marginBottom: '8px'}}>
+                            Max Drawdown % ⭐⭐⭐⭐ (VERY SIGNIFICANT)
+                          </div>
+                          <div style={{fontSize: '13px', color: '#6b7280', marginBottom: '8px'}}>
+                            <strong>Why #2:</strong> Shows worst-case historical loss. Reveals if you can stomach the downside.
+                          </div>
+                          <div style={{fontSize: '12px', color: '#d97706', lineHeight: '1.6'}}>
+                            <div>• &lt;10%: Safe, stable investment</div>
+                            <div>• 10-20%: Normal market fluctuations</div>
+                            <div>• 20-40%: High risk, size positions small</div>
+                            <div>• &gt;40%: Extreme risk, could lose half your value</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* #3 Current Profit/Loss */}
+                    <div style={{
+                      padding: '16px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '2px solid #3b82f6'
+                    }}>
+                      <div style={{display: 'flex', alignItems: 'start', gap: '12px'}}>
+                        <div style={{
+                          fontSize: '24px',
+                          fontWeight: 'bold',
+                          color: '#3b82f6',
+                          minWidth: '32px'
+                        }}>3.</div>
+                        <div style={{flex: 1}}>
+                          <div style={{fontSize: '16px', fontWeight: '700', color: '#2563eb', marginBottom: '8px'}}>
+                            Current Profit/Loss $ ⭐⭐⭐ (SIGNIFICANT)
+                          </div>
+                          <div style={{fontSize: '13px', color: '#6b7280', marginBottom: '8px'}}>
+                            <strong>Why #3:</strong> Real money in your pocket. Context-dependent - combine with Sharpe Ratio.
+                          </div>
+                          <div style={{fontSize: '12px', color: '#2563eb', lineHeight: '1.6'}}>
+                            <div>• Green + Good Sharpe: Winner, hold</div>
+                            <div>• Green + Bad Sharpe: Got lucky, take profits</div>
+                            <div>• Red + Bad Sharpe: Loser, sell now</div>
+                            <div>• Red + Good Sharpe: Temporary dip, maybe hold</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* #4 Volatility */}
+                    <div style={{
+                      padding: '16px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '2px solid #8b5cf6'
+                    }}>
+                      <div style={{display: 'flex', alignItems: 'start', gap: '12px'}}>
+                        <div style={{
+                          fontSize: '24px',
+                          fontWeight: 'bold',
+                          color: '#8b5cf6',
+                          minWidth: '32px'
+                        }}>4.</div>
+                        <div style={{flex: 1}}>
+                          <div style={{fontSize: '16px', fontWeight: '700', color: '#7c3aed', marginBottom: '8px'}}>
+                            Volatility % ⭐⭐ (MODERATELY SIGNIFICANT)
+                          </div>
+                          <div style={{fontSize: '13px', color: '#6b7280', marginBottom: '8px'}}>
+                            <strong>Why #4:</strong> Measures swings but not direction. High volatility isn't bad if you're making money.
+                          </div>
+                          <div style={{fontSize: '12px', color: '#7c3aed', lineHeight: '1.6'}}>
+                            <div>• &lt;30%: Can hold larger positions (5-10%)</div>
+                            <div>• 30-50%: Limit position size (3-5%)</div>
+                            <div>• 50-100%: Small positions only (1-3%)</div>
+                            <div>• &gt;100%: Extreme risk, tiny positions (&lt;1%)</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Decision Framework */}
+                  <div style={{
+                    marginTop: '20px',
+                    padding: '16px',
+                    backgroundColor: '#fee2e2',
+                    borderRadius: '8px',
+                    border: '1px solid #fca5a5'
+                  }}>
+                    <div style={{fontSize: '14px', fontWeight: '700', color: '#991b1b', marginBottom: '12px'}}>
+                      ⚡ Quick Decision Framework
+                    </div>
+                    <div style={{fontSize: '13px', color: '#7f1d1d', lineHeight: '1.7'}}>
+                      <div style={{marginBottom: '8px'}}>
+                        <strong>SELL IMMEDIATELY:</strong> Sharpe &lt; 0 + Volatility &gt; 50% + Currently losing money
+                      </div>
+                      <div style={{marginBottom: '8px'}}>
+                        <strong>STRONG REDUCE:</strong> Max Drawdown &gt; 40% + Current loss + Negative Sharpe
+                      </div>
+                      <div>
+                        <strong>HOLD/ADD:</strong> Sharpe &gt; 1.5 (even with high volatility) + Positive profit
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    marginTop: '16px',
+                    padding: '12px',
+                    backgroundColor: 'white',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    color: '#6b7280',
+                    fontStyle: 'italic'
+                  }}>
+                    💡 <strong>Pro Tip:</strong> Sharpe Ratio is king because it's the only forward-looking metric.
+                    A high-volatility stock with a great Sharpe (like some tech stocks) is better than a stable stock losing money.
+                  </div>
+                </div>
+
+                {/* Sample Sharpe Ratio Calculation */}
+                <div style={{
+                  marginTop: '24px',
+                  padding: '24px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)',
+                  border: '2px solid #38bdf8'
+                }}>
+                  <h4 style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#075985',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <svg style={{width: '24px', height: '24px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Sample Calculation: Sharpe Ratio for AAPL
+                  </h4>
+
+                  <div style={{
+                    padding: '20px',
+                    backgroundColor: 'white',
+                    borderRadius: '8px',
+                    border: '1px solid #7dd3fc'
+                  }}>
+                    {/* Step 1 */}
+                    <div style={{marginBottom: '20px'}}>
+                      <div style={{fontSize: '14px', fontWeight: '700', color: '#0369a1', marginBottom: '8px'}}>
+                        Step 1: Get Daily Prices (Last 10 days shown)
+                      </div>
+                      <div style={{fontSize: '13px', color: '#374151', fontFamily: 'monospace', lineHeight: '1.8'}}>
+                        <div>Day 1: $225.00</div>
+                        <div>Day 2: $228.50 → Daily return = (228.50 - 225.00) / 225.00 = <strong>+1.56%</strong></div>
+                        <div>Day 3: $227.80 → Daily return = (227.80 - 228.50) / 228.50 = <strong>-0.31%</strong></div>
+                        <div>Day 4: $230.20 → Daily return = (230.20 - 227.80) / 227.80 = <strong>+1.05%</strong></div>
+                        <div>Day 5: $229.50 → Daily return = (229.50 - 230.20) / 230.20 = <strong>-0.30%</strong></div>
+                        <div style={{color: '#6b7280', marginTop: '4px'}}>... (continues for 90 days total)</div>
+                      </div>
+                    </div>
+
+                    {/* Step 2 */}
+                    <div style={{marginBottom: '20px', paddingTop: '16px', borderTop: '1px solid #e5e7eb'}}>
+                      <div style={{fontSize: '14px', fontWeight: '700', color: '#0369a1', marginBottom: '8px'}}>
+                        Step 2: Calculate Average Daily Return
+                      </div>
+                      <div style={{fontSize: '13px', color: '#374151', lineHeight: '1.6'}}>
+                        <div>Sum of all daily returns: <strong style={{color: '#059669'}}>+15.8%</strong></div>
+                        <div>Number of days: <strong>90 days</strong></div>
+                        <div>Average daily return = 15.8% / 90 = <strong style={{color: '#059669'}}>+0.176%</strong></div>
+                        <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#f0fdf4', borderRadius: '4px', border: '1px solid #bbf7d0'}}>
+                          <strong>Annualized Return</strong> = 0.176% × 252 trading days = <strong style={{color: '#059669'}}>+44.3%</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 3 */}
+                    <div style={{marginBottom: '20px', paddingTop: '16px', borderTop: '1px solid #e5e7eb'}}>
+                      <div style={{fontSize: '14px', fontWeight: '700', color: '#0369a1', marginBottom: '8px'}}>
+                        Step 3: Calculate Volatility (Standard Deviation)
+                      </div>
+                      <div style={{fontSize: '13px', color: '#374151', lineHeight: '1.6'}}>
+                        <div>Variance = Average of (each return - mean)²</div>
+                        <div style={{fontFamily: 'monospace', fontSize: '12px', color: '#6b7280', marginTop: '4px'}}>
+                          = [(1.56% - 0.176%)² + (-0.31% - 0.176%)² + (1.05% - 0.176%)² + ...] / 90
+                        </div>
+                        <div style={{marginTop: '8px'}}>Daily Variance = <strong>0.000487</strong></div>
+                        <div>Daily Volatility = √0.000487 = <strong>2.21%</strong></div>
+                        <div style={{marginTop: '8px', padding: '8px', backgroundColor: '#fef3c7', borderRadius: '4px', border: '1px solid #fde68a'}}>
+                          <strong>Annualized Volatility</strong> = 2.21% × √252 = <strong style={{color: '#d97706'}}>35.1%</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 4 */}
+                    <div style={{paddingTop: '16px', borderTop: '1px solid #e5e7eb'}}>
+                      <div style={{fontSize: '14px', fontWeight: '700', color: '#0369a1', marginBottom: '8px'}}>
+                        Step 4: Calculate Sharpe Ratio
+                      </div>
+                      <div style={{fontSize: '13px', color: '#374151', lineHeight: '1.6'}}>
+                        <div>Formula: <code style={{backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px'}}>Sharpe = (Return - Risk-Free Rate) / Volatility</code></div>
+                        <div style={{marginTop: '8px'}}>Annualized Return = <strong style={{color: '#059669'}}>44.3%</strong></div>
+                        <div>Risk-Free Rate (4% bonds) = <strong>4.0%</strong></div>
+                        <div>Annualized Volatility = <strong style={{color: '#d97706'}}>35.1%</strong></div>
+                        <div style={{marginTop: '12px', padding: '16px', backgroundColor: '#dcfce7', borderRadius: '8px', border: '2px solid #22c55e'}}>
+                          <div style={{fontSize: '15px', fontWeight: '700', color: '#166534', marginBottom: '8px'}}>
+                            Final Sharpe Ratio Calculation:
+                          </div>
+                          <div style={{fontSize: '14px', color: '#166534', fontFamily: 'monospace'}}>
+                            Sharpe = (44.3% - 4.0%) / 35.1%
+                          </div>
+                          <div style={{fontSize: '14px', color: '#166534', fontFamily: 'monospace'}}>
+                            Sharpe = 40.3% / 35.1%
+                          </div>
+                          <div style={{fontSize: '20px', fontWeight: '800', color: '#166534', marginTop: '8px'}}>
+                            Sharpe Ratio = <span style={{fontSize: '24px'}}>1.15</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Interpretation */}
+                    <div style={{marginTop: '16px', padding: '12px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #7dd3fc'}}>
+                      <div style={{fontSize: '13px', fontWeight: '600', color: '#0369a1', marginBottom: '6px'}}>
+                        📊 What This Means:
+                      </div>
+                      <div style={{fontSize: '12px', color: '#0c4a6e', lineHeight: '1.6'}}>
+                        A Sharpe Ratio of <strong>1.15</strong> means AAPL generates <strong>1.15% of excess return for every 1% of risk</strong> taken.
+                        This is <strong>good</strong> (1.0-2.0 range) - the stock is delivering solid risk-adjusted returns.
+                        You're being adequately compensated for the 35% volatility you're experiencing.
+                      </div>
                     </div>
                   </div>
                 </div>
