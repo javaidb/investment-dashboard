@@ -63,7 +63,34 @@ const Ratios: React.FC = () => {
         const response = await axios.get(`/api/portfolio/${latestPortfolio.id}/risk-metrics`);
         console.log('✅ Risk metrics received:', response.data);
 
-        setRiskData(response.data.holdings || []);
+        const holdings = response.data.holdings || [];
+
+        // Separate holdings with shares from those without
+        const withShares = holdings.filter((h: HoldingWithRisk) => h.quantity > 0.01);
+        const withoutShares = holdings.filter((h: HoldingWithRisk) => h.quantity <= 0.01);
+
+        // Sort by risk level (Low -> Medium -> High -> Very High -> Unknown)
+        const riskOrder: {[key: string]: number} = {
+          'Low': 1,
+          'Medium': 2,
+          'High': 3,
+          'Very High': 4,
+          'Unknown': 5
+        };
+
+        withShares.sort((a: HoldingWithRisk, b: HoldingWithRisk) => {
+          const aOrder = riskOrder[a.riskLevel] || 5;
+          const bOrder = riskOrder[b.riskLevel] || 5;
+          return aOrder - bOrder;
+        });
+
+        withoutShares.sort((a: HoldingWithRisk, b: HoldingWithRisk) => {
+          const aOrder = riskOrder[a.riskLevel] || 5;
+          const bOrder = riskOrder[b.riskLevel] || 5;
+          return aOrder - bOrder;
+        });
+
+        setRiskData([...withShares, ...withoutShares]);
       } catch (err: any) {
         console.error('❌ Error fetching risk metrics:', err);
         setError(err.response?.data?.error || 'Failed to load risk metrics');
@@ -216,7 +243,13 @@ const Ratios: React.FC = () => {
                         Shares
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Current Price
+                        Current Value
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Net Invested
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Profit $
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                         Sharpe Ratio
@@ -236,26 +269,48 @@ const Ratios: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {riskData.map((holding, index) => (
-                      <tr key={holding.symbol} style={{
-                        backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
-                        borderBottom: '1px solid #f3f4f6',
-                        transition: 'all 0.2s ease'
-                      }} onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f0f9ff';
-                      }} onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
-                      }}>
-                        <td className="py-4 px-6" style={{padding: '16px 12px', textAlign: 'center'}}>
-                          <div style={{
-                            fontSize: '16px',
-                            fontWeight: '700',
-                            color: '#111827',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                    {riskData.map((holding, index) => {
+                      // Check if this is the first holding without shares (separator needed)
+                      const isFirstWithoutShares = holding.quantity <= 0.01 && (index === 0 || riskData[index - 1].quantity > 0.01);
+
+                      return (
+                        <React.Fragment key={holding.symbol}>
+                          {isFirstWithoutShares && (
+                            <tr style={{backgroundColor: '#f3f4f6', height: '2px'}}>
+                              <td colSpan={14} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
+                                <div style={{
+                                  fontSize: '14px',
+                                  fontWeight: '600',
+                                  color: '#6b7280',
+                                  textAlign: 'center',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.05em'
+                                }}>
+                                  Assets with No Shares
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          <tr style={{
+                            backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
+                            borderBottom: '1px solid #f3f4f6',
+                            transition: 'all 0.2s ease',
+                            opacity: holding.quantity <= 0.01 ? 0.6 : 1
+                          }} onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#f0f9ff';
+                          }} onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
                           }}>
-                            {index + 1}
-                          </div>
-                        </td>
+                            <td className="py-4 px-6" style={{padding: '16px 12px', textAlign: 'center'}}>
+                              <div style={{
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                color: '#111827',
+                                fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                              }}>
+                                {index + 1}
+                              </div>
+                            </td>
                         <td className="py-4 px-6" style={{padding: '20px 24px'}}>
                           <div style={{
                             fontSize: '16px',
@@ -312,7 +367,26 @@ const Ratios: React.FC = () => {
                             fontWeight: '600',
                             color: '#111827'
                           }}>
-                            {holding.currentPrice ? `C$${holding.currentPrice.toFixed(2)}` : 'N/A'}
+                            {holding.currentValue ? `C$${holding.currentValue.toFixed(2)}` : 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: '#111827'
+                          }}>
+                            {holding.totalInvested ? `C$${holding.totalInvested.toFixed(2)}` : 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: holding.totalPnL === null || holding.totalPnL === undefined ? '#6b7280' :
+                                   holding.totalPnL >= 0 ? '#166534' : '#dc2626'
+                          }}>
+                            {holding.totalPnL !== null && holding.totalPnL !== undefined ? `C$${holding.totalPnL.toFixed(2)}` : 'N/A'}
                           </div>
                         </td>
                         <td className="py-4 px-6" style={{padding: '20px 24px'}}>
@@ -378,7 +452,9 @@ const Ratios: React.FC = () => {
                           </span>
                         </td>
                       </tr>
-                    ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
