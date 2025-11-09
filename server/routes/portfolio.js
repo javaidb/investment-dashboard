@@ -587,16 +587,22 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
           }
           
           const cachedData = holdingsCache && holdingsCache.get ? holdingsCache.get(holding.symbol) : null;
-          if (cachedData && 
-              typeof cachedData === 'object' && 
-              cachedData.cadPrice !== undefined && 
-              cachedData.cadPrice !== null && 
+          if (cachedData &&
+              typeof cachedData === 'object' &&
+              cachedData.cadPrice !== undefined &&
+              cachedData.cadPrice !== null &&
               !isNaN(cachedData.cadPrice)) {
             const cadPrice = Number(cachedData.cadPrice) || 0;
+            const exchangeRate = Number(cachedData.exchangeRate) || 1.35;
+
+            // Convert USD holdings to CAD for calculations
+            const totalInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalInvested) || 0);
+            const realizedPnLCAD = holding.currency === 'USD' ? (Number(holding.realizedPnL) || 0) * exchangeRate : (Number(holding.realizedPnL) || 0);
+
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
-            const unrealizedPnL = currentValue - (Number(holding.totalInvested) || 0);
-            const totalPnL = unrealizedPnL + (Number(holding.realizedPnL) || 0);
-            const totalPnLPercent = (Number(holding.totalInvested) || 0) > 0 ? (totalPnL / Number(holding.totalInvested)) * 100 : 0;
+            const unrealizedPnL = currentValue - totalInvestedCAD;
+            const totalPnL = unrealizedPnL + realizedPnLCAD;
+            const totalPnLPercent = totalInvestedCAD > 0 ? (totalPnL / totalInvestedCAD) * 100 : 0;
             
             return {
               ...holding,
@@ -1040,19 +1046,22 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
           }
           
           const cachedData = holdingsCache && holdingsCache.get ? holdingsCache.get(holding.symbol) : null;
-          if (cachedData && 
-              typeof cachedData === 'object' && 
-              cachedData.cadPrice !== undefined && 
-              cachedData.cadPrice !== null && 
+          if (cachedData &&
+              typeof cachedData === 'object' &&
+              cachedData.cadPrice !== undefined &&
+              cachedData.cadPrice !== null &&
               !isNaN(cachedData.cadPrice)) {
             const cadPrice = Number(cachedData.cadPrice) || 0;
+            const exchangeRate = Number(cachedData.exchangeRate) || 1.35;
+
+            // Holdings are already stored in CAD
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
             const unrealizedPnL = currentValue - (Number(holding.totalInvested) || 0);
             const totalPnL = unrealizedPnL + (Number(holding.realizedPnL) || 0);
             const totalPnLPercent = (Number(holding.totalInvested) || 0) > 0 ? (totalPnL / Number(holding.totalInvested)) * 100 : 0;
-            
+
             console.log(`💰 Using cached data for ${holding.symbol}: $${cadPrice.toFixed(2)} CAD (age: ${cachedData.fetchedAt ? Math.round((Date.now() - new Date(cachedData.fetchedAt).getTime()) / 1000 / 60) : 'unknown'} min)`);
-            
+
             return {
               ...holding,
               companyName: cachedData.companyName || holding.symbol,
@@ -1062,7 +1071,7 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
               totalPnL: totalPnL,
               totalPnLPercent: totalPnLPercent,
               usdPrice: Number(cachedData.usdPrice) || 0,
-              exchangeRate: Number(cachedData.exchangeRate) || 1.35,
+              exchangeRate: exchangeRate,
               cacheUsed: true
             };
           }
@@ -1229,16 +1238,19 @@ router.get('/:portfolioId/cached', async (req, res) => {
     const holdingsWithCachedPrices = portfolio.holdings.map(holding => {
       const symbol = holding.symbol;
       const cachedHolding = holdingsCache?.cache?.get(symbol);
-      
+
       if (cachedHolding) {
         // Calculate current values using cached prices
         const currentPrice = cachedHolding.cadPrice || cachedHolding.price || null;
+        const exchangeRate = cachedHolding.exchangeRate || 1.35;
+
+        // Holdings are already in CAD, no conversion needed
         const currentValue = currentPrice ? holding.quantity * currentPrice : null;
-        const unrealizedPnL = currentValue && holding.totalInvested ? 
+        const unrealizedPnL = currentValue && holding.totalInvested ?
           currentValue - holding.totalInvested : null;
-        const totalPnL = unrealizedPnL !== null ? 
+        const totalPnL = unrealizedPnL !== null ?
           unrealizedPnL + holding.realizedPnL : holding.realizedPnL;
-        
+
         return {
           ...holding,
           currentPrice: currentPrice,
@@ -1251,7 +1263,7 @@ router.get('/:portfolioId/cached', async (req, res) => {
           cacheTimestamp: cachedHolding.lastUpdated || cachedHolding.fetchedAt
         };
       } else {
-        // No cached data available - return holding as-is
+        // No cached data available - holdings are already in CAD
         return {
           ...holding,
           cacheUsed: false
@@ -1317,8 +1329,9 @@ function checkFileModifications() {
     // Get all current CSV files
     const uploadsDirWealthsimple = path.join(__dirname, '../uploads/wealthsimple');
     const uploadsDirCrypto = path.join(__dirname, '../uploads/crypto');
+    const uploadsDirQuestrade = path.join(__dirname, '../uploads/questrade');
     const allFiles = [];
-    
+
     // Scan wealthsimple folder
     if (fs.existsSync(uploadsDirWealthsimple)) {
       const wealthsimpleFiles = fs.readdirSync(uploadsDirWealthsimple)
@@ -1330,7 +1343,7 @@ function checkFileModifications() {
         }));
       allFiles.push(...wealthsimpleFiles);
     }
-    
+
     // Scan crypto folder
     if (fs.existsSync(uploadsDirCrypto)) {
       const cryptoFiles = fs.readdirSync(uploadsDirCrypto)
@@ -1341,6 +1354,18 @@ function checkFileModifications() {
           folder: 'crypto'
         }));
       allFiles.push(...cryptoFiles);
+    }
+
+    // Scan questrade folder
+    if (fs.existsSync(uploadsDirQuestrade)) {
+      const questradeFiles = fs.readdirSync(uploadsDirQuestrade)
+        .filter(file => file.toLowerCase().endsWith('.csv'))
+        .map(file => ({
+          name: file,
+          path: path.join(uploadsDirQuestrade, file),
+          folder: 'questrade'
+        }));
+      allFiles.push(...questradeFiles);
     }
 
     if (allFiles.length === 0) {
@@ -1563,62 +1588,72 @@ async function processTrades(trades) {
   let totalRealizedPnL = 0; // Track P&L from sales
   let totalAmountSold = 0; // Track total amount sold
 
+  // Get USD to CAD exchange rate once for all trades
+  const usdToCadRate = await getUSDtoCADRate();
+  console.log(`💱 Using exchange rate: 1 USD = ${usdToCadRate} CAD`);
+
   // Sort trades by date
   trades.sort((a, b) => a.date - b.date);
 
   for (const trade of trades) {
     const symbol = trade.symbol;
-    
+
     if (!holdings.has(symbol)) {
       holdings.set(symbol, {
         symbol: symbol,
         quantity: 0,
         averagePrice: 0,
         totalInvested: 0,
-        totalAmountInvested: 0, // Track total amount ever invested (all buy transactions)
+        totalAmountInvested: 0, // Track total amount ever invested (ALWAYS in CAD)
         realizedPnL: 0,
-        amountSold: 0, // Track total amount sold
+        amountSold: 0, // Track total amount sold (ALWAYS in CAD)
         type: trade.type, // 's' for stock, 'c' for crypto
-        currency: trade.currency || 'CAD' // Default to CAD
+        currency: 'CAD' // All holdings store amounts in CAD
       });
     }
 
     const holding = holdings.get(symbol);
 
+    // Convert trade to CAD if needed
+    const tradeTotalCAD = trade.currency === 'USD' ? trade.total * usdToCadRate : trade.total;
+    const tradePriceCAD = trade.currency === 'USD' ? trade.price * usdToCadRate : trade.price;
+
     if (trade.action === 'buy') {
       const newQuantity = holding.quantity + trade.quantity;
-      const newTotalInvested = holding.totalInvested + trade.total;
-      
+      const newTotalInvested = holding.totalInvested + tradeTotalCAD;
+
       holding.quantity = newQuantity;
       holding.totalInvested = newTotalInvested;
-      holding.totalAmountInvested += trade.total; // Accumulate total amount ever invested
+      holding.totalAmountInvested += tradeTotalCAD; // Accumulate in CAD
       holding.averagePrice = newTotalInvested / newQuantity;
-      totalInvested += trade.total;
+
+      totalInvested += tradeTotalCAD;
     } else if (trade.action === 'sell') {
       if (holding.quantity < trade.quantity) {
         console.warn(`⚠️ Insufficient quantity for ${symbol}: trying to sell ${trade.quantity} but only have ${holding.quantity}. Adjusting sell quantity.`);
-        
+
         // Adjust sell quantity to available amount
         const adjustedQuantity = holding.quantity;
-        const adjustedTotal = trade.total * (adjustedQuantity / trade.quantity);
-        
+        const adjustedTotal = tradeTotalCAD * (adjustedQuantity / trade.quantity);
+
         const realizedPnL = adjustedTotal - (holding.averagePrice * adjustedQuantity);
-        
+
         holding.quantity = 0;
         holding.realizedPnL += realizedPnL;
-        holding.amountSold += adjustedTotal; // Track adjusted amount sold
+        holding.amountSold += adjustedTotal; // Track adjusted amount sold (in CAD)
         totalRealizedPnL += realizedPnL;
-        totalAmountSold += adjustedTotal; // Track total amount sold
+        totalAmountSold += adjustedTotal;
+
         holding.totalInvested = 0;
         holding.averagePrice = 0;
       } else {
-        const realizedPnL = trade.total - (holding.averagePrice * trade.quantity);
-        
+        const realizedPnL = tradeTotalCAD - (holding.averagePrice * trade.quantity);
+
         holding.quantity -= trade.quantity;
         holding.realizedPnL += realizedPnL;
-        holding.amountSold += trade.total; // Track amount sold
+        holding.amountSold += tradeTotalCAD; // Track amount sold (in CAD)
         totalRealizedPnL += realizedPnL;
-        totalAmountSold += trade.total; // Track total amount sold
+        totalAmountSold += tradeTotalCAD;
 
         if (holding.quantity === 0) {
           holding.totalInvested = 0;
@@ -1662,7 +1697,11 @@ async function getCurrentPrices(holdings) {
   
   console.log(`📊 Processing ${holdings.length} holdings for price data`);
   const holdingsWithPrices = [];
-  
+
+  // Get exchange rate once for all USD holdings
+  const usdToCadRate = await getUSDtoCADRate();
+  console.log(`💱 Using exchange rate for display conversions: 1 USD = ${usdToCadRate} CAD`);
+
   // Process holdings sequentially to avoid overwhelming APIs
   for (const holding of holdings) {
     try {
@@ -1786,6 +1825,7 @@ async function getCurrentPrices(holdings) {
         }
       }
       
+      // Holdings are already stored in CAD
       // Calculate financial metrics
       if (cadPrice && holding.quantity) {
         currentValue = cadPrice * (holding.quantity || 0);
@@ -1803,7 +1843,7 @@ async function getCurrentPrices(holdings) {
         totalPnL: totalPnL,
         totalPnLPercent: totalPnLPercent,
         usdPrice: usdPrice, // Keep USD price for reference
-        exchangeRate: exchangeRate, // Store exchange rate for transparency
+        exchangeRate: usdToCadRate, // Store exchange rate for transparency
         cacheUsed: cacheUsed // Flag to indicate if cache was used
       });
     } catch (error) {
@@ -1941,7 +1981,7 @@ function processCryptoRow(row, filename) {
   const pricePerUnit = totalAmount / quantity; // Calculate price per share/coin
 
   return {
-    symbol: row.symbol.toUpperCase(),
+    symbol: row.symbol.trim().toUpperCase(),
     date: parsedDate,
     action: row.action.toLowerCase(),
     quantity: quantity,
@@ -2006,7 +2046,7 @@ function processWealthsimpleRow(row, filename) {
   }
 
   return {
-    symbol: symbol.toUpperCase(),
+    symbol: symbol.trim().toUpperCase(),
     date: parsedDate,
     action: action,
     quantity: quantity,
@@ -2014,6 +2054,73 @@ function processWealthsimpleRow(row, filename) {
     total: totalAmount, // Total amount in CAD
     type: 's', // Wealthsimple is for stocks
     currency: 'CAD' // All amounts are in CAD
+  };
+}
+
+// Helper function to process Questrade format rows
+function processQuestradeRow(row, filename) {
+  // Normalize column names (csv-parser lowercases them)
+  const activityType = row['Activity Type'] || row['activity type'];
+
+  // Only process rows with Activity Type = "Trades"
+  if (!activityType || activityType.trim() !== 'Trades') {
+    return null;
+  }
+
+  // Skip completely empty rows or rows with missing essential data
+  const transactionDate = row['Transaction Date'] || row['transaction date'];
+  const action = row['Action'] || row['action'];
+  const symbol = row['Symbol'] || row['symbol'];
+  const quantity = row['Quantity'] || row['quantity'];
+  const price = row['Price'] || row['price'];
+  const currency = row['Currency'] || row['currency'];
+
+  if (!transactionDate || !action || !symbol || !quantity || !price || !currency ||
+      transactionDate.trim() === '' || action.trim() === '' || symbol.trim() === '' ||
+      quantity.trim() === '' || price.trim() === '' || currency.trim() === '') {
+    console.log(`Skipping empty/invalid row in ${filename}:`, row);
+    return null;
+  }
+
+  // Only process Buy or Sell transactions
+  if (action.toLowerCase() !== 'buy' && action.toLowerCase() !== 'sell') {
+    return null;
+  }
+
+  // Parse date - Questrade format: "2025-10-23 0:00"
+  let parsedDate;
+  try {
+    parsedDate = new Date(transactionDate);
+    if (isNaN(parsedDate.getTime())) {
+      throw new Error('Invalid date');
+    }
+  } catch (dateError) {
+    console.warn(`Invalid date format for ${symbol}: ${transactionDate}`);
+    parsedDate = new Date(); // Use current date as fallback
+  }
+
+  const quantityNum = parseFloat(quantity);
+  const priceNum = parseFloat(price);
+  const totalAmount = Math.abs(quantityNum * priceNum);
+
+  // Determine if this is a stock or crypto
+  // Most Questrade trades are stocks, but we can check for common crypto symbols
+  const cryptoSymbols = ['BTC', 'ETH', 'ADA', 'SOL', 'DOGE', 'XRP', 'LTC', 'BCH', 'MATIC', 'AVAX'];
+  const symbolUpper = symbol.trim().toUpperCase();
+  const isCrypto = cryptoSymbols.includes(symbolUpper) || symbolUpper.endsWith('-USD');
+
+  // Determine currency - Questrade shows USD or CAD
+  const tradeCurrency = currency.trim().toUpperCase();
+
+  return {
+    symbol: symbolUpper,
+    date: parsedDate,
+    action: action.toLowerCase(),
+    quantity: Math.abs(quantityNum), // Use absolute value for quantity
+    price: priceNum, // Price per share in original currency
+    total: totalAmount, // Total amount in original currency
+    type: isCrypto ? 'c' : 's', // 's' for stock, 'c' for crypto
+    currency: tradeCurrency // USD or CAD
   };
 }
 
@@ -2386,9 +2493,9 @@ async function processUploadedFiles(req, res) {
     
     if (allFiles.length === 0) {
       console.log('❌ No CSV files found in uploads directory');
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'No CSV files found in uploads directory',
-        suggestion: 'Please place CSV files in server/uploads/wealthsimple/ or server/uploads/crypto/ directories'
+        suggestion: 'Please place CSV files in server/uploads/wealthsimple/, server/uploads/crypto/, or server/uploads/questrade/ directories'
       });
     }
 
@@ -2427,6 +2534,9 @@ async function processUploadedFiles(req, res) {
               } else if (fileType === 'wealthsimple') {
                 // Process Wealthsimple format
                 trade = processWealthsimpleRow(row, fileInfo.name);
+              } else if (fileType === 'questrade') {
+                // Process Questrade format
+                trade = processQuestradeRow(row, fileInfo.name);
               }
               
               if (trade) {
@@ -2444,7 +2554,7 @@ async function processUploadedFiles(req, res) {
             
             // Add file metadata for this file
             fileMetadataList.push({
-              folder: fileType, // 'crypto' or 'wealthsimple'
+              folder: fileType, // 'crypto', 'wealthsimple', or 'questrade'
               filename: fileInfo.name,
               fileSize: fileStats.size,
               lastModified: fileStats.mtime.toISOString(),
