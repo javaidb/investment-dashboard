@@ -7,7 +7,8 @@ class FileTracker {
     this.trackedFiles = new Map();
     this.uploadDirs = [
       path.join(__dirname, 'uploads', 'wealthsimple'),
-      path.join(__dirname, 'uploads', 'crypto')
+      path.join(__dirname, 'uploads', 'crypto'),
+      path.join(__dirname, 'uploads', 'questrade')
     ];
     this.ensureTrackingDirectory();
     this.loadTracking();
@@ -62,11 +63,19 @@ class FileTracker {
       if (fs.existsSync(uploadDir)) {
         const files = fs.readdirSync(uploadDir)
           .filter(file => file.endsWith('.csv'))
-          .map(file => ({
-            path: path.join(uploadDir, file),
-            type: uploadDir.includes('crypto') ? 'crypto' : 'wealthsimple',
-            name: file
-          }));
+          .map(file => {
+            let type = 'wealthsimple'; // default
+            if (uploadDir.includes('crypto')) {
+              type = 'crypto';
+            } else if (uploadDir.includes('questrade')) {
+              type = 'questrade';
+            }
+            return {
+              path: path.join(uploadDir, file),
+              type: type,
+              name: file
+            };
+          });
         allFiles.push(...files);
       }
     }
