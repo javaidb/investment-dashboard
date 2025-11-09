@@ -29,6 +29,8 @@ interface HoldingWithRisk {
   maxDrawdown: number | null;
   totalReturn: number | null;
   riskLevel: string;
+  positionSize?: number;
+  recommendation?: string;
 }
 
 const Ratios: React.FC = () => {
@@ -65,9 +67,72 @@ const Ratios: React.FC = () => {
 
         const holdings = response.data.holdings || [];
 
+        // Calculate total invested across all holdings
+        const totalInvestedAcrossAll = holdings.reduce((sum: number, h: HoldingWithRisk) => sum + (h.totalInvested || 0), 0);
+
+        // Add position size percentage and recommendation to each holding
+        const holdingsWithPositionSize = holdings.map((h: HoldingWithRisk) => {
+          const positionSize = totalInvestedAcrossAll > 0 ? (h.totalInvested / totalInvestedAcrossAll) * 100 : 0;
+
+          // Determine recommendation based on Quick Decision Framework
+          let recommendation = 'HOLD';
+
+          // SELL IMMEDIATELY: Sharpe < 0 + Volatility > 50% + Currently losing money
+          if (h.sharpeRatio !== null && h.sharpeRatio < 0 &&
+              h.volatility !== null && h.volatility > 50 &&
+              h.totalPnL !== null && h.totalPnL < 0) {
+            recommendation = 'SELL';
+          }
+          // SELL IMMEDIATELY: Max Drawdown > 40% + Current loss + Negative Sharpe
+          else if (h.maxDrawdown !== null && h.maxDrawdown > 40 &&
+                   h.totalPnL !== null && h.totalPnL < 0 &&
+                   h.sharpeRatio !== null && h.sharpeRatio < 0) {
+            recommendation = 'SELL';
+          }
+          // SELL IMMEDIATELY: Sharpe < -2 (very poor risk-adjusted returns)
+          else if (h.sharpeRatio !== null && h.sharpeRatio < -2) {
+            recommendation = 'SELL';
+          }
+          // STRONG REDUCE: Sharpe < 0.5 + Max Drawdown > 30%
+          else if (h.sharpeRatio !== null && h.sharpeRatio < 0.5 &&
+                   h.maxDrawdown !== null && h.maxDrawdown > 30) {
+            recommendation = 'REDUCE';
+          }
+          // STRONG REDUCE: Current loss > 20% + Volatility > 70%
+          else if (h.totalPnLPercent !== null && h.totalPnLPercent < -20 &&
+                   h.volatility !== null && h.volatility > 70) {
+            recommendation = 'REDUCE';
+          }
+          // STRONG REDUCE: Max Drawdown > 50% (even if profitable)
+          else if (h.maxDrawdown !== null && h.maxDrawdown > 50) {
+            recommendation = 'REDUCE';
+          }
+          // HOLD/ADD: Sharpe > 1.5 (even with high volatility)
+          else if (h.sharpeRatio !== null && h.sharpeRatio > 1.5) {
+            recommendation = 'HOLD/ADD';
+          }
+          // HOLD/ADD: Sharpe > 1 + Max Drawdown < 20%
+          else if (h.sharpeRatio !== null && h.sharpeRatio > 1 &&
+                   h.maxDrawdown !== null && h.maxDrawdown < 20) {
+            recommendation = 'HOLD/ADD';
+          }
+          // HOLD/ADD: Current profit + Low volatility + Positive Sharpe
+          else if (h.totalPnL !== null && h.totalPnL > 0 &&
+                   h.volatility !== null && h.volatility < 30 &&
+                   h.sharpeRatio !== null && h.sharpeRatio > 0) {
+            recommendation = 'HOLD/ADD';
+          }
+
+          return {
+            ...h,
+            positionSize,
+            recommendation
+          };
+        });
+
         // Separate holdings with shares from those without
-        const withShares = holdings.filter((h: HoldingWithRisk) => h.quantity > 0.01);
-        const withoutShares = holdings.filter((h: HoldingWithRisk) => h.quantity <= 0.01);
+        const withShares = holdingsWithPositionSize.filter((h: any) => h.quantity > 0.01);
+        const withoutShares = holdingsWithPositionSize.filter((h: any) => h.quantity <= 0.01);
 
         // Sort by risk level (Low -> Medium -> High -> Very High -> Unknown)
         const riskOrder: {[key: string]: number} = {
@@ -251,6 +316,9 @@ const Ratios: React.FC = () => {
                         Net Invested
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Position Size %
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Sharpe Ratio
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
@@ -268,6 +336,9 @@ const Ratios: React.FC = () => {
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Risk Level
                       </th>
+                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Recommendation
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -279,7 +350,7 @@ const Ratios: React.FC = () => {
                         <React.Fragment key={holding.symbol}>
                           {isFirstWithoutShares && (
                             <tr style={{backgroundColor: '#f3f4f6', height: '2px'}}>
-                              <td colSpan={14} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
+                              <td colSpan={16} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
                                 <div style={{
                                   fontSize: '14px',
                                   fontWeight: '600',
@@ -385,6 +456,19 @@ const Ratios: React.FC = () => {
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
+                            color: holding.positionSize === undefined ? '#6b7280' :
+                                   (holding.riskLevel === 'Very High' && holding.positionSize > 2) ? '#dc2626' :
+                                   (holding.riskLevel === 'High' && holding.positionSize > 3) ? '#dc2626' :
+                                   (holding.riskLevel === 'Medium' && holding.positionSize > 5) ? '#d97706' :
+                                   (holding.riskLevel === 'Low' && holding.positionSize > 10) ? '#d97706' : '#111827'
+                          }}>
+                            {holding.positionSize !== undefined ? `${holding.positionSize.toFixed(2)}%` : 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
                             color: holding.sharpeRatio === null ? '#6b7280' :
                                    holding.sharpeRatio >= 2 ? '#166534' :
                                    holding.sharpeRatio >= 1 ? '#059669' :
@@ -454,6 +538,24 @@ const Ratios: React.FC = () => {
                                                  holding.riskLevel === 'High' ? '#fdba74' : '#fca5a5'}`
                           }}>
                             {holding.riskLevel}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6" style={{padding: '16px 20px', textAlign: 'center'}}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '8px 16px',
+                            borderRadius: '16px',
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            backgroundColor: holding.recommendation === 'SELL' ? '#fecaca' :
+                                           holding.recommendation === 'REDUCE' ? '#fed7aa' : '#dcfce7',
+                            color: holding.recommendation === 'SELL' ? '#991b1b' :
+                                   holding.recommendation === 'REDUCE' ? '#9a3412' : '#166534',
+                            border: `2px solid ${holding.recommendation === 'SELL' ? '#fca5a5' :
+                                                 holding.recommendation === 'REDUCE' ? '#fdba74' : '#bbf7d0'}`
+                          }}>
+                            {holding.recommendation || 'HOLD'}
                           </span>
                         </td>
                       </tr>
