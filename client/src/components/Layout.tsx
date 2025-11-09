@@ -1,16 +1,17 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  BarChart3, 
-  Search, 
-  Upload, 
+import {
+  BarChart3,
+  Search,
+  Upload,
   TrendingUp,
   Menu,
   X,
   Database,
   Image,
   PieChart,
-  Activity
+  Activity,
+  Calculator
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -26,6 +27,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Breakdown', href: '/breakdown', icon: PieChart },
     { name: 'Trends', href: '/trends', icon: TrendingUp },
     { name: 'Analysis', href: '/analysis', icon: Activity },
+    { name: 'Ratios', href: '/ratios', icon: Calculator },
     { name: 'Search', href: '/search', icon: Search },
     { name: 'Portfolio', href: '/portfolio', icon: Upload },
     { name: 'Icons', href: '/icons', icon: Image },
