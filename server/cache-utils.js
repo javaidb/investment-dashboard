@@ -152,7 +152,7 @@ async function refreshPortfolioCache() {
         
         if (!tradesBySymbol[trade.symbol]) {
           // Known crypto symbols that need -USD suffix for Yahoo Finance
-          const knownCryptos = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB', 'TRX', 'ETC', 'FIL', 'NEAR', 'ALGO'];
+          const knownCryptos = ['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'LINK', 'UNI', 'MATIC', 'AVAX', 'ATOM', 'LTC', 'BCH', 'XRP', 'DOGE', 'SHIB', 'TRX', 'ETC', 'FIL', 'NEAR', 'ALGO', 'TRUMP'];
           
           tradesBySymbol[trade.symbol] = {
             symbol: trade.symbol,
