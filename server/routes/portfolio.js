@@ -2724,6 +2724,227 @@ router.get('/historical/preload/status', (req, res) => {
   }
 });
 
+// Get risk metrics for portfolio holdings
+router.get('/:portfolioId/risk-metrics', async (req, res) => {
+  const { portfolioId } = req.params;
+
+  try {
+    console.log('📊 Risk metrics request for portfolio:', portfolioId);
+
+    const portfolio = portfolios.get(portfolioId);
+    if (!portfolio) {
+      return res.status(404).json({ error: 'Portfolio not found' });
+    }
+
+    if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
+      return res.status(400).json({ error: 'Invalid portfolio holdings' });
+    }
+
+    // Process all holdings in parallel for better performance
+    const promises = portfolio.holdings.map(async (holding) => {
+      try {
+        const symbol = holding.symbol;
+        let historicalData = null;
+
+        // Try to get historical data from cache first
+        const cachedHistorical = historicalDataCache.get(symbol, '3m');
+
+        if (cachedHistorical && !cachedHistorical.needsUpdate && cachedHistorical.data && cachedHistorical.data.length >= 30) {
+          console.log(`📦 Using cached historical data for ${symbol} (${cachedHistorical.data.length} days)`);
+          historicalData = cachedHistorical;
+        } else if (holding.type === 's') {
+          // For stocks, fetch from Yahoo Finance if not in cache or needs update
+          console.log(`🌐 Fetching historical data for ${symbol} from Yahoo Finance`);
+
+          try {
+            const endTimestamp = Math.floor(Date.now() / 1000);
+            const startTimestamp = endTimestamp - (90 * 24 * 60 * 60); // 90 days ago
+
+            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+            const params = {
+              period1: startTimestamp,
+              period2: endTimestamp,
+              interval: '1d',
+              includePrePost: false
+            };
+
+            const response = await axios.get(yahooUrl, {
+              params,
+              timeout: 8000
+            });
+
+            if (response.data.chart?.result?.[0]) {
+              const result = response.data.chart.result[0];
+              const timestamps = result.timestamp || [];
+              const quotes = result.indicators.quote[0];
+              const meta = result.meta;
+
+              if (timestamps.length && quotes) {
+                const fetchedData = timestamps.map((timestamp, index) => ({
+                  date: new Date(timestamp * 1000).toISOString(),
+                  open: quotes.open?.[index] || null,
+                  high: quotes.high?.[index] || null,
+                  low: quotes.low?.[index] || null,
+                  close: quotes.close?.[index] || null,
+                  volume: quotes.volume?.[index] || null
+                })).filter(item => item.close !== null);
+
+                console.log(`✅ Fetched ${fetchedData.length} days of data for ${symbol}`);
+
+                // Cache the historical data
+                historicalDataCache.updateIncremental(symbol, fetchedData);
+
+                historicalData = {
+                  data: fetchedData,
+                  meta: {
+                    companyName: meta.longName || meta.shortName || holding.companyName || symbol,
+                    currentPrice: meta.regularMarketPrice || null,
+                    currency: meta.currency || 'USD'
+                  }
+                };
+              }
+            }
+          } catch (fetchError) {
+            console.warn(`⚠️ Failed to fetch historical data for ${symbol}: ${fetchError.message}`);
+            // Try to use stale cache data if available
+            if (cachedHistorical && cachedHistorical.data && cachedHistorical.data.length > 0) {
+              console.log(`📦 Using stale cached data for ${symbol}`);
+              historicalData = cachedHistorical;
+            }
+          }
+        }
+
+        console.log(`📊 Processing ${symbol}: has historical data = ${!!historicalData}, data points = ${historicalData?.data?.length || 0}`);
+
+        // Calculate risk metrics
+        const riskMetrics = await calculateRiskMetrics(symbol, holding, historicalData);
+
+        // Get current price from holdings cache
+        const cachedHolding = holdingsCache?.cache?.get(symbol);
+        const currentPrice = cachedHolding?.cadPrice || cachedHolding?.price || holding.currentPrice || null;
+
+        return {
+          symbol: symbol,
+          companyName: holding.companyName || symbol,
+          type: holding.type || 's', // Include type field
+          quantity: holding.quantity,
+          currentPrice: currentPrice, // Include current price
+          totalInvested: holding.totalInvested,
+          currentValue: holding.currentValue,
+          totalPnL: holding.totalPnL,
+          totalPnLPercent: holding.totalPnLPercent,
+          ...riskMetrics
+        };
+
+      } catch (error) {
+        console.warn(`Error processing risk metrics for ${holding.symbol}:`, error.message);
+        // Return null for failed holdings
+        return null;
+      }
+    });
+
+    // Wait for all holdings to be processed (with 60s timeout)
+    const results = await Promise.all(promises);
+    const holdingsWithRisk = results.filter(r => r !== null);
+
+    res.json({
+      portfolioId: portfolioId,
+      holdings: holdingsWithRisk,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Risk metrics error:', error);
+    res.status(500).json({ error: 'Failed to calculate risk metrics' });
+  }
+});
+
+// Helper function to calculate risk/reward metrics for a holding
+async function calculateRiskMetrics(symbol, holding, historicalData) {
+  const metrics = {
+    sharpeRatio: null,
+    volatility: null,
+    beta: null,
+    maxDrawdown: null,
+    totalReturn: null,
+    riskLevel: 'Unknown'
+  };
+
+  try {
+    if (!historicalData || !historicalData.data || historicalData.data.length < 30) {
+      // Need at least 30 days of data for meaningful metrics
+      return metrics;
+    }
+
+    const prices = historicalData.data.map(d => d.close);
+    const n = prices.length;
+
+    // Calculate daily returns
+    const returns = [];
+    for (let i = 1; i < n; i++) {
+      returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+    }
+
+    // 1. Volatility (Standard Deviation of returns, annualized)
+    const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+    const dailyVolatility = Math.sqrt(variance);
+    metrics.volatility = dailyVolatility * Math.sqrt(252); // Annualized (252 trading days)
+
+    // 2. Total Return
+    const firstPrice = prices[0];
+    const lastPrice = prices[n - 1];
+    metrics.totalReturn = ((lastPrice - firstPrice) / firstPrice) * 100;
+
+    // 3. Sharpe Ratio (assuming 4% risk-free rate, annualized)
+    const riskFreeRate = 0.04;
+    const annualizedReturn = mean * 252; // Annualize daily return
+    metrics.sharpeRatio = metrics.volatility > 0 ? (annualizedReturn - riskFreeRate) / metrics.volatility : 0;
+
+    // 4. Maximum Drawdown
+    let peak = prices[0];
+    let maxDD = 0;
+    for (let i = 1; i < n; i++) {
+      if (prices[i] > peak) {
+        peak = prices[i];
+      }
+      const drawdown = (peak - prices[i]) / peak;
+      if (drawdown > maxDD) {
+        maxDD = drawdown;
+      }
+    }
+    metrics.maxDrawdown = maxDD * 100; // Convert to percentage
+
+    // 5. Beta (simplified - using S&P 500 as proxy)
+    // For now, estimate based on volatility
+    // Typical market volatility is ~15-20% annually
+    metrics.beta = metrics.volatility / 0.18; // Rough estimate
+
+    // 6. Risk Level classification
+    if (metrics.volatility < 0.15) {
+      metrics.riskLevel = 'Low';
+    } else if (metrics.volatility < 0.30) {
+      metrics.riskLevel = 'Medium';
+    } else if (metrics.volatility < 0.50) {
+      metrics.riskLevel = 'High';
+    } else {
+      metrics.riskLevel = 'Very High';
+    }
+
+    // Round values for display
+    if (metrics.sharpeRatio !== null) metrics.sharpeRatio = Number(metrics.sharpeRatio.toFixed(2));
+    if (metrics.volatility !== null) metrics.volatility = Number((metrics.volatility * 100).toFixed(2)); // Convert to %
+    if (metrics.beta !== null) metrics.beta = Number(metrics.beta.toFixed(2));
+    if (metrics.maxDrawdown !== null) metrics.maxDrawdown = Number(metrics.maxDrawdown.toFixed(2));
+    if (metrics.totalReturn !== null) metrics.totalReturn = Number(metrics.totalReturn.toFixed(2));
+
+  } catch (error) {
+    console.warn(`Error calculating risk metrics for ${symbol}:`, error.message);
+  }
+
+  return metrics;
+}
+
 module.exports = router;
 
 // Export the cache function for startup initialization
