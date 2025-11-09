@@ -2823,6 +2823,11 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
         const cachedHolding = holdingsCache?.cache?.get(symbol);
         const currentPrice = cachedHolding?.cadPrice || cachedHolding?.price || holding.currentPrice || null;
 
+        // Calculate current value and P&L
+        const currentValue = currentPrice && holding.quantity ? currentPrice * holding.quantity : null;
+        const unrealizedPnL = currentValue && holding.totalInvested ? currentValue - holding.totalInvested : null;
+        const totalPnL = unrealizedPnL !== null ? unrealizedPnL + (holding.realizedPnL || 0) : (holding.realizedPnL || 0);
+
         return {
           symbol: symbol,
           companyName: holding.companyName || symbol,
@@ -2830,9 +2835,9 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
           quantity: holding.quantity,
           currentPrice: currentPrice, // Include current price
           totalInvested: holding.totalInvested,
-          currentValue: holding.currentValue,
-          totalPnL: holding.totalPnL,
-          totalPnLPercent: holding.totalPnLPercent,
+          currentValue: currentValue,
+          totalPnL: totalPnL,
+          totalPnLPercent: holding.totalInvested > 0 ? (totalPnL / holding.totalInvested) * 100 : 0,
           ...riskMetrics
         };
 
