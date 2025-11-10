@@ -29,9 +29,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Analysis', href: '/analysis', icon: Activity },
     { name: 'Trends', href: '/trends', icon: TrendingUp },
     { name: 'Icons', href: '/icons', icon: Image },
+    { name: 'Cache', href: '/cache', icon: Database },
     { name: 'Search', href: '/search', icon: Search },
     { name: 'Portfolio', href: '/portfolio', icon: Upload },
-    { name: 'Cache', href: '/cache', icon: Database },
   ];
 
   const isActive = (path: string) => location.pathname === path;
