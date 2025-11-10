@@ -360,7 +360,7 @@ const Ratios: React.FC = () => {
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Recommendation
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px', borderLeft: '3px solid #d1d5db'}}>
                         Risk Price
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
@@ -592,7 +592,7 @@ const Ratios: React.FC = () => {
                           </span>
                         </td>
                         {/* Risk Price */}
-                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                        <td className="py-4 px-6" style={{padding: '16px 20px', borderLeft: '3px solid #d1d5db'}}>
                           <div style={{
                             fontSize: '16px',
                             fontWeight: '600',
