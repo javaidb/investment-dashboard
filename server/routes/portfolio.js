@@ -2816,12 +2816,12 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
 
         console.log(`📊 Processing ${symbol}: has historical data = ${!!historicalData}, data points = ${historicalData?.data?.length || 0}`);
 
-        // Calculate risk metrics
-        const riskMetrics = await calculateRiskMetrics(symbol, holding, historicalData);
-
-        // Get current price from holdings cache
+        // Get current price from holdings cache FIRST
         const cachedHolding = holdingsCache?.cache?.get(symbol);
         const currentPrice = cachedHolding?.cadPrice || cachedHolding?.price || holding.currentPrice || null;
+
+        // Calculate risk metrics with the actual current price
+        const riskMetrics = await calculateRiskMetrics(symbol, holding, historicalData, currentPrice);
 
         // Calculate current value and P&L
         const currentValue = currentPrice && holding.quantity ? currentPrice * holding.quantity : null;
@@ -2865,14 +2865,17 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
 });
 
 // Helper function to calculate risk/reward metrics for a holding
-async function calculateRiskMetrics(symbol, holding, historicalData) {
+async function calculateRiskMetrics(symbol, holding, historicalData, currentMarketPrice = null) {
   const metrics = {
     sharpeRatio: null,
     volatility: null,
     beta: null,
     maxDrawdown: null,
     totalReturn: null,
-    riskLevel: 'Unknown'
+    riskLevel: 'Unknown',
+    riskPrice: null,
+    rewardPrice: null,
+    riskRewardRatio: null
   };
 
   try {
@@ -2881,7 +2884,8 @@ async function calculateRiskMetrics(symbol, holding, historicalData) {
       return metrics;
     }
 
-    const prices = historicalData.data.map(d => d.close);
+    const data = historicalData.data;
+    const prices = data.map(d => d.close);
     const n = prices.length;
 
     // Calculate daily returns
@@ -2936,12 +2940,111 @@ async function calculateRiskMetrics(symbol, holding, historicalData) {
       metrics.riskLevel = 'Very High';
     }
 
+    // 7. Calculate ATR (Average True Range) - 14-period default
+    const atrPeriod = 14;
+    let atrSum = 0;
+    let atrCount = 0;
+
+    for (let i = 1; i < Math.min(n, atrPeriod + 1); i++) {
+      const high = data[i].high || data[i].close;
+      const low = data[i].low || data[i].close;
+      const prevClose = data[i - 1].close;
+
+      const tr = Math.max(
+        high - low,
+        Math.abs(high - prevClose),
+        Math.abs(low - prevClose)
+      );
+
+      atrSum += tr;
+      atrCount++;
+    }
+
+    const atr = atrCount > 0 ? atrSum / atrCount : 0;
+
+    // 8. Detect resistance levels using swing highs
+    const resistanceLevels = [];
+    const lookback = 5; // Look 5 days back and forward
+
+    for (let i = lookback; i < n - lookback; i++) {
+      const currentHigh = data[i].high || data[i].close;
+      let isSwingHigh = true;
+
+      // Check if current point is higher than surrounding points
+      for (let j = i - lookback; j <= i + lookback; j++) {
+        if (j !== i) {
+          const compareHigh = data[j].high || data[j].close;
+          if (compareHigh >= currentHigh) {
+            isSwingHigh = false;
+            break;
+          }
+        }
+      }
+
+      if (isSwingHigh) {
+        resistanceLevels.push(currentHigh);
+      }
+    }
+
+    // Use the actual current market price if provided, otherwise use last historical price
+    const currentPrice = currentMarketPrice || prices[n - 1];
+
+    // Find the nearest resistance above current price
+    const resistancesAbove = resistanceLevels.filter(r => r > currentPrice).sort((a, b) => a - b);
+    const nearestResistance = resistancesAbove.length > 0 ? resistancesAbove[0] : null;
+
+    // 9. Calculate average buy price (total invested / quantity)
+    const averageBuyPrice = holding.quantity > 0 ? holding.totalInvested / holding.quantity : currentPrice;
+
+    // 10. Risk Price: ATR-based stop-loss with floor protection
+    // Tighter stop: 1.5 × ATR below current price (reduces risk exposure)
+    // This creates better risk:reward ratios by risking less per trade
+    const atrBasedStop = currentPrice - (1.5 * atr);
+
+    // Hard floor: Never go below avg buy price - 10%
+    const riskFloor = averageBuyPrice * 0.90; // avg buy price - 10%
+
+    // Risk price should be the HIGHER of the two (protects against catastrophic loss)
+    // This ensures we never set a stop-loss below avg buy price - 10%
+    metrics.riskPrice = Math.max(atrBasedStop, riskFloor);
+
+    // 11. Reward Price: Use the higher of (ATR-based target, nearest resistance, or average buy price)
+    // Aggressive target: current price + (3 * ATR) - aim for minimum 2:1 ratio
+    // This creates asymmetric risk:reward (risk 1.5×ATR to make 3×ATR = 2:1 ratio)
+    const atrTarget = currentPrice + (3 * atr);
+
+    let rewardCandidate;
+    if (nearestResistance !== null) {
+      // Use the higher of ATR target or nearest resistance
+      rewardCandidate = Math.max(atrTarget, nearestResistance);
+    } else {
+      // No resistance found, use ATR-based target
+      rewardCandidate = atrTarget;
+    }
+
+    // Ensure reward price is at least the average buy price (breakeven minimum)
+    metrics.rewardPrice = Math.max(rewardCandidate, averageBuyPrice);
+
+    // 12. Risk:Reward Ratio
+    const risk = currentPrice - metrics.riskPrice;
+    const reward = metrics.rewardPrice - currentPrice;
+
+    if (risk > 0) {
+      metrics.riskRewardRatio = reward / risk;
+    } else {
+      // If current price is below risk price (can happen if avg buy is well below current), ratio is negative
+      metrics.riskRewardRatio = -1;
+    }
+
     // Round values for display
     if (metrics.sharpeRatio !== null) metrics.sharpeRatio = Number(metrics.sharpeRatio.toFixed(2));
     if (metrics.volatility !== null) metrics.volatility = Number((metrics.volatility * 100).toFixed(2)); // Convert to %
     if (metrics.beta !== null) metrics.beta = Number(metrics.beta.toFixed(2));
     if (metrics.maxDrawdown !== null) metrics.maxDrawdown = Number(metrics.maxDrawdown.toFixed(2));
     if (metrics.totalReturn !== null) metrics.totalReturn = Number(metrics.totalReturn.toFixed(2));
+    if (metrics.riskPrice !== null) metrics.riskPrice = Number(metrics.riskPrice.toFixed(2));
+    if (metrics.rewardPrice !== null) metrics.rewardPrice = Number(metrics.rewardPrice.toFixed(2));
+    if (metrics.riskRewardRatio !== null) metrics.riskRewardRatio = Number(metrics.riskRewardRatio.toFixed(2));
 
   } catch (error) {
     console.warn(`Error calculating risk metrics for ${symbol}:`, error.message);

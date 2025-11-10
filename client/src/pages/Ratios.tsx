@@ -31,6 +31,9 @@ interface HoldingWithRisk {
   riskLevel: string;
   positionSize?: number;
   recommendation?: string;
+  riskPrice?: number | null;
+  rewardPrice?: number | null;
+  riskRewardRatio?: number | null;
 }
 
 const Ratios: React.FC = () => {
@@ -357,6 +360,18 @@ const Ratios: React.FC = () => {
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Recommendation
                       </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Risk Price
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Current Price
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Reward Price
+                      </th>
+                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
+                        Risk:Reward
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -368,7 +383,7 @@ const Ratios: React.FC = () => {
                         <React.Fragment key={holding.symbol}>
                           {isFirstWithoutShares && (
                             <tr style={{backgroundColor: '#f3f4f6', height: '2px'}}>
-                              <td colSpan={16} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
+                              <td colSpan={20} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
                                 <div style={{
                                   fontSize: '14px',
                                   fontWeight: '600',
@@ -574,6 +589,64 @@ const Ratios: React.FC = () => {
                                                  holding.recommendation === 'REDUCE' ? '#fdba74' : '#bbf7d0'}`
                           }}>
                             {holding.recommendation || 'HOLD'}
+                          </span>
+                        </td>
+                        {/* Risk Price */}
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: holding.riskPrice === null || holding.riskPrice === undefined ? '#6b7280' : '#dc2626'
+                          }}>
+                            {holding.riskPrice !== null && holding.riskPrice !== undefined ? `C$${holding.riskPrice.toFixed(2)}` : 'N/A'}
+                          </div>
+                        </td>
+                        {/* Current Price */}
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '700',
+                            color: holding.currentPrice === null || holding.currentPrice === undefined ? '#6b7280' :
+                                   (holding.riskPrice !== null && holding.riskPrice !== undefined && holding.currentPrice < holding.riskPrice) ? '#dc2626' : '#111827'
+                          }}>
+                            {holding.currentPrice !== null && holding.currentPrice !== undefined ? `C$${holding.currentPrice.toFixed(2)}` : 'N/A'}
+                          </div>
+                        </td>
+                        {/* Reward Price */}
+                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: holding.rewardPrice === null || holding.rewardPrice === undefined ? '#6b7280' : '#166534'
+                          }}>
+                            {holding.rewardPrice !== null && holding.rewardPrice !== undefined ? `C$${holding.rewardPrice.toFixed(2)}` : 'N/A'}
+                          </div>
+                        </td>
+                        {/* Risk:Reward Ratio */}
+                        <td className="py-4 px-6" style={{padding: '16px 20px', textAlign: 'center'}}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '6px 12px',
+                            borderRadius: '12px',
+                            fontSize: '14px',
+                            fontWeight: '700',
+                            backgroundColor: holding.riskRewardRatio === null || holding.riskRewardRatio === undefined ? '#f3f4f6' :
+                                           holding.riskRewardRatio < 0 ? '#fee2e2' :
+                                           holding.riskRewardRatio < 1 ? '#fed7aa' :
+                                           holding.riskRewardRatio < 2 ? '#fef3c7' : '#dcfce7',
+                            color: holding.riskRewardRatio === null || holding.riskRewardRatio === undefined ? '#6b7280' :
+                                   holding.riskRewardRatio < 0 ? '#991b1b' :
+                                   holding.riskRewardRatio < 1 ? '#9a3412' :
+                                   holding.riskRewardRatio < 2 ? '#92400e' : '#166534',
+                            border: `1px solid ${holding.riskRewardRatio === null || holding.riskRewardRatio === undefined ? '#e5e7eb' :
+                                                 holding.riskRewardRatio < 0 ? '#fca5a5' :
+                                                 holding.riskRewardRatio < 1 ? '#fdba74' :
+                                                 holding.riskRewardRatio < 2 ? '#fde68a' : '#bbf7d0'}`
+                          }}>
+                            {holding.riskRewardRatio !== null && holding.riskRewardRatio !== undefined
+                              ? `1:${Math.abs(holding.riskRewardRatio).toFixed(2)}`
+                              : 'N/A'}
                           </span>
                         </td>
                       </tr>
