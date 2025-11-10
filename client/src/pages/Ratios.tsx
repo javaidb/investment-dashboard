@@ -360,14 +360,8 @@ const Ratios: React.FC = () => {
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Recommendation
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px', borderLeft: '3px solid #d1d5db'}}>
-                        Risk Price
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
-                        Current Price
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
-                        Reward Price
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px', borderLeft: '3px solid #d1d5db', minWidth: '300px'}}>
+                        Price Range
                       </th>
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Risk:Reward
@@ -383,7 +377,7 @@ const Ratios: React.FC = () => {
                         <React.Fragment key={holding.symbol}>
                           {isFirstWithoutShares && (
                             <tr style={{backgroundColor: '#f3f4f6', height: '2px'}}>
-                              <td colSpan={20} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
+                              <td colSpan={18} style={{padding: '24px 24px 12px 24px', backgroundColor: '#f9fafb', borderTop: '2px solid #d1d5db'}}>
                                 <div style={{
                                   fontSize: '14px',
                                   fontWeight: '600',
@@ -591,36 +585,148 @@ const Ratios: React.FC = () => {
                             {holding.recommendation || 'HOLD'}
                           </span>
                         </td>
-                        {/* Risk Price */}
+                        {/* Price Range Slider */}
                         <td className="py-4 px-6" style={{padding: '16px 20px', borderLeft: '3px solid #d1d5db'}}>
-                          <div style={{
-                            fontSize: '16px',
-                            fontWeight: '600',
-                            color: holding.riskPrice === null || holding.riskPrice === undefined ? '#6b7280' : '#dc2626'
-                          }}>
-                            {holding.riskPrice !== null && holding.riskPrice !== undefined ? `C$${holding.riskPrice.toFixed(2)}` : 'N/A'}
-                          </div>
-                        </td>
-                        {/* Current Price */}
-                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
-                          <div style={{
-                            fontSize: '16px',
-                            fontWeight: '700',
-                            color: holding.currentPrice === null || holding.currentPrice === undefined ? '#6b7280' :
-                                   (holding.riskPrice !== null && holding.riskPrice !== undefined && holding.currentPrice < holding.riskPrice) ? '#dc2626' : '#111827'
-                          }}>
-                            {holding.currentPrice !== null && holding.currentPrice !== undefined ? `C$${holding.currentPrice.toFixed(2)}` : 'N/A'}
-                          </div>
-                        </td>
-                        {/* Reward Price */}
-                        <td className="py-4 px-6" style={{padding: '16px 20px'}}>
-                          <div style={{
-                            fontSize: '16px',
-                            fontWeight: '600',
-                            color: holding.rewardPrice === null || holding.rewardPrice === undefined ? '#6b7280' : '#166534'
-                          }}>
-                            {holding.rewardPrice !== null && holding.rewardPrice !== undefined ? `C$${holding.rewardPrice.toFixed(2)}` : 'N/A'}
-                          </div>
+                          {holding.riskPrice !== null && holding.riskPrice !== undefined &&
+                           holding.rewardPrice !== null && holding.rewardPrice !== undefined &&
+                           holding.currentPrice !== null && holding.currentPrice !== undefined &&
+                           holding.totalInvested > 0 && holding.quantity > 0 ? (
+                            (() => {
+                              const avgBuyPrice = holding.totalInvested / holding.quantity;
+
+                              // Start the range from whichever is lower (risk or avg buy)
+                              const rangeStart = Math.min(holding.riskPrice, avgBuyPrice);
+                              const totalRange = holding.rewardPrice - rangeStart;
+
+                              // Calculate positions relative to range start
+                              const avgBuyPosition = ((avgBuyPrice - rangeStart) / totalRange) * 100;
+                              const riskPosition = ((holding.riskPrice - rangeStart) / totalRange) * 100;
+                              const currentPosition = ((holding.currentPrice - rangeStart) / totalRange) * 100;
+
+                              return (
+                                <div style={{ width: '100%' }}>
+                                  {/* Price labels */}
+                                  <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginBottom: '8px',
+                                    fontSize: '11px',
+                                    fontWeight: '600'
+                                  }}>
+                                    <span style={{ color: '#6b7280' }}>Avg: C${avgBuyPrice.toFixed(2)}</span>
+                                    <span style={{ color: '#dc2626' }}>Risk: C${holding.riskPrice.toFixed(2)}</span>
+                                    <span style={{
+                                      color: '#2563eb',
+                                      fontSize: '13px',
+                                      fontWeight: '700'
+                                    }}>
+                                      C${holding.currentPrice.toFixed(2)}
+                                    </span>
+                                    <span style={{ color: '#166534' }}>Target: C${holding.rewardPrice.toFixed(2)}</span>
+                                  </div>
+                                  {/* Slider track */}
+                                  <div style={{
+                                    position: 'relative',
+                                    height: '20px',
+                                    backgroundColor: '#f3f4f6',
+                                    borderRadius: '10px',
+                                    overflow: 'hidden',
+                                    border: '1px solid #e5e7eb'
+                                  }}>
+                                    {/* Zones depend on whether current price is above or below risk price */}
+                                    {holding.currentPrice < holding.riskPrice ? (
+                                      <>
+                                        {/* Red zone: from start to avg buy (when current < risk) */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: 0,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${Math.max(0, Math.min(100, avgBuyPosition))}%`,
+                                          background: 'linear-gradient(to right, #fee2e2, #fecaca)',
+                                        }}></div>
+                                        {/* Yellow zone: from avg buy to reward */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: `${avgBuyPosition}%`,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${Math.max(0, 100 - avgBuyPosition)}%`,
+                                          background: 'linear-gradient(to right, #fef3c7, #fde68a)',
+                                        }}></div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        {/* Gray zone: from start to risk (when current >= risk) */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: 0,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${Math.max(0, Math.min(100, riskPosition))}%`,
+                                          background: 'linear-gradient(to right, #e5e7eb, #d1d5db)',
+                                        }}></div>
+                                        {/* Yellow zone: from risk to reward */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: `${riskPosition}%`,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${Math.max(0, 100 - riskPosition)}%`,
+                                          background: 'linear-gradient(to right, #fef3c7, #fde68a)',
+                                        }}></div>
+                                      </>
+                                    )}
+                                    {/* Average buy price marker */}
+                                    <div style={{
+                                      position: 'absolute',
+                                      left: `${avgBuyPosition}%`,
+                                      top: 0,
+                                      bottom: 0,
+                                      width: '2px',
+                                      backgroundColor: '#6b7280',
+                                      zIndex: 5
+                                    }}></div>
+                                    {/* Risk price marker */}
+                                    <div style={{
+                                      position: 'absolute',
+                                      left: `${Math.max(0, Math.min(100, riskPosition))}%`,
+                                      top: 0,
+                                      bottom: 0,
+                                      width: '2px',
+                                      backgroundColor: '#dc2626',
+                                      zIndex: 5
+                                    }}></div>
+                                    {/* Reward price marker (right edge) */}
+                                    <div style={{
+                                      position: 'absolute',
+                                      right: 0,
+                                      top: 0,
+                                      bottom: 0,
+                                      width: '2px',
+                                      backgroundColor: '#166534',
+                                      zIndex: 5
+                                    }}></div>
+                                    {/* Current price indicator (blue line) */}
+                                    <div style={{
+                                      position: 'absolute',
+                                      left: `${Math.max(0, Math.min(100, currentPosition))}%`,
+                                      top: '50%',
+                                      transform: 'translate(-50%, -50%)',
+                                      width: '4px',
+                                      height: '28px',
+                                      backgroundColor: '#2563eb',
+                                      boxShadow: '0 2px 6px rgba(37, 99, 235, 0.5)',
+                                      zIndex: 10,
+                                      borderRadius: '2px'
+                                    }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            <div style={{ color: '#6b7280', fontSize: '14px' }}>N/A</div>
+                          )}
                         </td>
                         {/* Risk:Reward Ratio */}
                         <td className="py-4 px-6" style={{padding: '16px 20px', textAlign: 'center'}}>
