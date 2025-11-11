@@ -369,7 +369,7 @@ const Icons: React.FC = () => {
                       </td>
 
                       {/* Symbol */}
-                      <td className="py-3 px-6">
+                      <td className="py-3 px-6 text-center">
                         <div style={{
                           fontSize: '15px',
                           fontWeight: '600',
@@ -380,7 +380,7 @@ const Icons: React.FC = () => {
                       </td>
 
                       {/* Type */}
-                      <td className="py-3 px-6">
+                      <td className="py-3 px-6 text-center">
                         <span style={{
                           fontSize: '13px',
                           fontWeight: '600',
@@ -388,14 +388,15 @@ const Icons: React.FC = () => {
                           borderRadius: '12px',
                           backgroundColor: icon.type === 'c' ? '#f3e8ff' : '#dbeafe',
                           color: icon.type === 'c' ? '#7c3aed' : '#2563eb',
-                          border: `1px solid ${icon.type === 'c' ? '#c4b5fd' : '#93c5fd'}`
+                          border: `1px solid ${icon.type === 'c' ? '#c4b5fd' : '#93c5fd'}`,
+                          display: 'inline-block'
                         }}>
                           {getTypeLabel(icon.type)}
                         </span>
                       </td>
 
                       {/* Current Filename */}
-                      <td className="py-3 px-6">
+                      <td className="py-3 px-6 text-center">
                         <div style={{
                           fontSize: '13px',
                           color: '#6b7280',
@@ -403,7 +404,11 @@ const Icons: React.FC = () => {
                           backgroundColor: '#f9fafb',
                           padding: '4px 8px',
                           borderRadius: '4px',
-                          display: 'inline-block'
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
                         }}>
                           {icon.filename}
                         </div>
@@ -411,33 +416,35 @@ const Icons: React.FC = () => {
 
                       {/* Icon Selector */}
                       <td className="py-3 px-6">
-                        <select
-                          value={icon.filename}
-                          onChange={(e) => handleIconChange(key, e.target.value)}
-                          disabled={saving === key}
-                          style={{
-                            width: '100%',
-                            padding: '6px 10px',
-                            fontSize: '13px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            backgroundColor: 'white',
-                            cursor: saving === key ? 'not-allowed' : 'pointer',
-                            opacity: saving === key ? 0.5 : 1
-                          }}
-                        >
-                          {availableIcons.map((availableIcon) => (
-                            <option key={availableIcon.filename} value={availableIcon.filename}>
-                              {availableIcon.filename}
-                            </option>
-                          ))}
-                        </select>
-                        {saving === key && (
-                          <div className="flex items-center mt-1 text-xs text-blue-600">
-                            <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                            Saving...
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                          <select
+                            value={icon.filename}
+                            onChange={(e) => handleIconChange(key, e.target.value)}
+                            disabled={saving === key}
+                            style={{
+                              width: '100%',
+                              padding: '6px 10px',
+                              fontSize: '13px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              backgroundColor: 'white',
+                              cursor: saving === key ? 'not-allowed' : 'pointer',
+                              opacity: saving === key ? 0.5 : 1
+                            }}
+                          >
+                            {availableIcons.map((availableIcon) => (
+                              <option key={availableIcon.filename} value={availableIcon.filename}>
+                                {availableIcon.filename}
+                              </option>
+                            ))}
+                          </select>
+                          {saving === key && (
+                            <div className="flex items-center mt-1 text-xs text-blue-600">
+                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              Saving...
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions */}
