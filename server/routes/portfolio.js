@@ -1472,10 +1472,10 @@ async function cacheStockPricesFromHoldings(holdings) {
     allHoldings.map(h => `${h.symbol}(${h.type})`).join(', '));
 
   // Process assets concurrently but with a reasonable limit to avoid overwhelming APIs
-  const batchSize = 10;
+  const batchSize = 5; // Reduced from 10 to 5 to avoid rate limits
   for (let i = 0; i < allHoldings.length; i += batchSize) {
     const batch = allHoldings.slice(i, i + batchSize);
-    
+
     const batchPromises = batch.map(async (holding) => {
       try {
         const symbol = holding.symbol;
@@ -1504,23 +1504,34 @@ async function cacheStockPricesFromHoldings(holdings) {
             const currentPrice = meta.regularMarketPrice || meta.previousClose;
             
             if (currentPrice) {
-              // Get exchange rate and calculate CAD price
+              // Check if the price is already in CAD or needs conversion
+              const currency = meta.currency || 'USD';
               const exchangeRate = await getUSDtoCADRate();
-              const cadPrice = currentPrice * exchangeRate;
-              
+
+              let cadPrice, usdPrice;
+              if (currency === 'CAD') {
+                // Price is already in CAD (e.g., Canadian stocks like XEQT.TO)
+                cadPrice = currentPrice;
+                usdPrice = currentPrice / exchangeRate;
+              } else {
+                // Price is in USD, convert to CAD
+                cadPrice = currentPrice * exchangeRate;
+                usdPrice = currentPrice;
+              }
+
               // Update cache with fresh data
               holdingsCache.update(symbol, {
                 price: currentPrice,
-                usdPrice: currentPrice,
+                usdPrice: usdPrice,
                 cadPrice: cadPrice,
                 companyName: meta.longName || meta.shortName || getStockName(symbol),
                 exchangeRate: exchangeRate,
                 fetchedAt: new Date().toISOString(),
                 priceDate: new Date().toISOString(), // When this price is from
-                currency: meta.currency || 'USD'
+                currency: currency
               });
-              
-              console.log(`✅ Cached stock ${symbol}: $${currentPrice} USD ($${cadPrice.toFixed(2)} CAD)`);
+
+              console.log(`✅ Cached stock ${symbol}: $${currentPrice} ${currency} ($${cadPrice.toFixed(2)} CAD)`);
             } else {
               console.warn(`⚠️ No price data available for stock ${symbol}`);
             }
@@ -1570,10 +1581,11 @@ async function cacheStockPricesFromHoldings(holdings) {
 
     // Wait for current batch to complete before processing next batch
     await Promise.all(batchPromises);
-    
-    // Small delay between batches to be respectful to APIs
+
+    // Longer delay between batches to avoid Yahoo Finance rate limits
     if (i + batchSize < allHoldings.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Increased from 1000ms to 5000ms
+      console.log(`⏳ Waiting 5 seconds before next batch to avoid rate limits...`);
     }
   }
 
