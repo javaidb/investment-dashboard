@@ -207,21 +207,77 @@ const Icons: React.FC = () => {
               <button
                 onClick={loadIconsData}
                 disabled={loading}
-                className="flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  opacity: loading ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading) {
+                    e.currentTarget.style.backgroundColor = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#9ca3af';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'white';
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                }}
               >
-                <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
+                <RefreshCw style={{ width: '16px', height: '16px' }} className={loading ? 'animate-spin' : ''} />
+                <span>Refresh</span>
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadingFor !== null}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: 'white',
+                  backgroundColor: '#3b82f6',
+                  border: '1px solid #3b82f6',
+                  borderRadius: '8px',
+                  cursor: uploadingFor !== null ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  opacity: uploadingFor !== null ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (uploadingFor === null) {
+                    e.currentTarget.style.backgroundColor = '#2563eb';
+                    e.currentTarget.style.borderColor = '#2563eb';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#3b82f6';
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                }}
               >
-                <Upload className="w-4 h-4 mr-2" />
-                {uploadingFor ? 'Uploading...' : 'Upload New Icon'}
+                <Upload style={{ width: '16px', height: '16px' }} />
+                <span>{uploadingFor ? 'Uploading...' : 'Upload New Icon'}</span>
               </button>
             </div>
-            <div className="text-sm text-gray-600 bg-white px-4 py-2 rounded-lg border border-gray-200">
+            <div style={{
+              fontSize: '14px',
+              color: '#6b7280',
+              backgroundColor: 'white',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb',
+              fontWeight: '500'
+            }}>
               {Object.keys(iconsCache).length} symbols
             </div>
           </div>
@@ -248,25 +304,25 @@ const Icons: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-full" style={{backgroundColor: 'white'}}>
+              <table style={{backgroundColor: 'white', width: '100%', tableLayout: 'fixed'}}>
                 <thead>
                   <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                    <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase" style={{width: '80px'}}>
+                    <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase" style={{width: '8%'}}>
                       Icon
                     </th>
-                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase">
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
                       Symbol
                     </th>
-                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '120px'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
                       Type
                     </th>
-                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase">
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '22%'}}>
                       Current Filename
                     </th>
-                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '300px'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '38%'}}>
                       Change Icon
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '140px'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
                       Actions
                     </th>
                   </tr>
