@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trash2, RefreshCw, Database, Clock, DollarSign } from 'lucide-react';
+import { Trash2, RefreshCw, Database, Clock, DollarSign, TrendingUp, FileText, CheckCircle } from 'lucide-react';
 import { useCache } from '../contexts/CacheContext';
 
 interface CacheStats {
@@ -21,25 +21,13 @@ interface CacheData {
   };
 }
 
-interface CacheEntry {
-  symbol: string;
-  price: number;
-  usdPrice: number;
-  cadPrice: number;
-  companyName: string;
-  exchangeRate: number;
-  lastUpdated: string;
-  priceDate: string;
-}
-
 const CacheManagement: React.FC = () => {
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheData, setCacheData] = useState<CacheData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
   const [refreshingPortfolio, setRefreshingPortfolio] = useState(false);
-  
+
   const { refreshCache } = useCache();
 
   useEffect(() => {
@@ -134,24 +122,21 @@ const CacheManagement: React.FC = () => {
     return new Date(dateString).toLocaleString();
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-CA', {
-      style: 'currency',
-      currency: 'CAD'
-    }).format(amount);
-  };
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white p-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">
-              <h1 className="text-2xl font-bold text-white">Cache Management</h1>
-            </div>
-            <div className="p-6">
-              <div className="flex justify-center items-center h-32">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent"></div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="dashboard-header">
+          <div className="dashboard-header-content">
+            <h1 className="dashboard-title">Cache Management</h1>
+            <p className="dashboard-subtitle">Loading cache statistics...</p>
+          </div>
+        </div>
+        <div className="dashboard-content">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex justify-center items-center h-64">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading cache data...</p>
               </div>
             </div>
           </div>
@@ -161,95 +146,324 @@ const CacheManagement: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white p-6">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden mb-6">
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-white mb-2">Cache Management</h1>
-                <p className="text-blue-100">Manage holdings data cache for improved performance</p>
-              </div>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={loadCacheStats}
-                  className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  <span>Refresh Stats</span>
-                </button>
-                <button
-                  onClick={refreshPortfolioData}
-                  disabled={refreshingPortfolio}
-                  className="bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-                >
-                  <RefreshCw className={`w-4 h-4 ${refreshingPortfolio ? 'animate-spin' : ''}`} />
-                  <span>{refreshingPortfolio ? 'Refreshing...' : 'Refresh Portfolio'}</span>
-                </button>
-                <button
-                  onClick={clearCache}
-                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Clear All</span>
-                </button>
-              </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="dashboard-header">
+        <div className="dashboard-header-content">
+          <div className="flex items-center justify-between w-full">
+            <div>
+              <h1 className="dashboard-title">Cache Management</h1>
+              <p className="dashboard-subtitle">Manage and monitor your portfolio data cache</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={loadCacheStats}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f9fafb';
+                  e.currentTarget.style.borderColor = '#9ca3af';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'white';
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                }}
+              >
+                <RefreshCw style={{ width: '16px', height: '16px' }} />
+                <span>Refresh Stats</span>
+              </button>
+              <button
+                onClick={refreshPortfolioData}
+                disabled={refreshingPortfolio}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: 'white',
+                  backgroundColor: '#3b82f6',
+                  border: '1px solid #3b82f6',
+                  borderRadius: '8px',
+                  cursor: refreshingPortfolio ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  opacity: refreshingPortfolio ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!refreshingPortfolio) {
+                    e.currentTarget.style.backgroundColor = '#2563eb';
+                    e.currentTarget.style.borderColor = '#2563eb';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#3b82f6';
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                }}
+              >
+                <RefreshCw style={{ width: '16px', height: '16px' }} className={refreshingPortfolio ? 'animate-spin' : ''} />
+                <span>{refreshingPortfolio ? 'Refreshing...' : 'Refresh Cache'}</span>
+              </button>
+              <button
+                onClick={clearCache}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#dc2626',
+                  backgroundColor: 'white',
+                  border: '1px solid #fecaca',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#fef2f2';
+                  e.currentTarget.style.borderColor = '#dc2626';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'white';
+                  e.currentTarget.style.borderColor = '#fecaca';
+                }}
+              >
+                <Trash2 style={{ width: '16px', height: '16px' }} />
+                <span>Clear All</span>
+              </button>
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="dashboard-content">
+        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center">
+          <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 mb-6 shadow-sm">
+            <div className="flex items-start">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <svg className="h-6 w-6 text-red-500" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
               </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Error</h3>
+              <div className="ml-4 flex-1">
+                <h3 className="text-sm font-semibold text-red-800">Error Loading Cache</h3>
                 <p className="text-sm text-red-700 mt-1">{error}</p>
               </div>
+              <button
+                onClick={() => setError(null)}
+                className="flex-shrink-0 text-red-400 hover:text-red-600"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
             </div>
           </div>
         )}
 
         {/* Cache Statistics */}
         {cacheStats && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Database className="h-8 w-8 text-blue-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Entries</p>
-                  <p className="text-2xl font-bold text-gray-900">{cacheStats.totalEntries}</p>
-                </div>
-              </div>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb',
+            overflow: 'hidden',
+            marginBottom: '24px'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <h3 style={{
+                fontSize: '20px',
+                fontWeight: 'bold',
+                color: '#111827'
+              }}>Cache Statistics</h3>
+              <p style={{
+                fontSize: '14px',
+                color: '#6b7280',
+                marginTop: '4px'
+              }}>Overview of cached portfolio data</p>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <Clock className="h-8 w-8 text-green-600" />
+            {/* Stats Grid */}
+            <div style={{
+              padding: '24px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '24px'
+            }}>
+              {/* Total Entries */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+                padding: '16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '12px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(to bottom right, #3b82f6, #2563eb)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <Database style={{ width: '24px', height: '24px', color: 'white' }} />
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Cache File</p>
-                  <p className="text-sm font-mono text-gray-900 truncate">{cacheStats.cacheFile}</p>
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    color: '#6b7280',
+                    marginBottom: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>Total Entries</div>
+                  <div style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827'
+                  }}>{cacheStats.totalEntries}</div>
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#10b981',
+                    marginTop: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <CheckCircle style={{ width: '12px', height: '12px' }} />
+                    <span>Active</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <DollarSign className="h-8 w-8 text-purple-600" />
+              {/* Cached Symbols */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+                padding: '16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '12px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(to bottom right, #8b5cf6, #7c3aed)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <DollarSign style={{ width: '24px', height: '24px', color: 'white' }} />
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Cached Symbols</p>
-                  <p className="text-2xl font-bold text-gray-900">{cacheStats.symbols.length}</p>
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    color: '#6b7280',
+                    marginBottom: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>Cached Symbols</div>
+                  <div style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827'
+                  }}>{cacheStats.symbols.length}</div>
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#6b7280',
+                    marginTop: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <TrendingUp style={{ width: '12px', height: '12px' }} />
+                    <span>Holdings tracked</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cache Location */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+                padding: '16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '12px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(to bottom right, #10b981, #059669)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <FileText style={{ width: '24px', height: '24px', color: 'white' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    color: '#6b7280',
+                    marginBottom: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>Cache Location</div>
+                  <div style={{
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    color: '#111827',
+                    fontFamily: 'monospace',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }} title={cacheStats.cacheFile}>
+                    {cacheStats.cacheFile.split('\\').pop()}
+                  </div>
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#6b7280',
+                    marginTop: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <Clock style={{ width: '12px', height: '12px' }} />
+                    <span>File-based storage</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -258,87 +472,193 @@ const CacheManagement: React.FC = () => {
 
         {/* Cache Entries */}
         {cacheStats && cacheStats.symbols.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Cached Holdings</h2>
-              <p className="text-sm text-gray-600">Holdings data stored in cache for fallback use</p>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e5e7eb',
+            overflow: 'hidden'
+          }}>
+            {/* Table Header */}
+            <div style={{
+              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <h3 style={{
+                fontSize: '20px',
+                fontWeight: 'bold',
+                color: '#111827'
+              }}>Cached Holdings</h3>
+              <p style={{
+                fontSize: '14px',
+                color: '#6b7280',
+                marginTop: '4px'
+              }}>Current price data stored in cache</p>
             </div>
+
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <table style={{backgroundColor: 'white', width: '100%', tableLayout: 'fixed'}}>
+                <thead>
+                  <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
                       Symbol
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '20%'}}>
                       Company
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '13%'}}>
                       USD Price
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '13%'}}>
                       CAD Price
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Exchange Rate
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                      FX Rate
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '20%'}}>
                       Last Updated
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
                       Actions
                     </th>
                   </tr>
                 </thead>
-                                 <tbody className="bg-white divide-y divide-gray-200">
-                   {cacheStats.symbols.map((symbol) => {
-                     const entry = cacheData?.[symbol];
-                     return (
-                       <tr key={symbol} className="hover:bg-gray-50">
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="text-sm font-medium text-gray-900">{symbol}</div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="text-sm text-gray-500">{entry?.companyName || '-'}</div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="text-sm text-gray-900">{entry?.usdPrice ? `$${entry.usdPrice.toFixed(2)}` : '-'}</div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="text-sm text-gray-900">{entry?.cadPrice ? `$${entry.cadPrice.toFixed(2)}` : '-'}</div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="text-sm text-gray-900">{entry?.exchangeRate ? entry.exchangeRate.toFixed(2) : '-'}</div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <div className="text-sm text-gray-500">{entry?.lastUpdated ? formatDate(entry.lastUpdated) : '-'}</div>
-                         </td>
-                         <td className="px-6 py-4 whitespace-nowrap">
-                           <button
-                             onClick={() => deleteCacheEntry(symbol)}
-                             className="text-red-600 hover:text-red-900 text-sm font-medium"
-                           >
-                             <Trash2 className="w-4 h-4" />
-                           </button>
-                         </td>
-                       </tr>
-                     );
-                   })}
-                 </tbody>
+                <tbody className="divide-y divide-gray-100">
+                  {cacheStats.symbols.map((symbol, index) => {
+                    const entry = cacheData?.[symbol];
+                    return (
+                      <tr
+                        key={symbol}
+                        style={{
+                          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
+                          transition: 'background-color 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb'}
+                      >
+                        <td className="py-3 px-6 text-center">
+                          <div style={{
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#111827'
+                          }}>
+                            {symbol}
+                          </div>
+                        </td>
+                        <td className="py-3 px-6">
+                          <div style={{
+                            fontSize: '13px',
+                            color: '#6b7280',
+                            maxWidth: '300px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }} title={entry?.companyName}>
+                            {entry?.companyName || '-'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-6 text-center">
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#111827'
+                          }}>
+                            {entry?.usdPrice ? `$${entry.usdPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '-'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-6 text-center">
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#6b7280'
+                          }}>
+                            {entry?.cadPrice ? `$${entry.cadPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '-'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-6 text-center">
+                          <span style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            backgroundColor: '#f3f4f6',
+                            color: '#374151',
+                            border: '1px solid #d1d5db',
+                            display: 'inline-block'
+                          }}>
+                            {entry?.exchangeRate ? entry.exchangeRate.toFixed(4) : '-'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-6 text-center">
+                          <div style={{
+                            fontSize: '12px',
+                            color: '#6b7280'
+                          }}>
+                            {entry?.lastUpdated ? formatDate(entry.lastUpdated) : '-'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-6 text-center">
+                          <button
+                            onClick={() => deleteCacheEntry(symbol)}
+                            title={`Delete ${symbol} from cache`}
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '13px',
+                              fontWeight: '500',
+                              color: '#dc2626',
+                              backgroundColor: 'white',
+                              border: '1px solid #fecaca',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#fef2f2';
+                              e.currentTarget.style.borderColor = '#dc2626';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'white';
+                              e.currentTarget.style.borderColor = '#fecaca';
+                            }}
+                          >
+                            <Trash2 style={{ width: '14px', height: '14px' }} />
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               </table>
             </div>
           </div>
         )}
 
         {cacheStats && cacheStats.totalEntries === 0 && (
-          <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-12 text-center">
-            <Database className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No cache entries</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              The cache is empty. Holdings data will be fetched fresh from APIs.
-            </p>
+          <div className="dashboard-section text-center py-16">
+            <div className="flex flex-col items-center">
+              <div className="h-20 w-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+                <Database className="h-10 w-10 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Cache Entries</h3>
+              <p className="text-sm text-gray-600 mb-6 max-w-md">
+                The cache is empty. Holdings data will be fetched fresh from APIs on next portfolio load.
+              </p>
+              <button
+                onClick={refreshPortfolioData}
+                className="btn-primary"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Initialize Cache</span>
+              </button>
+            </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
