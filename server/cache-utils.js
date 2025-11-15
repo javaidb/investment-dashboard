@@ -29,10 +29,10 @@ async function initializeHistoricalCache(holdings) {
         try {
           const symbol = holding.symbol;
           
-          // Check if we already have recent data in cache
+          // Check if we already have data in cache - prefer cache over API calls
           const cachedHistorical = historicalDataCache.get(symbol, '3m', '1d');
-          if (cachedHistorical && !cachedHistorical.needsUpdate) {
-            console.log(`📦 Historical data for ${symbol} already cached and fresh`);
+          if (cachedHistorical && cachedHistorical.data && cachedHistorical.data.length > 0) {
+            console.log(`📦 Historical data for ${symbol} already cached (${cachedHistorical.data.length} points)`);
             return;
           }
           
