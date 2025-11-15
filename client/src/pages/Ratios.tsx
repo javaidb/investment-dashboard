@@ -55,8 +55,13 @@ const Ratios: React.FC = () => {
 
   useEffect(() => {
     const fetchRiskMetrics = async () => {
+      console.log('🔍 Ratios page - latestPortfolio:', latestPortfolio);
+      console.log('🔍 Ratios page - latestPortfolio.id:', latestPortfolio?.id);
+
       if (!latestPortfolio?.id) {
+        console.warn('⚠️ No portfolio ID available, latestPortfolio:', latestPortfolio);
         setIsLoading(false);
+        setError('No portfolio ID available. Please upload your portfolio data first.');
         return;
       }
 
@@ -65,7 +70,9 @@ const Ratios: React.FC = () => {
         setError(null);
         console.log('📊 Fetching risk metrics for portfolio:', latestPortfolio.id);
 
-        const response = await axios.get(`/api/portfolio/${latestPortfolio.id}/risk-metrics`);
+        const response = await axios.get(`/api/portfolio/${latestPortfolio.id}/risk-metrics`, {
+          timeout: 120000 // 2 minutes timeout for risk metrics calculation
+        });
         console.log('✅ Risk metrics received:', response.data);
 
         const holdings = response.data.holdings || [];
