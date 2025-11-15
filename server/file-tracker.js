@@ -64,15 +64,15 @@ class FileTracker {
         const files = fs.readdirSync(uploadDir)
           .filter(file => file.endsWith('.csv'))
           .map(file => {
-            let type = 'wealthsimple'; // default
+            let folder = 'wealthsimple'; // default
             if (uploadDir.includes('crypto')) {
-              type = 'crypto';
+              folder = 'crypto';
             } else if (uploadDir.includes('questrade')) {
-              type = 'questrade';
+              folder = 'questrade';
             }
             return {
               path: path.join(uploadDir, file),
-              type: type,
+              folder: folder,
               name: file
             };
           });
@@ -166,7 +166,7 @@ class FileTracker {
         const stats = fs.statSync(file.path);
         newTracking.set(file.path, {
           name: file.name,
-          type: file.type,
+          folder: file.folder,
           mtime: stats.mtime.toISOString(),
           size: stats.size,
           lastTracked: new Date().toISOString()
