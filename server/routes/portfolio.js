@@ -730,12 +730,12 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
         
         // Try to get historical data from cache first (for stocks)
         if (holding.type === 's') {
-          // Check cache first
+          // Check cache first - ALWAYS use cache if available, regardless of needsUpdate flag
           const cachedHistorical = historicalDataCache.get(symbol, '3m');
-          
-          if (cachedHistorical && !cachedHistorical.needsUpdate) {
-            // Use cached data
-            console.log(`📦 Using cached historical data for ${symbol}`);
+
+          if (cachedHistorical && cachedHistorical.data && cachedHistorical.data.length >= 30) {
+            // Use cached data (even if needsUpdate is true - we prefer cache over API calls)
+            console.log(`📦 Using cached historical data for ${symbol} (${cachedHistorical.data.length} days available)`);
             const historicalData = cachedHistorical.data;
             const meta = cachedHistorical.meta;
             
@@ -2520,7 +2520,7 @@ async function processUploadedFiles(req, res) {
     
     // Process each CSV file
     for (const fileInfo of allFiles) {
-      const { path: filePath, type: fileType } = fileInfo;
+      const { path: filePath, folder: fileType } = fileInfo;
       const trades = [];
       console.log(`📄 Processing ${fileType} file:`, fileInfo.name);
       
@@ -2761,8 +2761,8 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
         // Try to get historical data from cache first
         const cachedHistorical = historicalDataCache.get(symbol, '3m');
 
-        if (cachedHistorical && !cachedHistorical.needsUpdate && cachedHistorical.data && cachedHistorical.data.length >= 30) {
-          console.log(`📦 Using cached historical data for ${symbol} (${cachedHistorical.data.length} days)`);
+        if (cachedHistorical && cachedHistorical.data && cachedHistorical.data.length >= 30) {
+          console.log(`📦 Using cached historical data for ${symbol} (${cachedHistorical.data.length} days, needsUpdate: ${cachedHistorical.needsUpdate})`);
           historicalData = cachedHistorical;
         } else if (holding.type === 's') {
           // For stocks, fetch from Yahoo Finance if not in cache or needs update
