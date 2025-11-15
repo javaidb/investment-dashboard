@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const path = require('path');
+const cron = require('node-cron');
 
 // Load environment variables
 dotenv.config();
@@ -145,11 +146,16 @@ async function initializeCache() {
       const portfolios = Object.values(portfolioData);
       
       if (portfolios.length > 0) {
-        // Get the most recent portfolio
-        const mostRecentPortfolio = portfolios.reduce((latest, current) => {
-          return new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest;
+        // Get the most recent portfolio - handle file-based structure
+        const mostRecentEntry = portfolios.reduce((latest, current) => {
+          const currentDate = new Date(current.fileMetadata?.processedAt || current.portfolio?.createdAt || current.createdAt || 0);
+          const latestDate = new Date(latest.fileMetadata?.processedAt || latest.portfolio?.createdAt || latest.createdAt || 0);
+          return currentDate > latestDate ? current : latest;
         });
-        
+
+        // Extract the actual portfolio object
+        const mostRecentPortfolio = mostRecentEntry.portfolio || mostRecentEntry;
+
         console.log(`🔄 Found ${portfolios.length} portfolios, using most recent: ${mostRecentPortfolio.id}`);
         
         // If there are file changes and no recent portfolio, suggest processing
@@ -215,13 +221,61 @@ async function initializeCache() {
   }
 }
 
+// Automatic cache refresh function
+async function refreshCacheBackground() {
+  try {
+    console.log('🔄 Background cache refresh starting...');
+
+    // Load portfolios from file to get the most recent one
+    const fs = require('fs');
+    const PORTFOLIO_FILE = path.join(__dirname, 'data/cache', 'portfolios.json');
+
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+      const portfolioData = JSON.parse(data);
+      const portfolios = Object.values(portfolioData);
+
+      if (portfolios.length > 0) {
+        // Get the most recent portfolio - handle file-based structure
+        const mostRecentEntry = portfolios.reduce((latest, current) => {
+          const currentDate = new Date(current.fileMetadata?.processedAt || current.portfolio?.createdAt || current.createdAt || 0);
+          const latestDate = new Date(latest.fileMetadata?.processedAt || latest.portfolio?.createdAt || latest.createdAt || 0);
+          return currentDate > latestDate ? current : latest;
+        });
+
+        // Extract the actual portfolio object
+        const mostRecentPortfolio = mostRecentEntry.portfolio || mostRecentEntry;
+
+        if (mostRecentPortfolio.holdings && Array.isArray(mostRecentPortfolio.holdings)) {
+          const { cacheStockPricesFromHoldings } = require('./routes/portfolio');
+          await cacheStockPricesFromHoldings(mostRecentPortfolio.holdings);
+
+          const stats = holdingsCache.getStats();
+          console.log(`✅ Background cache refresh completed: ${stats.totalEntries} entries updated`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Background cache refresh failed:', error.message);
+  }
+}
+
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Investment Dashboard API ready`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  
+
   // Initialize cache on startup
   await initializeCache();
+
+  // Schedule automatic cache refresh every hour
+  // Cron expression: '0 * * * *' = At minute 0 of every hour (e.g., 9:00, 10:00, 11:00)
+  cron.schedule('0 * * * *', () => {
+    console.log('⏰ Hourly cache refresh triggered by scheduler');
+    refreshCacheBackground();
+  });
+
+  console.log('⏰ Scheduled automatic cache refresh every hour');
 });
 
 module.exports = app; 
