@@ -514,11 +514,11 @@ router.post('/historical/stocks/batch', async (req, res) => {
         const upperSymbol = symbol.toUpperCase();
         console.log(`🔍 Processing historical data for ${upperSymbol}`);
         
-        // Check historical cache first
+        // Check historical cache first - ALWAYS use cache if available
         const cached = historicalDataCache.get(upperSymbol, period);
-        if (cached && !cached.needsUpdate) {
-          console.log(`💾 Using cached historical data for ${upperSymbol} (${cached.data.length} points)`);
-          
+        if (cached && cached.data && cached.data.length > 0) {
+          console.log(`💾 Using cached historical data for ${upperSymbol} (${cached.data.length} points, cache preferred over API)`);
+
           results[upperSymbol] = {
             symbol: upperSymbol,
             data: cached.data,
