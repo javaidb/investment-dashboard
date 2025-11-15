@@ -1,6 +1,44 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * HistoricalDataCache - Append-Only Permanent Historical Price Data Storage
+ *
+ * CRITICAL DESIGN PRINCIPLES:
+ *
+ * 1. APPEND-ONLY: Historical data is NEVER deleted, only added to
+ *    - Once price data is stored, it remains forever
+ *    - New trading days are appended incrementally
+ *    - No automatic cleanup or expiration of old data
+ *
+ * 2. FOR NEW ASSETS:
+ *    - Detect that asset has no cache entry
+ *    - Fetch complete historical data (maximum available period)
+ *    - Store all historical data points
+ *
+ * 3. FOR EXISTING ASSETS:
+ *    - Check last stored date in cache
+ *    - Identify missing trading days (weekdays only)
+ *    - Fetch and append only missing data points
+ *    - Never refetch or overwrite existing data
+ *
+ * 4. CACHE STRUCTURE:
+ *    {
+ *      "SYMBOL": {
+ *        "lastModified": "ISO timestamp",
+ *        "data": [
+ *          { "date": "YYYY-MM-DD", "open": X, "high": X, "low": X, "close": X, "volume": X },
+ *          ...
+ *        ],
+ *        "earliestLoggedDate": "YYYY-MM-DD",
+ *        "latestLoggedDate": "YYYY-MM-DD",
+ *        "dateSpanDays": Number,
+ *        "assetInfo": { ... }
+ *      }
+ *    }
+ *
+ * ⚠️ WARNING: Do NOT add methods that delete historical data based on age or any other criteria
+ */
 class HistoricalDataCache {
   constructor() {
     this.cacheFile = path.join(__dirname, 'data', 'cache', 'historical-cache.json');
@@ -308,30 +346,21 @@ class HistoricalDataCache {
     return Array.from(this.cache.keys());
   }
 
-  // Clear cache entries older than a specified number of days
+  // DEPRECATED: Historical data should NEVER be deleted based on age
+  // Historical cache is append-only and permanent by design
+  // This method is kept for backwards compatibility but does nothing
   clearOldEntries(daysOld = 30) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-    
-    let removedCount = 0;
-    for (const [symbol, value] of this.cache.entries()) {
-      if (value.lastModified && new Date(value.lastModified) < cutoffDate) {
-        this.cache.delete(symbol);
-        removedCount++;
-      }
-    }
-    
-    if (removedCount > 0) {
-      this.saveCache();
-      console.log(`🧹 Removed ${removedCount} old historical cache entries (older than ${daysOld} days)`);
-    }
-    
-    return removedCount;
+    console.warn(`⚠️ clearOldEntries() called but ignored - historical data is permanent and should never be auto-deleted`);
+    return 0;
   }
 
   // Manual cleanup method (removes all entries)
+  // ⚠️ WARNING: This permanently deletes ALL historical data!
+  // Historical data is append-only and should NEVER be deleted except in emergencies
+  // Only use this for debugging or if the cache is corrupted
   clearAll() {
     const count = this.cache.size;
+    console.warn(`🚨 WARNING: About to delete ALL ${count} historical cache entries - this is PERMANENT!`);
     this.cache.clear();
     this.saveCache();
     console.log(`🧹 Manually cleared ${count} historical cache entries`);
@@ -391,21 +420,18 @@ class HistoricalDataCache {
 // Create singleton instance
 const historicalDataCache = new HistoricalDataCache();
 
-// Auto-cleanup old entries and refresh cache on startup
+// Auto-refresh cache on startup (append-only, never delete)
 setTimeout(async () => {
   try {
-    // First cleanup old entries
-    historicalDataCache.clearOldEntries(30); // Remove entries older than 30 days
-    
-    // Then refresh stale cache entries
+    // Check for stale cache entries and refresh them
     const stats = historicalDataCache.getStats();
     if (stats.needsUpdateCount > 0) {
       console.log(`🔄 Found ${stats.needsUpdateCount} historical cache entries needing updates, refreshing...`);
-      
+
       // Import preloader dynamically to avoid circular dependency
       const historicalDataPreloader = require('./historical-data-preloader');
       const preloader = historicalDataPreloader;
-      
+
       const result = await preloader.prePopulateHistoricalCache();
       if (result.success) {
         console.log(`✅ Historical cache startup refresh completed: ${result.symbolsProcessed} symbols processed in ${result.duration}ms`);
