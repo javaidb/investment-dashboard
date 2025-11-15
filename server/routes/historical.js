@@ -31,10 +31,10 @@ router.get('/stock/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const { period = '1y', interval = '1d' } = req.query;
     
-    // Check persistent cache first
+    // Check persistent cache first - ALWAYS prefer cache over API
     const cached = historicalDataCache.get(symbol, period);
-    
-    if (cached && !cached.needsUpdate) {
+
+    if (cached && cached.data && cached.data.length > 0) {
       return res.json({
         symbol,
         data: cached.data,
@@ -720,10 +720,10 @@ router.get('/crypto/:symbol', async (req, res) => {
     const { symbol } = req.params;
     const { period = '1y', interval = '1d' } = req.query;
     
-    // Check persistent cache first
+    // Check persistent cache first - ALWAYS prefer cache over API
     const cached = historicalDataCache.get(symbol, period);
-    
-    if (cached && !cached.needsUpdate) {
+
+    if (cached && cached.data && cached.data.length > 0) {
       return res.json({
         symbol,
         data: cached.data,
@@ -843,10 +843,10 @@ router.post('/crypto/batch', async (req, res) => {
 
     const promises = symbols.map(async (symbol) => {
       try {
-        // Check persistent cache first
+        // Check persistent cache first - ALWAYS prefer cache over API
         const cached = historicalDataCache.get(symbol, period);
-        
-        if (cached && !cached.needsUpdate) {
+
+        if (cached && cached.data && cached.data.length > 0) {
           results[symbol] = {
             data: cached.data,
             cached: true,
