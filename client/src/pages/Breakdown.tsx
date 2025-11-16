@@ -16,7 +16,7 @@ const Breakdown: React.FC = () => {
       <div className="dashboard-content">
         <div className="max-w-5xl mx-auto">
           <div className="dashboard-section">
-            {/* Portfolio Summary with embedded Holdings Chart */}
+            {/* Portfolio Summary with embedded Holdings Chart and Profit/Loss Bar Chart */}
             <PortfolioSummary />
           </div>
         </div>
