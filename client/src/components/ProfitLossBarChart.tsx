@@ -30,6 +30,7 @@ interface Holding {
   unrealizedPnL?: number;
   totalPnL?: number;
   totalPnLPercent?: number;
+  weeklyChangePercent?: number | null;
 }
 
 interface ProfitLossBarChartProps {
@@ -57,9 +58,11 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
       pnl: holding.totalPnL || 0,
       companyName: holding.companyName,
       type: holding.type,
-      iconUrl: iconUrls[holding.symbol.toUpperCase()]
+      iconUrl: iconUrls[holding.symbol.toUpperCase()],
+      weeklyChangePercent: holding.weeklyChangePercent // Add weekly change data
     }))
     .sort((a, b) => a.pnl - b.pnl); // Sort ascending by P&L (least to most profitable)
+
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-CA', {
@@ -74,7 +77,7 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
     return [formatCurrency(value), 'Profit/Loss'];
   };
 
-  // Custom label component to render icons at the tip of bars
+  // Custom label component to render icons and arrows at the tip of bars
   const CustomLabel = (props: any) => {
     const { x, y, width, height, value, index } = props;
     const data = chartData[index];
@@ -92,8 +95,122 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
       ? y + height + 8  // BELOW x-axis for positive bars (y + height is at x-axis)
       : y + height - iconSize - 8; // ABOVE x-axis for negative bars
 
+    // Use weekly change percentage for arrow direction and length
+    const weeklyChange = data.weeklyChangePercent;
+    const hasWeeklyData = weeklyChange !== null && weeklyChange !== undefined;
+
+    // Calculate arrow properties based on weekly change percentage magnitude
+    const weeklyChangeMagnitude = hasWeeklyData ? Math.abs(weeklyChange) : 0;
+    const maxArrowLength = 40; // Maximum arrow length in pixels
+    const minArrowLength = 12; // Minimum arrow length in pixels
+    // Scale arrow length based on weekly change percentage (linear scale for percentages)
+    // Arrow grows longer as percentage increases
+    const arrowLength = hasWeeklyData
+      ? Math.min(maxArrowLength, Math.max(minArrowLength, weeklyChangeMagnitude * 3))
+      : minArrowLength;
+
+    // Arrow color and direction based on WEEKLY CHANGE (not P&L)
+    const isWeeklyUp = hasWeeklyData && weeklyChange >= 0;
+    const arrowColor = isWeeklyUp ? '#10B981' : '#EF4444'; // Green for up, red for down
+
+    // Position arrow at the tip of the bar (the end furthest from zero)
+    const arrowX = x + width / 2;
+    // For vertical bars in Recharts:
+    // - Positive values: y is at the bar top (tip), y + height is at x-axis
+    // - Negative values: y is at the bar BOTTOM (tip), y + height is at x-axis
+    // Arrow starts just outside the bar tip
+    let arrowStartY;
+    if (value >= 0) {
+      // Positive value: bar top (y) is the tip, arrow extends upward from just above it
+      arrowStartY = y - 2;
+    } else {
+      // Negative value: y is at the tip (bottom), arrow extends downward from just below it
+      arrowStartY = y + 2;
+    }
+
+    // Only show arrow if we have weekly data
+    const showArrow = hasWeeklyData;
+
     return (
       <g>
+        {/* Arrow - based on weekly change, always at tip of bar */}
+        {showArrow && (
+          <>
+            {isPositive ? (
+              // For positive P&L bars: arrow extends UPWARD from tip
+              isWeeklyUp ? (
+                // Positive weekly change: UP arrow (tip at top)
+                <g>
+                  <line
+                    x1={arrowX}
+                    y1={arrowStartY}
+                    x2={arrowX}
+                    y2={arrowStartY - arrowLength}
+                    stroke={arrowColor}
+                    strokeWidth={2}
+                  />
+                  <polygon
+                    points={`${arrowX},${arrowStartY - arrowLength - 5} ${arrowX - 4},${arrowStartY - arrowLength + 2} ${arrowX + 4},${arrowStartY - arrowLength + 2}`}
+                    fill={arrowColor}
+                  />
+                </g>
+              ) : (
+                // Negative weekly change: DOWN arrow (arrowhead at bar tip, extends upward)
+                <g>
+                  <line
+                    x1={arrowX}
+                    y1={arrowStartY}
+                    x2={arrowX}
+                    y2={arrowStartY - arrowLength}
+                    stroke={arrowColor}
+                    strokeWidth={2}
+                  />
+                  <polygon
+                    points={`${arrowX},${arrowStartY + 5} ${arrowX - 4},${arrowStartY - 2} ${arrowX + 4},${arrowStartY - 2}`}
+                    fill={arrowColor}
+                  />
+                </g>
+              )
+            ) : (
+              // For negative P&L bars: arrow extends DOWNWARD from tip
+              isWeeklyUp ? (
+                // Positive weekly change: UP arrow (arrowhead at bar tip, extends downward)
+                <g>
+                  <line
+                    x1={arrowX}
+                    y1={arrowStartY}
+                    x2={arrowX}
+                    y2={arrowStartY + arrowLength}
+                    stroke={arrowColor}
+                    strokeWidth={2}
+                  />
+                  <polygon
+                    points={`${arrowX},${arrowStartY - 5} ${arrowX - 4},${arrowStartY + 2} ${arrowX + 4},${arrowStartY + 2}`}
+                    fill={arrowColor}
+                  />
+                </g>
+              ) : (
+                // Negative weekly change: DOWN arrow (tip at bottom)
+                <g>
+                  <line
+                    x1={arrowX}
+                    y1={arrowStartY}
+                    x2={arrowX}
+                    y2={arrowStartY + arrowLength}
+                    stroke={arrowColor}
+                    strokeWidth={2}
+                  />
+                  <polygon
+                    points={`${arrowX},${arrowStartY + arrowLength + 5} ${arrowX - 4},${arrowStartY + arrowLength - 2} ${arrowX + 4},${arrowStartY + arrowLength - 2}`}
+                    fill={arrowColor}
+                  />
+                </g>
+              )
+            )}
+          </>
+        )}
+
+        {/* Icon */}
         <foreignObject
           x={iconX}
           y={iconY}
@@ -148,7 +265,7 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
         <ResponsiveContainer width="100%" height={500}>
           <BarChart
             data={chartData}
-            margin={{ top: 60, right: 20, left: 20, bottom: 60 }}
+            margin={{ top: 80, right: 20, left: 20, bottom: 100 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
             <XAxis
