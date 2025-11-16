@@ -2022,8 +2022,9 @@ function processWealthsimpleRow(row, filename) {
   // Extract symbol and quantity from description
   // Format: "TSLA - Tesla Inc: Bought 1.0000 shares (executed at 2025-04-30), FX Rate: 1.4065"
   // Format: "TSLA - Tesla Inc: Sold 1.0000 shares (executed at 2025-03-18), FX Rate: 1.4026"
+  // Format: "XEQT.TO - iShares Core Equity ETF Portfolio: Bought 10.0000 shares (executed at 2025-10-10)"
   const description = row.description;
-  const symbolMatch = description.match(/^([A-Z]+)\s*-\s*/);
+  const symbolMatch = description.match(/^([A-Z]+(?:\.[A-Z]+)?)\s*-\s*/);
   
   // Check for both "Bought" and "Sold" patterns
   const boughtMatch = description.match(/Bought\s+([\d.]+)\s+shares/);
