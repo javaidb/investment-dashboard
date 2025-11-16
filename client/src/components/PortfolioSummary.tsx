@@ -5,6 +5,7 @@ import { useCache } from '../contexts/CacheContext';
 import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
 import HoldingsChartWrapper from './HoldingsChartWrapper';
+import ProfitLossBarChart from './ProfitLossBarChart';
 
 interface Trade {
   symbol: string;
@@ -716,6 +717,13 @@ const PortfolioSummary: React.FC = () => {
             marginBottom: '24px'
           }}>
             <HoldingsChartWrapper />
+          </div>
+        )}
+
+        {/* Profit/Loss Bar Chart */}
+        {holdings.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <ProfitLossBarChart holdings={holdings} />
           </div>
         )}
 
