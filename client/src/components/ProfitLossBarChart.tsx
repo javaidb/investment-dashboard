@@ -9,7 +9,8 @@ import {
   ResponsiveContainer,
   Cell,
   ReferenceLine,
-  LabelList
+  LabelList,
+  ReferenceArea
 } from 'recharts';
 import CompanyIcon from './CompanyIcon';
 import { useIcons } from '../hooks/useIcons';
@@ -62,6 +63,12 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
       weeklyChangePercent: holding.weeklyChangePercent // Add weekly change data
     }))
     .sort((a, b) => a.pnl - b.pnl); // Sort ascending by P&L (least to most profitable)
+
+  // Find the grey zone (where P&L is between -50 and 50)
+  const firstGreyIndex = chartData.findIndex(item => item.pnl > -50);
+  const lastGreyIndex = chartData.findIndex(item => item.pnl >= 50);
+  const greyZoneStart = firstGreyIndex >= 0 ? chartData[firstGreyIndex].symbol : null;
+  const greyZoneEnd = lastGreyIndex >= 0 ? chartData[lastGreyIndex - 1]?.symbol : chartData[chartData.length - 1]?.symbol;
 
 
   const formatCurrency = (value: number) => {
@@ -312,6 +319,15 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
               cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
             />
             <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={2} />
+            {/* Grey background for neutral zone (-$50 to $50) */}
+            {greyZoneStart && greyZoneEnd && (
+              <ReferenceArea
+                x1={greyZoneStart}
+                x2={greyZoneEnd}
+                fill="#F3F4F6"
+                fillOpacity={0.5}
+              />
+            )}
             <Bar dataKey="pnl" radius={[8, 8, 0, 0]}>
               {chartData.map((entry, index) => {
                 let color;
