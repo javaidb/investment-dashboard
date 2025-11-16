@@ -6,6 +6,7 @@ import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
 import HoldingsChartWrapper from './HoldingsChartWrapper';
 import ProfitLossBarChart from './ProfitLossBarChart';
+import PriceOffsetBarChart from './PriceOffsetBarChart';
 
 interface Trade {
   symbol: string;
@@ -724,6 +725,13 @@ const PortfolioSummary: React.FC = () => {
         {holdings.length > 0 && (
           <div style={{ marginBottom: '24px' }}>
             <ProfitLossBarChart holdings={holdings} />
+          </div>
+        )}
+
+        {/* Price Offset Bar Chart */}
+        {holdings.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <PriceOffsetBarChart holdings={holdings} />
           </div>
         )}
 
