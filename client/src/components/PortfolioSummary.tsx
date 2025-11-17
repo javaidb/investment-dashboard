@@ -7,6 +7,7 @@ import CompanyIcon from './CompanyIcon';
 import HoldingsChartWrapper from './HoldingsChartWrapper';
 import ProfitLossBarChart from './ProfitLossBarChart';
 import PriceOffsetBarChart from './PriceOffsetBarChart';
+import PortfolioAllocationPieChart from './PortfolioAllocationPieChart';
 
 interface Trade {
   symbol: string;
@@ -732,6 +733,13 @@ const PortfolioSummary: React.FC = () => {
         {holdings.length > 0 && (
           <div style={{ marginBottom: '24px' }}>
             <PriceOffsetBarChart holdings={holdings} />
+          </div>
+        )}
+
+        {/* Portfolio Allocation Pie Chart */}
+        {holdings.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <PortfolioAllocationPieChart holdings={holdings} />
           </div>
         )}
 
