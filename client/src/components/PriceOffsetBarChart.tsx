@@ -224,10 +224,10 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
     let arrowStartY;
     if (value >= 0) {
       // Positive value: bar top (y) is the tip, arrow extends upward from just above it
-      arrowStartY = y - 2;
+      arrowStartY = y - 8;
     } else {
       // Negative value: y is at the tip (bottom), arrow extends downward from just below it
-      arrowStartY = y + 2;
+      arrowStartY = y + 8;
     }
 
     // Only show arrow if we have weekly data
@@ -238,76 +238,96 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
         {/* Arrow - based on weekly change, always at tip of bar */}
         {showArrow && (
           <>
-            {isPositive ? (
-              // For positive P&L bars: arrow extends UPWARD from tip
+            {weeklyChangeMagnitude < 5 ? (
+              // Small change (<5%): show only arrowhead, no tail
               isWeeklyUp ? (
-                // Positive weekly change: UP arrow (tip at top)
-                <g>
-                  <line
-                    x1={arrowX}
-                    y1={arrowStartY}
-                    x2={arrowX}
-                    y2={arrowStartY - arrowLength}
-                    stroke={arrowColor}
-                    strokeWidth={2}
-                  />
-                  <polygon
-                    points={`${arrowX},${arrowStartY - arrowLength - 5} ${arrowX - 4},${arrowStartY - arrowLength + 2} ${arrowX + 4},${arrowStartY - arrowLength + 2}`}
-                    fill={arrowColor}
-                  />
-                </g>
+                // UP arrowhead only
+                <polygon
+                  points={`${arrowX},${isPositive ? arrowStartY - 8 : arrowStartY - 8} ${arrowX - 5},${isPositive ? arrowStartY + 2 : arrowStartY + 2} ${arrowX + 5},${isPositive ? arrowStartY + 2 : arrowStartY + 2}`}
+                  fill={arrowColor}
+                />
               ) : (
-                // Negative weekly change: DOWN arrow (arrowhead at bar tip, extends upward)
-                <g>
-                  <line
-                    x1={arrowX}
-                    y1={arrowStartY}
-                    x2={arrowX}
-                    y2={arrowStartY - arrowLength}
-                    stroke={arrowColor}
-                    strokeWidth={2}
-                  />
-                  <polygon
-                    points={`${arrowX},${arrowStartY + 5} ${arrowX - 4},${arrowStartY - 2} ${arrowX + 4},${arrowStartY - 2}`}
-                    fill={arrowColor}
-                  />
-                </g>
+                // DOWN arrowhead only
+                <polygon
+                  points={`${arrowX},${isPositive ? arrowStartY + 8 : arrowStartY + 8} ${arrowX - 5},${isPositive ? arrowStartY - 2 : arrowStartY - 2} ${arrowX + 5},${isPositive ? arrowStartY - 2 : arrowStartY - 2}`}
+                  fill={arrowColor}
+                />
               )
             ) : (
-              // For negative P&L bars: arrow extends DOWNWARD from tip
-              isWeeklyUp ? (
-                // Positive weekly change: UP arrow (arrowhead at bar tip, extends downward)
-                <g>
-                  <line
-                    x1={arrowX}
-                    y1={arrowStartY}
-                    x2={arrowX}
-                    y2={arrowStartY + arrowLength}
-                    stroke={arrowColor}
-                    strokeWidth={2}
-                  />
-                  <polygon
-                    points={`${arrowX},${arrowStartY - 5} ${arrowX - 4},${arrowStartY + 2} ${arrowX + 4},${arrowStartY + 2}`}
-                    fill={arrowColor}
-                  />
-                </g>
-              ) : (
-                // Negative weekly change: DOWN arrow (tip at bottom)
-                <g>
-                  <line
-                    x1={arrowX}
-                    y1={arrowStartY}
-                    x2={arrowX}
-                    y2={arrowStartY + arrowLength}
-                    stroke={arrowColor}
-                    strokeWidth={2}
-                  />
-                  <polygon
-                    points={`${arrowX},${arrowStartY + arrowLength + 5} ${arrowX - 4},${arrowStartY + arrowLength - 2} ${arrowX + 4},${arrowStartY + arrowLength - 2}`}
-                    fill={arrowColor}
-                  />
-                </g>
-              )
+              // Large change (>=5%): show full arrow with tail
+              <>
+                {isPositive ? (
+                  // For positive P&L bars: arrow extends UPWARD from tip
+                  isWeeklyUp ? (
+                    // Positive weekly change: UP arrow (tip at top)
+                    <g>
+                      <line
+                        x1={arrowX}
+                        y1={arrowStartY}
+                        x2={arrowX}
+                        y2={arrowStartY - arrowLength}
+                        stroke={arrowColor}
+                        strokeWidth={2}
+                      />
+                      <polygon
+                        points={`${arrowX},${arrowStartY - arrowLength - 5} ${arrowX - 4},${arrowStartY - arrowLength + 2} ${arrowX + 4},${arrowStartY - arrowLength + 2}`}
+                        fill={arrowColor}
+                      />
+                    </g>
+                  ) : (
+                    // Negative weekly change: DOWN arrow (arrowhead at bar tip, extends upward)
+                    <g>
+                      <line
+                        x1={arrowX}
+                        y1={arrowStartY}
+                        x2={arrowX}
+                        y2={arrowStartY - arrowLength}
+                        stroke={arrowColor}
+                        strokeWidth={2}
+                      />
+                      <polygon
+                        points={`${arrowX},${arrowStartY + 5} ${arrowX - 4},${arrowStartY - 2} ${arrowX + 4},${arrowStartY - 2}`}
+                        fill={arrowColor}
+                      />
+                    </g>
+                  )
+                ) : (
+                  // For negative P&L bars: arrow extends DOWNWARD from tip
+                  isWeeklyUp ? (
+                    // Positive weekly change: UP arrow (arrowhead at bar tip, extends downward)
+                    <g>
+                      <line
+                        x1={arrowX}
+                        y1={arrowStartY}
+                        x2={arrowX}
+                        y2={arrowStartY + arrowLength}
+                        stroke={arrowColor}
+                        strokeWidth={2}
+                      />
+                      <polygon
+                        points={`${arrowX},${arrowStartY - 5} ${arrowX - 4},${arrowStartY + 2} ${arrowX + 4},${arrowStartY + 2}`}
+                        fill={arrowColor}
+                      />
+                    </g>
+                  ) : (
+                    // Negative weekly change: DOWN arrow (tip at bottom)
+                    <g>
+                      <line
+                        x1={arrowX}
+                        y1={arrowStartY}
+                        x2={arrowX}
+                        y2={arrowStartY + arrowLength}
+                        stroke={arrowColor}
+                        strokeWidth={2}
+                      />
+                      <polygon
+                        points={`${arrowX},${arrowStartY + arrowLength + 5} ${arrowX - 4},${arrowStartY + arrowLength - 2} ${arrowX + 4},${arrowStartY + arrowLength - 2}`}
+                        fill={arrowColor}
+                      />
+                    </g>
+                  )
+                )}
+              </>
             )}
           </>
         )}
