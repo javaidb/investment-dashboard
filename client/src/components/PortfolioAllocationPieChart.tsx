@@ -253,8 +253,8 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
       </div>
 
       <div style={{ padding: '24px' }}>
-        {/* Main layout: Assets on left, Pie chart on right */}
-        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: '32px' }}>
+        {/* Main layout: Assets on left, Pie charts on right */}
+        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr 1fr', gap: '24px' }}>
           {/* Left side: Individual assets breakdown */}
           <div>
             <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px' }}>
@@ -315,9 +315,12 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
             </div>
           </div>
 
-          {/* Right side: Pie chart */}
+          {/* Center: Current Allocation Pie chart */}
           <div>
-            <ResponsiveContainer width="100%" height={600}>
+            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
+              Current Allocation
+            </h4>
+            <ResponsiveContainer width="100%" height={550}>
               <PieChart>
                 <Pie
                   data={assetData}
@@ -325,12 +328,14 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
                   cy="50%"
                   labelLine={false}
                   label={renderCustomLabel}
-                  outerRadius={220}
-                  innerRadius={80}
+                  outerRadius={180}
+                  innerRadius={70}
                   fill="#8884d8"
                   dataKey="value"
                   onMouseEnter={onPieEnter}
                   onMouseLeave={onPieLeave}
+                  startAngle={90}
+                  endAngle={-270}
                 >
                   {assetData.map((entry, index) => {
                     const isActive = activeIndex === null || activeIndex === index;
@@ -346,6 +351,79 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
                 <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Right: Target Allocation Pie chart */}
+          <div>
+            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
+              Target Allocation
+            </h4>
+            <ResponsiveContainer width="100%" height={550}>
+              <PieChart>
+                <Pie
+                  data={[
+                    { category: 'Crypto', value: 20, label: '20%' },
+                    { category: 'ETF', value: 40, label: '40%' },
+                    { category: 'Stock', value: 40, label: '40%' }
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  outerRadius={180}
+                  innerRadius={70}
+                  fill="#8884d8"
+                  dataKey="value"
+                  startAngle={90}
+                  endAngle={-270}
+                  label={(props) => {
+                    const { cx, cy, midAngle, innerRadius, outerRadius, value } = props;
+
+                    if (midAngle === undefined || cx === undefined || cy === undefined ||
+                        innerRadius === undefined || outerRadius === undefined) {
+                      return null;
+                    }
+
+                    const RADIAN = Math.PI / 180;
+                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+                    return (
+                      <text
+                        x={x}
+                        y={y}
+                        fill="white"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontSize="16px"
+                        fontWeight="bold"
+                      >
+                        {`${value}%`}
+                      </text>
+                    );
+                  }}
+                >
+                  {[
+                    { category: 'Crypto', value: 20 },
+                    { category: 'ETF', value: 40 },
+                    { category: 'Stock', value: 40 }
+                  ].map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={categoryColors[entry.category]}
+                    />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+              <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0' }}>
+                <strong>Recommended Split:</strong>
+              </p>
+              <p style={{ fontSize: '11px', color: '#6b7280', margin: '2px 0' }}>
+                Crypto: 20% • ETF: 40% • Stock: 40%
+              </p>
+            </div>
           </div>
         </div>
 
