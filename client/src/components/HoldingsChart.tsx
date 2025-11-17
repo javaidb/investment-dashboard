@@ -179,14 +179,14 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
 
   const setDateRangePreset = useCallback((months: number) => {
     if (!historicalData || historicalData.length === 0) return;
-    
+
     const latestDate = new Date(historicalData[historicalData.length - 1].date);
     const presetStartDate = new Date(latestDate);
     presetStartDate.setMonth(presetStartDate.getMonth() - months);
-    
+
     const earliestDate = new Date(historicalData[0].date);
     const actualStartDate = presetStartDate > earliestDate ? presetStartDate : earliestDate;
-    
+
     // Debug logging
     console.log('🔍 setDateRangePreset DEBUG:', {
       months,
@@ -196,7 +196,22 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
       actualStartDate: actualStartDate.toISOString().split('T')[0],
       endDate: latestDate.toISOString().split('T')[0],
     });
-    
+
+    setStartDate(actualStartDate.toISOString().split('T')[0]);
+    setEndDate(latestDate.toISOString().split('T')[0]);
+    resetZoom();
+  }, [historicalData, resetZoom]);
+
+  const setDateRangeWeeks = useCallback((weeks: number) => {
+    if (!historicalData || historicalData.length === 0) return;
+
+    const latestDate = new Date(historicalData[historicalData.length - 1].date);
+    const presetStartDate = new Date(latestDate);
+    presetStartDate.setDate(presetStartDate.getDate() - (weeks * 7));
+
+    const earliestDate = new Date(historicalData[0].date);
+    const actualStartDate = presetStartDate > earliestDate ? presetStartDate : earliestDate;
+
     setStartDate(actualStartDate.toISOString().split('T')[0]);
     setEndDate(latestDate.toISOString().split('T')[0]);
     resetZoom();
@@ -345,6 +360,12 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
           {/* Preset Buttons */}
           <div className="time-range-buttons">
             <button
+              onClick={() => setDateRangeWeeks(1)}
+              className="time-range-btn"
+            >
+              1W
+            </button>
+            <button
               onClick={() => setDateRangePreset(1)}
               className="time-range-btn"
             >
@@ -368,7 +389,13 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
             >
               1Y
             </button>
-            
+            <button
+              onClick={() => setDateRangePreset(36)}
+              className="time-range-btn"
+            >
+              3Y
+            </button>
+
             <button
               onClick={resetDateRange}
               className={`time-range-btn ${(!startDate && !endDate) ? 'active' : ''}`}
