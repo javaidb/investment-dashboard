@@ -16,6 +16,7 @@ const portfolioRoutes = require('./routes/portfolio');
 const searchRoutes = require('./routes/search');
 const historicalRoutes = require('./routes/historical');
 const iconRoutes = require('./routes/icons');
+const recurringInvestmentsRoutes = require('./routes/recurring-investments');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
@@ -84,6 +85,7 @@ app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/historical', historicalRoutes);
 app.use('/api/icons', iconRoutes);
+app.use('/api/recurring-investments', recurringInvestmentsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
