@@ -30,11 +30,19 @@ interface Holding {
   exchangeRate?: number;
 }
 
-interface PortfolioAllocationPieChartProps {
-  holdings: Holding[];
+interface RecurringInvestment {
+  symbol: string;
+  name: string;
+  currentValue: number;
+  totalInvested: number;
 }
 
-const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = ({ holdings }) => {
+interface PortfolioAllocationPieChartProps {
+  holdings: Holding[];
+  recurringInvestments?: RecurringInvestment[];
+}
+
+const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = ({ holdings, recurringInvestments = [] }) => {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   // Fetch icons for all holdings
@@ -68,10 +76,25 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
         type: holding.type,
         iconUrl: iconUrls[holding.symbol.toUpperCase()]
       };
-    })
+    });
+
+  // Add recurring investments as separate category (red)
+  const recurringData = recurringInvestments
+    .filter(inv => inv.currentValue > 0)
+    .map(inv => ({
+      symbol: inv.symbol,
+      name: inv.name,
+      value: inv.currentValue,
+      category: 'Index Fund',
+      type: 's',
+      iconUrl: iconUrls[inv.symbol.toUpperCase()]
+    }));
+
+  // Combine both datasets
+  const combinedData = [...assetData, ...recurringData]
     .sort((a, b) => {
       // First, sort by category to group them together
-      const categoryOrder: {[key: string]: number} = { 'Crypto': 0, 'ETF': 1, 'Stock': 2 };
+      const categoryOrder: {[key: string]: number} = { 'Crypto': 0, 'ETF': 1, 'Index Fund': 2, 'Stock': 3 };
       if (categoryOrder[a.category] !== categoryOrder[b.category]) {
         return categoryOrder[a.category] - categoryOrder[b.category];
       }
@@ -79,23 +102,25 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
       return b.value - a.value;
     });
 
-  // Calculate totals by category
-  const categoryTotals = assetData.reduce((acc, asset) => {
+  // Calculate totals by category (using combined data)
+  const categoryTotals = combinedData.reduce((acc, asset) => {
     acc[asset.category] = (acc[asset.category] || 0) + asset.value;
     return acc;
   }, {} as {[key: string]: number});
 
-  const totalValue = assetData.reduce((sum, asset) => sum + asset.value, 0);
+  const totalValue = combinedData.reduce((sum, asset) => sum + asset.value, 0);
 
   // Colors for categories
   const categoryColors: {[key: string]: string} = {
     'Crypto': '#F59E0B',
     'ETF': '#3B82F6',
-    'Stock': '#10B981'
+    'Stock': '#10B981',
+    'Index Fund': '#DC2626',  // Red for recurring investments
+    'ETF + Index Fund': '#9333EA'  // Purple for combined target allocation
   };
 
   // Colors for individual assets (varying shades)
-  const assetColors = assetData.map(asset => {
+  const assetColors = combinedData.map(asset => {
     const baseColor = categoryColors[asset.category];
     // Could add variation here if needed
     return baseColor;
@@ -171,7 +196,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
     const x2 = cx + (outerRadius + lineLength) * Math.cos(-midAngle * RADIAN);
     const y2 = cy + (outerRadius + lineLength) * Math.sin(-midAngle * RADIAN);
 
-    const asset = assetData[index];
+    const asset = combinedData[index];
     if (!asset) return null;
 
     // Determine text anchor based on which side of the pie
@@ -268,7 +293,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
               gap: '8px',
               paddingRight: '8px'
             }}>
-              {assetData.map((asset, index) => (
+              {combinedData.map((asset, index) => (
                 <div
                   key={asset.symbol}
                   style={{
@@ -323,7 +348,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
             <ResponsiveContainer width="100%" height={550}>
               <PieChart>
                 <Pie
-                  data={assetData}
+                  data={combinedData}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
@@ -337,7 +362,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
                   startAngle={90}
                   endAngle={-270}
                 >
-                  {assetData.map((entry, index) => {
+                  {combinedData.map((entry, index) => {
                     const isActive = activeIndex === null || activeIndex === index;
                     return (
                       <Cell
@@ -360,11 +385,17 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
             </h4>
             <ResponsiveContainer width="100%" height={550}>
               <PieChart>
+                <defs>
+                  <linearGradient id="etfIndexGradient" x1="0%" y1="50%" x2="100%" y2="50%">
+                    <stop offset="0%" stopColor="#DC2626" />
+                    <stop offset="100%" stopColor="#3B82F6" />
+                  </linearGradient>
+                </defs>
                 <Pie
                   data={[
-                    { category: 'Crypto', value: 20, label: '20%' },
-                    { category: 'ETF', value: 40, label: '40%' },
-                    { category: 'Stock', value: 40, label: '40%' }
+                    { category: 'Crypto', value: 15, label: '15%' },
+                    { category: 'ETF + Index Fund', value: 50, label: '50%' },
+                    { category: 'Stock', value: 35, label: '35%' }
                   ]}
                   cx="50%"
                   cy="50%"
@@ -404,13 +435,13 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
                   }}
                 >
                   {[
-                    { category: 'Crypto', value: 20 },
-                    { category: 'ETF', value: 40 },
-                    { category: 'Stock', value: 40 }
+                    { category: 'Crypto', value: 15 },
+                    { category: 'ETF + Index Fund', value: 50 },
+                    { category: 'Stock', value: 35 }
                   ].map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill={categoryColors[entry.category]}
+                      fill={entry.category === 'ETF + Index Fund' ? 'url(#etfIndexGradient)' : categoryColors[entry.category]}
                     />
                   ))}
                 </Pie>
@@ -421,7 +452,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
                 <strong>Recommended Split:</strong>
               </p>
               <p style={{ fontSize: '11px', color: '#6b7280', margin: '2px 0' }}>
-                Crypto: 20% • ETF: 40% • Stock: 40%
+                Crypto: 15% • ETF + Index Fund: 50% • Stock: 35%
               </p>
             </div>
           </div>
@@ -431,7 +462,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
         <div style={{
           marginTop: '24px',
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: '16px'
         }}>
           {Object.entries(categoryTotals).map(([category, value]) => (
