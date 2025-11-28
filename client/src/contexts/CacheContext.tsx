@@ -5,6 +5,7 @@ interface CacheData {
   holdings: Record<string, any>;
   portfolios: any[];
   latestPortfolio: any | null;
+  recurringInvestments: any | null;
   holdingsTimestamp: Date | null;
   portfolioTimestamp: Date | null;
   isLoading: boolean;
@@ -21,6 +22,7 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [holdings, setHoldings] = useState<Record<string, any>>({});
   const [portfolios, setPortfolios] = useState<any[]>([]);
   const [latestPortfolio, setLatestPortfolio] = useState<any | null>(null);
+  const [recurringInvestments, setRecurringInvestments] = useState<any | null>(null);
   const [holdingsTimestamp, setHoldingsTimestamp] = useState<Date | null>(null);
   const [portfolioTimestamp, setPortfolioTimestamp] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,10 +35,11 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       console.log(`🔄 CacheProvider: Loading cache data... ${forceRefresh ? '(force refresh)' : '(cache-first)'}`);
 
-      // Always load portfolios and holdings cache (these are just reading cached data, not triggering API calls)
-      const [portfoliosResponse, cacheResponse] = await Promise.all([
+      // Always load portfolios, holdings cache, and recurring investments
+      const [portfoliosResponse, cacheResponse, recurringResponse] = await Promise.all([
         axios.get('/api/portfolio'),
-        axios.get('/api/portfolio/cache/data')
+        axios.get('/api/portfolio/cache/data'),
+        axios.get('/api/recurring-investments')
       ]);
 
       // Set portfolios data
@@ -78,14 +81,17 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Set holdings cache data
       const cacheData = cacheResponse.data;
       setHoldings(cacheData.cache || {});
-      
+
       // Find most recent cache timestamp
       if (cacheData.cache && Object.keys(cacheData.cache).length > 0) {
-        const latestCacheTime = Math.max(...Object.values(cacheData.cache).map((item: any) => 
+        const latestCacheTime = Math.max(...Object.values(cacheData.cache).map((item: any) =>
           new Date(item.lastUpdated || item.fetchedAt || 0).getTime()
         ));
         setHoldingsTimestamp(new Date(latestCacheTime));
       }
+
+      // Set recurring investments data
+      setRecurringInvestments(recurringResponse.data);
 
       console.log('✅ CacheProvider: Cache data loaded successfully');
     } catch (err) {
@@ -117,6 +123,7 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     holdings,
     portfolios,
     latestPortfolio,
+    recurringInvestments,
     holdingsTimestamp,
     portfolioTimestamp,
     isLoading,
