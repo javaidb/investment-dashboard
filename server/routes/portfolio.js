@@ -90,14 +90,35 @@ function loadPortfolios() {
         return legacyPortfolios;
       } else {
         // New file-based format: filename -> { fileMetadata, portfolio }
+        // All files with the same portfolio ID should be merged into one portfolio entry
+        // We'll take the portfolio with the latest processedAt timestamp
         let totalPortfolios = 0;
+        const portfoliosById = new Map();
+
         for (const [filename, fileData] of Object.entries(portfolioData)) {
           if (fileData && fileData.portfolio && typeof fileData.portfolio === 'object') {
-            portfolios.set(fileData.portfolio.id, fileData.portfolio);
-            totalPortfolios++;
+            const portfolioId = fileData.portfolio.id;
+            const processedAt = new Date(fileData.fileMetadata?.processedAt || 0);
+
+            // If we don't have this portfolio ID yet, or this one is newer, use it
+            if (!portfoliosById.has(portfolioId)) {
+              portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, processedAt, filename });
+              totalPortfolios++;
+            } else {
+              const existing = portfoliosById.get(portfolioId);
+              if (processedAt > existing.processedAt) {
+                portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, processedAt, filename });
+              }
+            }
           }
         }
-        console.log(`📁 Loaded ${totalPortfolios} portfolios from ${Object.keys(portfolioData).length} files`);
+
+        // Extract just the portfolios
+        for (const [id, data] of portfoliosById.entries()) {
+          portfolios.set(id, data.portfolio);
+        }
+
+        console.log(`📁 Loaded ${totalPortfolios} unique portfolios from ${Object.keys(portfolioData).length} files`);
         return portfolios;
       }
     } else {
@@ -2314,12 +2335,62 @@ router.get('/cache/historical/:symbol', (req, res) => {
   }
 });
 
+// Batch endpoint to get weekly changes for multiple symbols at once
+router.post('/cache/weekly-changes', (req, res) => {
+  try {
+    const { symbols } = req.body;
+
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      return res.status(400).json({ error: 'symbols array is required' });
+    }
+
+    console.log(`📊 Calculating weekly changes for ${symbols.length} symbols from cache`);
+    const weeklyChanges = {};
+
+    symbols.forEach(symbol => {
+      try {
+        const cacheEntry = historicalDataCache.cache.get(symbol);
+
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 8) {
+          console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
+          return;
+        }
+
+        // Sort data from earliest to latest
+        const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const currentPrice = sortedData[sortedData.length - 1].close;
+        const oneWeekAgoPrice = sortedData[sortedData.length - 8].close;
+
+        if (currentPrice && oneWeekAgoPrice) {
+          const changePercent = ((currentPrice - oneWeekAgoPrice) / oneWeekAgoPrice) * 100;
+          weeklyChanges[symbol] = changePercent;
+        }
+      } catch (err) {
+        console.warn(`❌ Error calculating weekly change for ${symbol}:`, err.message);
+      }
+    });
+
+    console.log(`✅ Calculated weekly changes for ${Object.keys(weeklyChanges).length}/${symbols.length} symbols`);
+
+    res.json({
+      success: true,
+      weeklyChanges,
+      calculatedCount: Object.keys(weeklyChanges).length,
+      requestedCount: symbols.length
+    });
+  } catch (error) {
+    console.error('Weekly changes batch error:', error);
+    res.status(500).json({ error: 'Failed to calculate weekly changes' });
+  }
+});
+
 router.delete('/cache/:symbol', (req, res) => {
   try {
     const { symbol } = req.params;
     const deleted = holdingsCache.cache.delete(symbol);
     holdingsCache.saveCache();
-    
+
     res.json({
       success: true,
       message: deleted ? `Removed ${symbol} from cache` : `${symbol} not found in cache`

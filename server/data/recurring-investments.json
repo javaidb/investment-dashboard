@@ -1,0 +1,46 @@
+{
+  "recurringInvestments": [
+    {
+      "id": "nasdaq-index",
+      "name": "NASDAQ Index Fund",
+      "symbol": "QQQ",
+      "type": "index_fund",
+      "institution": "Scotiabank",
+      "initialAmount": 14750,
+      "initialDate": "2025-09-17",
+      "recurringAmount": 400,
+      "frequency": "weekly",
+      "dayOfWeek": "Friday",
+      "enabled": true,
+      "notes": "NASDAQ equity index fund"
+    },
+    {
+      "id": "canadian-equity",
+      "name": "Canadian Equity Index Fund",
+      "symbol": "XIU.TO",
+      "type": "index_fund",
+      "institution": "Scotiabank",
+      "initialAmount": 4750,
+      "initialDate": "2025-09-17",
+      "recurringAmount": 175,
+      "frequency": "weekly",
+      "dayOfWeek": "Friday",
+      "enabled": true,
+      "notes": "Canadian equity index fund"
+    },
+    {
+      "id": "international-equity",
+      "name": "International Equity Index Fund",
+      "symbol": "XEF.TO",
+      "type": "index_fund",
+      "institution": "Scotiabank",
+      "initialAmount": 500,
+      "initialDate": "2025-09-17",
+      "recurringAmount": 25,
+      "frequency": "weekly",
+      "dayOfWeek": "Friday",
+      "enabled": true,
+      "notes": "International equity index fund"
+    }
+  ]
+}
