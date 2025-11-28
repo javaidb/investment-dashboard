@@ -1,0 +1,276 @@
+import React from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  ReferenceLine
+} from 'recharts';
+
+interface Holding {
+  symbol: string;
+  quantity: number;
+  type: string;
+  totalPnL?: number;
+  totalInvested?: number;
+}
+
+interface RecurringInvestment {
+  symbol: string;
+  name: string;
+  currentValue: number;
+  totalInvested: number;
+  profitLoss?: number;
+}
+
+interface ProfitByAssetTypeBarChartProps {
+  holdings: Holding[];
+  recurringInvestments?: RecurringInvestment[];
+}
+
+const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
+  holdings,
+  recurringInvestments = []
+}) => {
+  // Calculate profit and total invested by asset type
+  const profitByType: {[key: string]: number} = {
+    'Crypto': 0,
+    'ETF': 0,
+    'Stock': 0,
+    'Index Fund': 0
+  };
+
+  const investedByType: {[key: string]: number} = {
+    'Crypto': 0,
+    'ETF': 0,
+    'Stock': 0,
+    'Index Fund': 0
+  };
+
+  // Sum up profits and invested amounts from holdings
+  holdings
+    .filter(holding => holding.quantity > 0.01)
+    .forEach(holding => {
+      const profit = holding.totalPnL || 0;
+      const invested = holding.totalInvested || 0;
+
+      if (holding.type === 'c') {
+        profitByType['Crypto'] += profit;
+        investedByType['Crypto'] += invested;
+      } else if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') || holding.symbol.includes('QQQ')) {
+        profitByType['ETF'] += profit;
+        investedByType['ETF'] += invested;
+      } else {
+        profitByType['Stock'] += profit;
+        investedByType['Stock'] += invested;
+      }
+    });
+
+  // Add recurring investments profit and invested amounts
+  recurringInvestments.forEach(inv => {
+    const profit = (inv.currentValue - inv.totalInvested) || 0;
+    profitByType['Index Fund'] += profit;
+    investedByType['Index Fund'] += inv.totalInvested;
+  });
+
+  // Prepare chart data - filter out categories with zero profit
+  const chartData = Object.entries(profitByType)
+    .filter(([_, value]) => value !== 0)
+    .map(([category, profit]) => {
+      const invested = investedByType[category];
+      const percentPnL = invested > 0 ? (profit / invested) * 100 : 0;
+
+      return {
+        category,
+        profit: Math.round(profit * 100) / 100, // Round to 2 decimal places
+        percentPnL: Math.round(percentPnL * 100) / 100 // Round to 2 decimal places
+      };
+    })
+    .sort((a, b) => b.profit - a.profit); // Sort by profit descending
+
+  // Colors matching the pie chart
+  const categoryColors: {[key: string]: string} = {
+    'Crypto': '#F59E0B',
+    'ETF': '#3B82F6',
+    'Stock': '#10B981',
+    'Index Fund': '#DC2626'
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-CA', {
+      style: 'currency',
+      currency: 'CAD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  };
+
+  const formatPercent = (value: number) => {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+  };
+
+  // Custom label to show percentage on bar tips
+  const renderCustomLabel = (props: any): React.ReactElement<SVGElement> => {
+    const { x, y, width, height, value, index } = props;
+    const data = chartData[index];
+
+    const isPositive = value >= 0;
+    const labelY = isPositive ? y - 10 : y + height + 20;
+
+    // Return empty text element if no data
+    if (!data) {
+      return <text />;
+    }
+
+    return (
+      <text
+        x={x + width / 2}
+        y={labelY}
+        fill={isPositive ? '#166534' : '#dc2626'}
+        textAnchor="middle"
+        fontSize="14px"
+        fontWeight="700"
+      >
+        {formatPercent(data.percentPnL)}
+      </text>
+    );
+  };
+
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div style={{
+          backgroundColor: 'white',
+          padding: '12px 16px',
+          border: '1px solid #e5e7eb',
+          borderRadius: '8px',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+        }}>
+          <p style={{ fontWeight: 'bold', margin: 0, color: '#111827', marginBottom: '8px' }}>
+            {data.category}
+          </p>
+          <p style={{ margin: '4px 0', color: data.profit >= 0 ? '#166534' : '#dc2626', fontWeight: '600' }}>
+            P&L: {formatCurrency(data.profit)}
+          </p>
+          <p style={{ margin: '4px 0', color: data.profit >= 0 ? '#166534' : '#dc2626', fontWeight: '700', fontSize: '14px' }}>
+            Return: {formatPercent(data.percentPnL)}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  if (chartData.length === 0) {
+    return null; // Don't render if no data
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden" style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+        padding: '20px 24px',
+        borderBottom: '1px solid #e5e7eb'
+      }}>
+        <h3 style={{
+          fontSize: '20px',
+          fontWeight: 'bold',
+          color: '#111827',
+          margin: 0
+        }}>Profit by Type</h3>
+        <p style={{
+          fontSize: '14px',
+          color: '#6b7280',
+          marginTop: '4px',
+          margin: 0
+        }}>
+          P&L breakdown by asset category
+        </p>
+      </div>
+
+      <div style={{ padding: '24px 16px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: '400px' }}>
+        <div style={{ flex: 1, minHeight: '350px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              margin={{ top: 20, right: 60, left: 5, bottom: 80 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <XAxis
+                dataKey="category"
+                stroke="#6B7280"
+                fontSize={13}
+                fontWeight={600}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis
+                stroke="#6B7280"
+                fontSize={12}
+                tickFormatter={(value) => formatCurrency(value)}
+                width={70}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={2} />
+              <Bar dataKey="profit" radius={[8, 8, 0, 0]} label={renderCustomLabel}>
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={categoryColors[entry.category]}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Legend */}
+        <div style={{
+          marginTop: '20px',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '12px',
+          fontSize: '13px'
+        }}>
+          {chartData.map(({ category, profit, percentPnL }) => (
+            <div key={category} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 12px',
+              backgroundColor: '#f9fafb',
+              borderRadius: '8px',
+              borderLeft: `4px solid ${categoryColors[category]}`
+            }}>
+              <span style={{ color: '#6b7280', fontWeight: '600' }}>{category}:</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                <span style={{
+                  color: profit >= 0 ? '#166534' : '#dc2626',
+                  fontWeight: '700',
+                  fontSize: '14px'
+                }}>
+                  {formatCurrency(profit)}
+                </span>
+                <span style={{
+                  color: profit >= 0 ? '#166534' : '#dc2626',
+                  fontWeight: '600',
+                  fontSize: '12px'
+                }}>
+                  {formatPercent(percentPnL)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProfitByAssetTypeBarChart;
