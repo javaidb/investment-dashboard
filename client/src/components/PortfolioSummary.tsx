@@ -345,12 +345,13 @@ const PortfolioSummary: React.FC = () => {
         // Calculate current values using cached prices
         const currentPrice = cachedPrice?.cadPrice || cachedPrice?.price || null;
         const currentValue = currentPrice ? (holding.quantity || 0) * currentPrice : null;
-        const unrealizedPnL = currentValue && holding.totalInvested ? 
+        const unrealizedPnL = currentValue && holding.totalInvested ?
           currentValue - holding.totalInvested : null;
-        const totalPnL = unrealizedPnL !== null ? 
+        const totalPnL = unrealizedPnL !== null ?
           unrealizedPnL + (holding.realizedPnL || 0) : (holding.realizedPnL || 0);
-        const totalPnLPercent = holding.totalInvested > 0 ? 
-          (totalPnL / holding.totalInvested) * 100 : 0;
+        // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+        const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+          (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
         
         const weeklyChange = weeklyChanges[symbol];
         console.log(`🔍 Processing holding ${symbol}: weeklyChange=${weeklyChange}, hasWeeklyChanges=${Object.keys(weeklyChanges).length > 0}`);
@@ -431,11 +432,14 @@ const PortfolioSummary: React.FC = () => {
         sum + (h.realizedPnL || 0), 0);
       const totalInvested = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.totalInvested || 0), 0);
+      // Use totalAmountInvested for accurate total investment tracking
+      const totalAmountInvested = safeHoldings.reduce((sum: number, h: Holding) =>
+        sum + (h.totalAmountInvested || h.totalInvested || 0), 0);
       const totalAmountSold = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.amountSold || 0), 0);
       const tradingTotalPnL = totalUnrealizedPnL + totalRealizedPnL;
-      const tradingTotalPnLPercent = totalInvested > 0 ?
-        (tradingTotalPnL / totalInvested) * 100 : 0;
+      const tradingTotalPnLPercent = totalAmountInvested > 0 ?
+        (tradingTotalPnL / totalAmountInvested) * 100 : 0;
 
       // Add recurring investments totals if available
       const recurringTotals = recurringInvestments?.totals || {
@@ -446,17 +450,17 @@ const PortfolioSummary: React.FC = () => {
 
       // Combine holdings and recurring investments (total portfolio)
       const combinedCurrentValue = currentTotalValue + recurringTotals.currentValue;
-      const combinedTotalInvested = totalInvested + recurringTotals.totalInvested;
+      const combinedTotalInvested = totalAmountInvested + recurringTotals.totalInvested;
       const combinedTotalPnL = (totalUnrealizedPnL + totalRealizedPnL) + recurringTotals.profitLoss;
       const combinedTotalPnLPercent = combinedTotalInvested > 0 ?
         (combinedTotalPnL / combinedTotalInvested) * 100 : 0;
 
       // Store combined portfolio metrics (total portfolio including index funds)
       setSummary({
-        totalInvested: combinedTotalInvested,
+        totalInvested: totalInvested + recurringTotals.totalInvested, // Current position cost for display
         currentTotalValue: combinedCurrentValue,
         totalPnL: combinedTotalPnL,
-        totalPnLPercent: combinedTotalPnLPercent,
+        totalPnLPercent: combinedTotalPnLPercent, // This uses totalAmountInvested in calculation
         totalRealized: totalRealizedPnL,
         totalAmountSold: totalAmountSold,
         totalHoldings: safeHoldings.length,
@@ -467,9 +471,9 @@ const PortfolioSummary: React.FC = () => {
       // Store trading-only metrics (without index funds)
       setTradingSummary({
         currentValue: currentTotalValue,
-        totalInvested: totalInvested,
+        totalInvested: totalInvested, // Current position cost for display
         totalPnL: tradingTotalPnL,
-        totalPnLPercent: tradingTotalPnLPercent
+        totalPnLPercent: tradingTotalPnLPercent // This uses totalAmountInvested in calculation
       });
       
       console.log('✅ Portfolio data processing completed successfully');
@@ -607,221 +611,309 @@ const PortfolioSummary: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Row 1: Total Portfolio (including index funds) */}
+                {/* Grid layout: Left side (current positions) + Right side (all-time performance) */}
                 <div style={{
-                  padding: '20px 24px',
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '24px',
-                  alignItems: 'center',
-                  borderBottom: '2px solid #e5e7eb',
-                  background: 'linear-gradient(to right, #eff6ff, #f0f9ff)'
+                  gridTemplateColumns: '2fr 1fr',
+                  gap: '0'
                 }}>
-                  <div style={{textAlign: 'center'}}>
+                  {/* Left side: Current positions */}
+                  <div>
+                    {/* Row 1: Total Portfolio Current Positions */}
                     <div style={{
-                      fontSize: '10px',
-                      color: '#2563eb',
-                      fontWeight: '700',
-                      marginBottom: '8px',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase'
+                      padding: '20px 24px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '24px',
+                      alignItems: 'center',
+                      borderBottom: '1px solid #e5e7eb',
+                      borderRight: '2px solid #e5e7eb',
+                      background: 'linear-gradient(to right, #eff6ff, #f0f9ff)'
                     }}>
-                      Total Portfolio
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '10px',
+                          color: '#2563eb',
+                          fontWeight: '700',
+                          marginBottom: '8px',
+                          letterSpacing: '0.5px',
+                          textTransform: 'uppercase'
+                        }}>
+                          Total Portfolio
+                        </div>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: '#111827',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {formatCurrency(summary.totalInvested)}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          Total Invested
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: '#111827',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {formatCurrency(summary.currentTotalValue)}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          Current Value
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {formatCurrency(summary.totalUnrealizedPnL)}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          Unrealized P/L
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: (summary.totalUnrealizedPnL && summary.totalInvested && (summary.totalUnrealizedPnL / summary.totalInvested) >= 0) ? '#166534' : '#dc2626',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {summary.totalInvested > 0 ? formatPercentage((summary.totalUnrealizedPnL || 0) / summary.totalInvested * 100) : '0.00%'}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          Unrealized %
+                        </div>
+                      </div>
                     </div>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: '#111827',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatCurrency(summary.totalInvested)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #bfdbfe'
-                    }}>
-                      Total Invested
-                    </div>
-                  </div>
-                  <div style={{textAlign: 'center'}}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: '#111827',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatCurrency(summary.currentTotalValue)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #bfdbfe'
-                    }}>
-                      Current Value
-                    </div>
-                  </div>
-                  <div style={{textAlign: 'center'}}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatCurrency(summary.totalPnL)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #bfdbfe'
-                    }}>
-                      Total P/L
-                    </div>
-                  </div>
-                  <div style={{textAlign: 'center'}}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: summary.totalPnLPercent && summary.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatPercentage(summary.totalPnLPercent)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #bfdbfe'
-                    }}>
-                      Return
-                    </div>
-                  </div>
-                </div>
 
-                {/* Row 2: Trading Holdings Only (without index funds) */}
-                <div style={{
-                  padding: '20px 24px',
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '24px',
-                  alignItems: 'center',
-                  background: 'linear-gradient(to right, #fefce8, #fef9c3)'
-                }}>
-                  <div style={{textAlign: 'center'}}>
+                    {/* Row 2: Trading Holdings Only */}
                     <div style={{
-                      fontSize: '10px',
-                      color: '#ca8a04',
+                      padding: '20px 24px',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '24px',
+                      alignItems: 'center',
+                      borderRight: '2px solid #e5e7eb',
+                      background: 'linear-gradient(to right, #fefce8, #fef9c3)'
+                    }}>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '10px',
+                          color: '#ca8a04',
+                          fontWeight: '700',
+                          marginBottom: '8px',
+                          letterSpacing: '0.5px',
+                          textTransform: 'uppercase'
+                        }}>
+                          Trading Holdings
+                        </div>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: '#111827',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {formatCurrency(tradingSummary.totalInvested)}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Total Invested
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: '#111827',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {formatCurrency(tradingSummary.currentValue)}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Current Value
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: (tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {formatCurrency(tradingSummary.currentValue - tradingSummary.totalInvested)}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Unrealized P/L
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          fontSize: '28px',
+                          fontWeight: '700',
+                          color: ((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
+                          marginBottom: '4px',
+                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        }}>
+                          {tradingSummary.totalInvested > 0 ? formatPercentage((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested * 100) : '0.00%'}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Unrealized %
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right side: All-Time Performance (spans both rows) */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    padding: '16px 20px',
+                    background: 'linear-gradient(135deg, #faf5ff, #f3e8ff)'
+                  }}>
+                    <div style={{
+                      fontSize: '11px',
+                      color: '#7c3aed',
                       fontWeight: '700',
-                      marginBottom: '8px',
+                      marginBottom: '6px',
                       letterSpacing: '0.5px',
                       textTransform: 'uppercase'
                     }}>
-                      Trading Holdings Only
+                      All-Time Performance
                     </div>
                     <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: '#111827',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                      fontSize: '10px',
+                      color: '#9333ea',
+                      marginBottom: '12px',
+                      textAlign: 'center',
+                      fontStyle: 'italic'
                     }}>
-                      {formatCurrency(tradingSummary.totalInvested)}
+                      (Current + Realized)
                     </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #fde68a'
-                    }}>
-                      Total Invested
+
+                    <div style={{marginBottom: '16px', textAlign: 'center'}}>
+                      <div style={{
+                        fontSize: '30px',
+                        fontWeight: '700',
+                        color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
+                        marginBottom: '5px',
+                        fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                      }}>
+                        {formatCurrency(summary.totalPnL)}
+                      </div>
+                      <div style={{
+                        fontSize: '11px',
+                        color: '#6b7280',
+                        backgroundColor: 'white',
+                        padding: '3px 10px',
+                        borderRadius: '12px',
+                        display: 'inline-block',
+                        border: '1px solid #e9d5ff'
+                      }}>
+                        Total P/L
+                      </div>
                     </div>
-                  </div>
-                  <div style={{textAlign: 'center'}}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: '#111827',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatCurrency(tradingSummary.currentValue)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #fde68a'
-                    }}>
-                      Current Value
-                    </div>
-                  </div>
-                  <div style={{textAlign: 'center'}}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatCurrency(tradingSummary.totalPnL)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #fde68a'
-                    }}>
-                      Total P/L
-                    </div>
-                  </div>
-                  <div style={{textAlign: 'center'}}>
-                    <div style={{
-                      fontSize: '28px',
-                      fontWeight: '700',
-                      color: tradingSummary.totalPnLPercent && tradingSummary.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
-                      marginBottom: '4px',
-                      fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                    }}>
-                      {formatPercentage(tradingSummary.totalPnLPercent)}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      display: 'inline-block',
-                      border: '1px solid #fde68a'
-                    }}>
-                      Return
+
+                    <div style={{textAlign: 'center'}}>
+                      <div style={{
+                        fontSize: '30px',
+                        fontWeight: '700',
+                        color: summary.totalPnLPercent && summary.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
+                        marginBottom: '5px',
+                        fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                      }}>
+                        {formatPercentage(summary.totalPnLPercent)}
+                      </div>
+                      <div style={{
+                        fontSize: '11px',
+                        color: '#6b7280',
+                        backgroundColor: 'white',
+                        padding: '3px 10px',
+                        borderRadius: '12px',
+                        display: 'inline-block',
+                        border: '1px solid #e9d5ff'
+                      }}>
+                        Total Return %
+                      </div>
                     </div>
                   </div>
                 </div>
