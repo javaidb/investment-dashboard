@@ -11,7 +11,8 @@ import {
   Image,
   PieChart,
   Activity,
-  Calculator
+  Calculator,
+  Eye
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -25,6 +26,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const navigation = [
     { name: 'Breakdown', href: '/breakdown', icon: PieChart },
+    { name: 'Watchlist', href: '/watchlist', icon: Eye },
     { name: 'Risk', href: '/ratios', icon: Calculator },
     { name: 'Analysis', href: '/analysis', icon: Activity },
     { name: 'Trends', href: '/trends', icon: TrendingUp },
