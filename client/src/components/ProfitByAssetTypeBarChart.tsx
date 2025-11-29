@@ -269,7 +269,7 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
           marginTop: '4px',
           margin: 0
         }}>
-          P&L breakdown by asset category
+          P&L breakdown by asset category. Green highlights indicate negative P&L with rising momentum - consider buying opportunities.
         </p>
       </div>
 
