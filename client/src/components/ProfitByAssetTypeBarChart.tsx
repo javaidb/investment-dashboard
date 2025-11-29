@@ -72,7 +72,8 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
 
   // Add recurring investments profit and invested amounts
   recurringInvestments.forEach(inv => {
-    const profit = (inv.currentValue - inv.totalInvested) || 0;
+    // Use profitLoss if available (which includes realized), otherwise calculate unrealized
+    const profit = inv.profitLoss !== undefined ? inv.profitLoss : (inv.currentValue - inv.totalInvested) || 0;
     profitByType['Index Fund'] += profit;
     investedByType['Index Fund'] += inv.totalInvested;
   });
