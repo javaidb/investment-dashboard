@@ -17,6 +17,8 @@ interface Holding {
   type: string;
   totalPnL?: number;
   totalInvested?: number;
+  weeklyChangePercent?: number;
+  currentValue?: number;
 }
 
 interface RecurringInvestment {
@@ -36,7 +38,7 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
   holdings,
   recurringInvestments = []
 }) => {
-  // Calculate profit and total invested by asset type
+  // Calculate profit, invested, and weekly change by asset type
   const profitByType: {[key: string]: number} = {
     'Crypto': 0,
     'ETF': 0,
@@ -51,22 +53,36 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
     'Index Fund': 0
   };
 
-  // Sum up profits and invested amounts from holdings
+  const weeklyChangeByType: {[key: string]: {totalChange: number, totalValue: number}} = {
+    'Crypto': {totalChange: 0, totalValue: 0},
+    'ETF': {totalChange: 0, totalValue: 0},
+    'Stock': {totalChange: 0, totalValue: 0},
+    'Index Fund': {totalChange: 0, totalValue: 0}
+  };
+
+  // Sum up profits, invested amounts, and weekly changes from holdings
   holdings
     .filter(holding => holding.quantity > 0.01)
     .forEach(holding => {
       const profit = holding.totalPnL || 0;
       const invested = holding.totalInvested || 0;
+      const currentValue = holding.currentValue || 0;
+      const weeklyChange = holding.weeklyChangePercent || null;
 
+      let category = 'Stock';
       if (holding.type === 'c') {
-        profitByType['Crypto'] += profit;
-        investedByType['Crypto'] += invested;
+        category = 'Crypto';
       } else if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') || holding.symbol.includes('QQQ')) {
-        profitByType['ETF'] += profit;
-        investedByType['ETF'] += invested;
-      } else {
-        profitByType['Stock'] += profit;
-        investedByType['Stock'] += invested;
+        category = 'ETF';
+      }
+
+      profitByType[category] += profit;
+      investedByType[category] += invested;
+
+      // Calculate weighted weekly change
+      if (weeklyChange !== null && weeklyChange !== undefined && currentValue > 0) {
+        weeklyChangeByType[category].totalChange += weeklyChange * currentValue;
+        weeklyChangeByType[category].totalValue += currentValue;
       }
     });
 
@@ -76,6 +92,19 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
     const profit = inv.profitLoss !== undefined ? inv.profitLoss : (inv.currentValue - inv.totalInvested) || 0;
     profitByType['Index Fund'] += profit;
     investedByType['Index Fund'] += inv.totalInvested;
+
+    // Calculate weekly change for index funds based on current return
+    // Estimate weekly change from overall return (assuming steady growth over time)
+    const currentValue = inv.currentValue || 0;
+    const totalInvested = inv.totalInvested || 0;
+    if (currentValue > 0 && totalInvested > 0) {
+      const overallReturnPercent = ((currentValue - totalInvested) / totalInvested) * 100;
+      // Estimate weekly change as roughly 1/52 of annual return (rough approximation)
+      const estimatedWeeklyChange = overallReturnPercent / 52;
+
+      weeklyChangeByType['Index Fund'].totalChange += estimatedWeeklyChange * currentValue;
+      weeklyChangeByType['Index Fund'].totalValue += currentValue;
+    }
   });
 
   // Prepare chart data - filter out categories with zero profit
@@ -85,10 +114,17 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
       const invested = investedByType[category];
       const percentPnL = invested > 0 ? (profit / invested) * 100 : 0;
 
+      // Calculate weighted average weekly change
+      const weeklyData = weeklyChangeByType[category];
+      const weeklyChange = weeklyData.totalValue > 0
+        ? weeklyData.totalChange / weeklyData.totalValue
+        : null;
+
       return {
         category,
         profit: Math.round(profit * 100) / 100, // Round to 2 decimal places
-        percentPnL: Math.round(percentPnL * 100) / 100 // Round to 2 decimal places
+        percentPnL: Math.round(percentPnL * 100) / 100, // Round to 2 decimal places
+        weeklyChange: weeklyChange !== null ? Math.round(weeklyChange * 100) / 100 : null
       };
     })
     .sort((a, b) => b.profit - a.profit); // Sort by profit descending
@@ -114,7 +150,7 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
-  // Custom label to show percentage on bar tips
+  // Custom label to show percentage on bar tips with weekly change arrow
   const renderCustomLabel = (props: any): React.ReactElement<SVGElement> => {
     const { x, y, width, height, value, index } = props;
     const data = chartData[index];
@@ -127,17 +163,48 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
       return <text />;
     }
 
+    const weeklyChange = data.weeklyChange;
+    let arrow = '';
+    let arrowColor = '#6b7280';
+
+    if (weeklyChange !== null && weeklyChange !== undefined) {
+      if (weeklyChange > 0) {
+        arrow = '↑';
+        arrowColor = '#166534';
+      } else if (weeklyChange < 0) {
+        arrow = '↓';
+        arrowColor = '#dc2626';
+      } else {
+        arrow = '→';
+        arrowColor = '#6b7280';
+      }
+    }
+
     return (
-      <text
-        x={x + width / 2}
-        y={labelY}
-        fill={isPositive ? '#166534' : '#dc2626'}
-        textAnchor="middle"
-        fontSize="14px"
-        fontWeight="700"
-      >
-        {formatPercent(data.percentPnL)}
-      </text>
+      <g>
+        <text
+          x={x + width / 2}
+          y={labelY}
+          fill={isPositive ? '#166534' : '#dc2626'}
+          textAnchor="middle"
+          fontSize="14px"
+          fontWeight="700"
+        >
+          {formatPercent(data.percentPnL)}
+        </text>
+        {arrow && (
+          <text
+            x={x + width / 2 + 45}
+            y={labelY}
+            fill={arrowColor}
+            textAnchor="middle"
+            fontSize="16px"
+            fontWeight="700"
+          >
+            {arrow}
+          </text>
+        )}
+      </g>
     );
   };
 
@@ -161,6 +228,19 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
           <p style={{ margin: '4px 0', color: data.profit >= 0 ? '#166534' : '#dc2626', fontWeight: '700', fontSize: '14px' }}>
             Return: {formatPercent(data.percentPnL)}
           </p>
+          {data.weeklyChange !== null && data.weeklyChange !== undefined && (
+            <p style={{
+              margin: '4px 0',
+              color: data.weeklyChange >= 0 ? '#166534' : '#dc2626',
+              fontWeight: '600',
+              fontSize: '13px',
+              borderTop: '1px solid #e5e7eb',
+              paddingTop: '6px',
+              marginTop: '6px'
+            }}>
+              Weekly: {formatPercent(data.weeklyChange)} {data.weeklyChange > 0 ? '↑' : data.weeklyChange < 0 ? '↓' : '→'}
+            </p>
+          )}
         </div>
       );
     }
@@ -239,7 +319,7 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
           gap: '12px',
           fontSize: '13px'
         }}>
-          {chartData.map(({ category, profit, percentPnL }) => (
+          {chartData.map(({ category, profit, percentPnL, weeklyChange }) => (
             <div key={category} style={{
               display: 'flex',
               alignItems: 'center',
@@ -251,13 +331,24 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
             }}>
               <span style={{ color: '#6b7280', fontWeight: '600' }}>{category}:</span>
               <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                <span style={{
-                  color: profit >= 0 ? '#166534' : '#dc2626',
-                  fontWeight: '700',
-                  fontSize: '14px'
-                }}>
-                  {formatCurrency(profit)}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{
+                    color: profit >= 0 ? '#166534' : '#dc2626',
+                    fontWeight: '700',
+                    fontSize: '14px'
+                  }}>
+                    {formatCurrency(profit)}
+                  </span>
+                  {weeklyChange !== null && weeklyChange !== undefined && (
+                    <span style={{
+                      color: weeklyChange >= 0 ? '#166534' : '#dc2626',
+                      fontSize: '14px',
+                      fontWeight: '700'
+                    }}>
+                      {weeklyChange > 0 ? '↑' : weeklyChange < 0 ? '↓' : '→'}
+                    </span>
+                  )}
+                </div>
                 <span style={{
                   color: profit >= 0 ? '#166534' : '#dc2626',
                   fontWeight: '600',
