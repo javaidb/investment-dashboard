@@ -4,9 +4,6 @@ import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import { useIcons } from '../hooks/useIcons';
 import CompanyIcon from './CompanyIcon';
-import HoldingsChartWrapper from './HoldingsChartWrapper';
-import ProfitLossBarChart from './ProfitLossBarChart';
-import PriceOffsetBarChart from './PriceOffsetBarChart';
 import PortfolioAllocationPieChart from './PortfolioAllocationPieChart';
 import RecurringInvestments from './RecurringInvestments';
 import ProfitByAssetTypeBarChart from './ProfitByAssetTypeBarChart';
@@ -940,35 +937,6 @@ const PortfolioSummary: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* Holdings Chart */}
-        {holdings.length > 0 && (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
-            overflow: 'hidden',
-            width: '100%',
-            marginBottom: '24px'
-          }}>
-            <HoldingsChartWrapper />
-          </div>
-        )}
-
-        {/* Profit/Loss Bar Chart */}
-        {holdings.length > 0 && (
-          <div style={{ marginBottom: '24px' }}>
-            <ProfitLossBarChart holdings={holdings} />
-          </div>
-        )}
-
-        {/* Price Offset Bar Chart */}
-        {holdings.length > 0 && (
-          <div style={{ marginBottom: '24px' }}>
-            <PriceOffsetBarChart holdings={holdings} />
-          </div>
-        )}
 
         {/* Portfolio Allocation Pie Chart */}
         {holdings.length > 0 && (
