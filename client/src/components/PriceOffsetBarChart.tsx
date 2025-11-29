@@ -43,7 +43,7 @@ interface PriceOffsetBarChartProps {
 }
 
 const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) => {
-  const [sixMonthAverages, setSixMonthAverages] = useState<{[symbol: string]: number}>({});
+  const [sma200Values, setSma200Values] = useState<{[symbol: string]: number}>({});
 
   // Fetch icons for all holdings
   const symbolsForIcons = holdings.map(holding => ({
@@ -56,32 +56,35 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
     enabled: holdings.length > 0
   });
 
-  // Fetch 6-month historical data for all holdings
+  // Fetch 1-year historical data for all holdings to calculate 200-day SMA
   const { data: historicalAverages } = useQuery(
-    ['6mo-averages', holdings.map(h => h.symbol).join(',')],
+    ['200day-sma', holdings.map(h => h.symbol).join(',')],
     async () => {
       const averages: {[symbol: string]: number} = {};
 
       await Promise.all(holdings.filter(h => h.quantity > 0.01).map(async (holding) => {
         try {
-          // Request 6 months of data explicitly
-          const response = await axios.get(`/api/portfolio/cache/historical/${holding.symbol}?period=6m`);
+          // Request 1 year of data to ensure we have at least 200 trading days
+          const response = await axios.get(`/api/portfolio/cache/historical/${holding.symbol}?period=1y`);
           const data = response.data.data || [];
 
           if (data.length > 0) {
-            const sum = data.reduce((acc: number, item: any) => acc + item.close, 0);
-            const average = sum / data.length;
+            // Calculate 200-day SMA (or use all available data if less than 200 days)
+            const last200Days = data.slice(-200);
+            const sum = last200Days.reduce((acc: number, item: any) => acc + item.close, 0);
+            const average = sum / last200Days.length;
             averages[holding.symbol] = average;
 
             if (holding.symbol === 'MSTR') {
-              console.log(`📊 MSTR 6mo average (USD):`, average);
+              console.log(`📊 MSTR 200-day SMA (USD):`, average);
               console.log(`📊 MSTR latest historical price (USD):`, data[data.length - 1]?.close);
               console.log(`📊 MSTR data points:`, data.length);
+              console.log(`📊 MSTR data points used for SMA:`, last200Days.length);
               console.log(`📊 MSTR date range:`, data[0]?.date, 'to', data[data.length - 1]?.date);
             }
           }
         } catch (error) {
-          console.warn(`Failed to get 6mo average for ${holding.symbol}:`, error);
+          console.warn(`Failed to get 200-day SMA for ${holding.symbol}:`, error);
         }
       }));
 
@@ -96,11 +99,11 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
   // Update state when data is loaded
   useEffect(() => {
     if (historicalAverages) {
-      setSixMonthAverages(historicalAverages);
+      setSma200Values(historicalAverages);
     }
   }, [historicalAverages]);
 
-  // Prepare data for the chart - calculate offset from 6-month average as percentage
+  // Prepare data for the chart - calculate offset from 200-day SMA as percentage
   // Filter out holdings where quantity is 0 or very close to 0
 
   const chartData = holdings
@@ -118,38 +121,38 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
       // Historical cache stores:
       // - CAD prices for Canadian stocks (.TO)
       // - USD prices for US stocks and crypto
-      const historicalAvg = sixMonthAverages[holding.symbol];
+      const sma200 = sma200Values[holding.symbol];
 
-      let currentPrice, sixMonthAvg, offsetPercent;
+      let currentPrice, sma200Value, offsetPercent;
 
       if (isCanadianStock) {
         // Canadian stock: both already in CAD
         currentPrice = currentPriceCAD;
-        sixMonthAvg = historicalAvg || currentPriceCAD;
-        offsetPercent = sixMonthAvg !== 0 ? ((currentPrice - sixMonthAvg) / sixMonthAvg) * 100 : 0;
+        sma200Value = sma200 || currentPriceCAD;
+        offsetPercent = sma200Value !== 0 ? ((currentPrice - sma200Value) / sma200Value) * 100 : 0;
       } else {
         // US stock/crypto: historical is USD, but currentPrice is CAD
         // Convert historical USD to CAD to match currentPrice
-        const sixMonthAvgCAD = historicalAvg ? historicalAvg * exchangeRate : currentPriceCAD;
+        const sma200CAD = sma200 ? sma200 * exchangeRate : currentPriceCAD;
         currentPrice = currentPriceCAD;
-        sixMonthAvg = sixMonthAvgCAD;
-        offsetPercent = sixMonthAvg !== 0 ? ((currentPrice - sixMonthAvg) / sixMonthAvg) * 100 : 0;
+        sma200Value = sma200CAD;
+        offsetPercent = sma200Value !== 0 ? ((currentPrice - sma200Value) / sma200Value) * 100 : 0;
       }
 
       return {
         symbol: holding.symbol,
         offset: offsetPercent,
         currentPrice: currentPrice,
-        sixMonthAvg: sixMonthAvg,
+        sma200: sma200Value,
         companyName: holding.companyName,
         type: holding.type,
         iconUrl: iconUrls[holding.symbol.toUpperCase()],
         weeklyChangePercent: holding.weeklyChangePercent,
         // Debug fields
         _debugCurrentCAD: currentPriceCAD,
-        _debugHistoricalRaw: historicalAvg,
+        _debugHistoricalRaw: sma200,
         _debugUsedCurrent: currentPrice,
-        _debugUsedAvg: sixMonthAvg,
+        _debugUsedAvg: sma200Value,
         _debugExchangeRate: exchangeRate,
         _debugIsCanadian: isCanadianStock
       };
@@ -172,7 +175,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
     return [
       `Offset: ${formatPercent(value)}`,
       `Current (CAD): $${data._debugUsedCurrent?.toFixed(2) || 'N/A'}`,
-      `6mo Avg (CAD): $${data._debugUsedAvg?.toFixed(2) || 'N/A'}`,
+      `200-day SMA (CAD): $${data._debugUsedAvg?.toFixed(2) || 'N/A'}`,
       `Historical (raw): $${data._debugHistoricalRaw?.toFixed(2) || 'N/A'}`,
       `Exchange Rate: ${data._debugExchangeRate?.toFixed(4) || 'N/A'}`,
       `Is Canadian: ${data._debugIsCanadian ? 'Yes' : 'No'}`
@@ -373,13 +376,13 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
           fontSize: '20px',
           fontWeight: 'bold',
           color: '#111827'
-        }}>Price Offset from 6-Month Average</h3>
+        }}>Price Offset from 200-Day SMA</h3>
         <p style={{
           fontSize: '14px',
           color: '#6b7280',
           marginTop: '4px'
         }}>
-          Shows how much current price differs from 6-month average. Green = above average, Red = below average.
+          Shows how much current price differs from 200-day simple moving average. Green = above SMA, Red = below SMA.
         </p>
       </div>
 
@@ -465,7 +468,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
             backgroundColor: '#10B981',
             borderRadius: '4px'
           }}></div>
-          <span style={{ color: '#6b7280' }}>≥5% above 6mo avg</span>
+          <span style={{ color: '#6b7280' }}>≥5% above 200-day SMA</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -474,7 +477,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
             backgroundColor: '#9CA3AF',
             borderRadius: '4px'
           }}></div>
-          <span style={{ color: '#6b7280' }}>Within ±5% of 6mo avg</span>
+          <span style={{ color: '#6b7280' }}>Within ±5% of 200-day SMA</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -483,7 +486,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
             backgroundColor: '#EF4444',
             borderRadius: '4px'
           }}></div>
-          <span style={{ color: '#6b7280' }}>≥5% below 6mo avg</span>
+          <span style={{ color: '#6b7280' }}>≥5% below 200-day SMA</span>
         </div>
       </div>
     </div>
