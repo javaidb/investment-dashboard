@@ -618,12 +618,14 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
 
             // Convert USD holdings to CAD for calculations
             const totalInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalInvested) || 0);
+            const totalAmountInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
             const realizedPnLCAD = holding.currency === 'USD' ? (Number(holding.realizedPnL) || 0) * exchangeRate : (Number(holding.realizedPnL) || 0);
 
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
             const unrealizedPnL = currentValue - totalInvestedCAD;
             const totalPnL = unrealizedPnL + realizedPnLCAD;
-            const totalPnLPercent = totalInvestedCAD > 0 ? (totalPnL / totalInvestedCAD) * 100 : 0;
+            // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+            const totalPnLPercent = totalAmountInvestedCAD > 0 ? (totalPnL / totalAmountInvestedCAD) * 100 : 0;
             
             return {
               ...holding,
@@ -653,7 +655,9 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
               const currentValue = cadPrice * (holding.quantity || 0);
               const unrealizedPnL = currentValue - (holding.totalInvested || 0);
               const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-              const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+              // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+              const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+                (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
               
               return {
                 ...holding,
@@ -1079,7 +1083,9 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
             const unrealizedPnL = currentValue - (Number(holding.totalInvested) || 0);
             const totalPnL = unrealizedPnL + (Number(holding.realizedPnL) || 0);
-            const totalPnLPercent = (Number(holding.totalInvested) || 0) > 0 ? (totalPnL / Number(holding.totalInvested)) * 100 : 0;
+            // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+            const totalPnLPercent = (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) > 0 ?
+              (totalPnL / (Number(holding.totalAmountInvested) || Number(holding.totalInvested))) * 100 : 0;
 
             console.log(`💰 Using cached data for ${holding.symbol}: $${cadPrice.toFixed(2)} CAD (age: ${cachedData.fetchedAt ? Math.round((Date.now() - new Date(cachedData.fetchedAt).getTime()) / 1000 / 60) : 'unknown'} min)`);
 
@@ -1111,7 +1117,9 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
               const currentValue = cadPrice * (holding.quantity || 0);
               const unrealizedPnL = currentValue - (holding.totalInvested || 0);
               const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-              const totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+              // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+              const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+                (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
               
               return {
                 ...holding,
@@ -1278,7 +1286,9 @@ router.get('/:portfolioId/cached', async (req, res) => {
           currentValue: currentValue,
           unrealizedPnL: unrealizedPnL,
           totalPnL: totalPnL,
-          totalPnLPercent: holding.totalInvested > 0 ? (totalPnL / holding.totalInvested) * 100 : 0,
+          // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+          totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+            (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
           companyName: cachedHolding.companyName || holding.companyName || symbol,
           cacheUsed: true,
           cacheTimestamp: cachedHolding.lastUpdated || cachedHolding.fetchedAt
@@ -1864,7 +1874,9 @@ async function getCurrentPrices(holdings) {
         currentValue = cadPrice * (holding.quantity || 0);
         unrealizedPnL = currentValue - (holding.totalInvested || 0);
         totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-        totalPnLPercent = (holding.totalInvested || 0) > 0 ? (totalPnL / holding.totalInvested) * 100 : 0;
+        // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+        totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+          (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
       }
 
       holdingsWithPrices.push({
@@ -2921,7 +2933,9 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
           totalInvested: holding.totalInvested,
           currentValue: currentValue,
           totalPnL: totalPnL,
-          totalPnLPercent: holding.totalInvested > 0 ? (totalPnL / holding.totalInvested) * 100 : 0,
+          // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
+          totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+            (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
           ...riskMetrics
         };
 
