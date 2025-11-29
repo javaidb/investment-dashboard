@@ -390,7 +390,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
         <ResponsiveContainer width="100%" height={500}>
           <BarChart
             data={chartData}
-            margin={{ top: 80, right: 20, left: 20, bottom: 100 }}
+            margin={{ top: 20, right: 20, left: 20, bottom: 20 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
             <XAxis
@@ -408,6 +408,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
               stroke="#6B7280"
               fontSize={12}
               tickFormatter={(value) => formatPercent(value)}
+              domain={['dataMin', 'dataMax']}
             />
             <Tooltip
               formatter={formatTooltip}
