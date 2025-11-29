@@ -61,9 +61,8 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
   };
 
   // Sum up profits, invested amounts, and weekly changes from holdings
-  holdings
-    .filter(holding => holding.quantity > 0.01)
-    .forEach(holding => {
+  // Include all holdings (even sold ones) to show total P&L including realized gains/losses
+  holdings.forEach(holding => {
       const profit = holding.totalPnL || 0;
       const invested = holding.totalInvested || 0;
       const currentValue = holding.currentValue || 0;
