@@ -118,12 +118,12 @@ class HistoricalDataPreloader {
   // Convert crypto symbols to Yahoo Finance format
   convertToYahooSymbol(symbol) {
     // Common crypto symbols that need -USD suffix
-    const cryptoSymbols = ['BTC', 'ETH', 'DOGE', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI'];
-    
+    const cryptoSymbols = ['BTC', 'ETH', 'DOGE', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ZEC', 'XRP', 'LTC', 'BCH', 'ATOM', 'ALGO', 'FIL', 'NEAR', 'TRX', 'ETC'];
+
     if (cryptoSymbols.includes(symbol.toUpperCase())) {
       return `${symbol}-USD`;
     }
-    
+
     // Return original symbol for stocks
     return symbol;
   }
