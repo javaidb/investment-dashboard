@@ -4,6 +4,7 @@ import { CacheProvider } from './contexts/CacheContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Breakdown from './pages/Breakdown';
+import Watchlist from './pages/Watchlist';
 import Trends from './pages/Trends';
 import Analysis from './pages/Analysis';
 import Ratios from './pages/Ratios';
@@ -22,6 +23,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Breakdown />} />
             <Route path="/breakdown" element={<Breakdown />} />
+            <Route path="/watchlist" element={<Watchlist />} />
             <Route path="/trends" element={<Trends />} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/ratios" element={<Ratios />} />
