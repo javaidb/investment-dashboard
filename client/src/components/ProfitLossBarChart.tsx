@@ -90,9 +90,10 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
     const entry = chartData[index];
     const isNegativeProfit = entry.pnl < 0;
     const isPositiveWeeklyChange = entry.weeklyChangePercent && entry.weeklyChangePercent > 0;
+    const isInGreyZone = entry.pnl > -50 && entry.pnl < 50;
 
-    // Highlight background if negative profit but positive weekly change
-    if (isNegativeProfit && isPositiveWeeklyChange) {
+    // Highlight background if negative profit but positive weekly change, but NOT in grey zone
+    if (isNegativeProfit && isPositiveWeeklyChange && !isInGreyZone) {
       return (
         <rect
           x={x}
@@ -161,8 +162,52 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
     // Only show arrow if we have weekly data
     const showArrow = hasWeeklyData;
 
+    // Determine asset type and color
+    const assetTypeColors: {[key: string]: string} = {
+      'Crypto': '#F59E0B',
+      'ETF': '#3B82F6',
+      'Stock': '#10B981',
+      'Index Fund': '#DC2626'
+    };
+
+    let assetType = 'Stock';
+    if (data.type === 'c') {
+      assetType = 'Crypto';
+    } else if (data.symbol.includes('XEQT') || data.symbol.includes('VOO') || data.symbol.includes('QQQ')) {
+      assetType = 'ETF';
+    }
+
+    const assetTypeColor = assetTypeColors[assetType];
+
+    // Asset type indicator line position (at the tip of the bar)
+    const indicatorLineY = isPositive ? y : y;
+    const indicatorLineWidth = width * 0.8; // 80% of bar width
+    const indicatorLineX = x + (width - indicatorLineWidth) / 2;
+
     return (
       <g>
+        {/* Asset type indicator - rounded rectangle matching bar tip curvature */}
+        {/* Black outline */}
+        <rect
+          x={x}
+          y={isPositive ? y : y - 6}
+          width={width}
+          height={6}
+          fill="#000000"
+          rx={8}
+          ry={8}
+        />
+        {/* Colored indicator on top */}
+        <rect
+          x={x + 1}
+          y={isPositive ? y + 1 : y - 5}
+          width={width - 2}
+          height={4}
+          fill={assetTypeColor}
+          rx={7}
+          ry={7}
+        />
+
         {/* Arrow - based on weekly change, always at tip of bar */}
         {showArrow && (
           <>
