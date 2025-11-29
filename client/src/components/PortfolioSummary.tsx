@@ -455,6 +455,10 @@ const PortfolioSummary: React.FC = () => {
       const combinedTotalPnLPercent = combinedTotalInvested > 0 ?
         (combinedTotalPnL / combinedTotalInvested) * 100 : 0;
 
+      // Calculate combined unrealized P&L (trading unrealized + recurring unrealized)
+      // recurringTotals.profitLoss is unrealized since there are no sales in recurring investments
+      const combinedUnrealizedPnL = totalUnrealizedPnL + recurringTotals.profitLoss;
+
       // Store combined portfolio metrics (total portfolio including index funds)
       setSummary({
         totalInvested: totalInvested + recurringTotals.totalInvested, // Current position cost for display
@@ -465,7 +469,7 @@ const PortfolioSummary: React.FC = () => {
         totalAmountSold: totalAmountSold,
         totalHoldings: safeHoldings.length,
         totalQuantity: safeHoldings.reduce((sum: number, h: Holding) => sum + (h.quantity || 0), 0),
-        totalUnrealizedPnL: totalUnrealizedPnL
+        totalUnrealizedPnL: combinedUnrealizedPnL // Include both trading and recurring unrealized P&L
       });
 
       // Store trading-only metrics (without index funds)
@@ -1000,6 +1004,8 @@ const PortfolioSummary: React.FC = () => {
                 totalInvested: 0,
                 currentValue: 0,
                 totalPnL: 0,
+                unrealizedPnL: 0,
+                realizedPnL: 0,
                 totalAmountSold: 0,
                 holdings: []
               };
@@ -1009,11 +1015,13 @@ const PortfolioSummary: React.FC = () => {
             acc[category].totalInvested += holding.totalInvested || 0;
             acc[category].currentValue += holding.currentValue || 0;
             acc[category].totalPnL += holding.totalPnL || 0;
+            acc[category].unrealizedPnL += holding.unrealizedPnL || 0;
+            acc[category].realizedPnL += holding.realizedPnL || 0;
             acc[category].totalAmountSold += holding.amountSold || 0;
             acc[category].holdings.push(holding);
 
             return acc;
-          }, {} as {[key: string]: {count: number, totalInvested: number, currentValue: number, totalPnL: number, totalAmountSold: number, holdings: Holding[]}});
+          }, {} as {[key: string]: {count: number, totalInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
 
           // Add recurring investments as Index Fund category
           if (recurringInvestments?.totals) {
@@ -1022,6 +1030,8 @@ const PortfolioSummary: React.FC = () => {
               totalInvested: recurringInvestments.totals.totalInvested,
               currentValue: recurringInvestments.totals.currentValue,
               totalPnL: recurringInvestments.totals.profitLoss,
+              unrealizedPnL: recurringInvestments.totals.profitLoss, // All P&L is unrealized for recurring investments
+              realizedPnL: 0, // No realized P&L for recurring investments
               totalAmountSold: 0,
               holdings: []
             };
@@ -1145,7 +1155,13 @@ const PortfolioSummary: React.FC = () => {
                         Total P&L ↓
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        P&L %
+                        Total P&L %
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Unrealized P&L
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Realized P&L
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                         % of Portfolio
@@ -1262,6 +1278,24 @@ const PortfolioSummary: React.FC = () => {
                               width: 'fit-content'
                             }}>
                               {formatPercentage(pnlPercent)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '15px',
+                              fontWeight: '600',
+                              color: data.unrealizedPnL >= 0 ? '#166534' : '#dc2626'
+                            }}>
+                              {formatCurrency(data.unrealizedPnL)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '15px',
+                              fontWeight: '600',
+                              color: data.realizedPnL >= 0 ? '#166534' : '#dc2626'
+                            }}>
+                              {formatCurrency(data.realizedPnL)}
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
