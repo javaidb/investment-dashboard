@@ -352,7 +352,7 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
           color: '#6b7280',
           marginTop: '4px'
         }}>
-          Green bars show profits, red bars show losses. Asset icons at bar tips.
+          Green bars show profits, red bars show losses. Green background highlights indicate negative P&L with rising momentum - consider buying opportunities.
         </p>
       </div>
 
