@@ -84,6 +84,29 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
     return [formatCurrency(value), 'Profit/Loss'];
   };
 
+  // Custom background component to highlight bars with negative profit but positive weekly change
+  const CustomBackground = (props: any) => {
+    const { x, y, width, height, index } = props;
+    const entry = chartData[index];
+    const isNegativeProfit = entry.pnl < 0;
+    const isPositiveWeeklyChange = entry.weeklyChangePercent && entry.weeklyChangePercent > 0;
+
+    // Highlight background if negative profit but positive weekly change
+    if (isNegativeProfit && isPositiveWeeklyChange) {
+      return (
+        <rect
+          x={x}
+          y={0}
+          width={width}
+          height={y + height}
+          fill="#10B981"
+          fillOpacity={0.15}
+        />
+      );
+    }
+    return <rect x={x} y={y} width={width} height={height} fill="none" />;
+  };
+
   // Custom label component to render icons and arrows at the tip of bars
   const CustomLabel = (props: any) => {
     const { x, y, width, height, value, index } = props;
@@ -292,7 +315,7 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
         <ResponsiveContainer width="100%" height={500}>
           <BarChart
             data={chartData}
-            margin={{ top: 80, right: 20, left: 20, bottom: 100 }}
+            margin={{ top: 20, right: 20, left: 20, bottom: 20 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
             <XAxis
@@ -310,6 +333,14 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
               stroke="#6B7280"
               fontSize={12}
               tickFormatter={(value) => formatCurrency(value)}
+              domain={(() => {
+                const values = chartData.map(d => d.pnl);
+                const minValue = Math.min(...values);
+                const maxValue = Math.max(...values);
+                const minTick = Math.floor(minValue / 500) * 500;
+                const maxTick = Math.ceil(maxValue / 500) * 500;
+                return [minTick, maxTick];
+              })()}
               ticks={(() => {
                 // Calculate min and max PnL values
                 const values = chartData.map(d => d.pnl);
@@ -348,7 +379,7 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
                 fillOpacity={0.5}
               />
             )}
-            <Bar dataKey="pnl" radius={[8, 8, 0, 0]}>
+            <Bar dataKey="pnl" radius={[8, 8, 0, 0]} background={<CustomBackground />}>
               {chartData.map((entry, index) => {
                 let color;
                 if (entry.pnl > -50 && entry.pnl < 50) {
