@@ -6,6 +6,7 @@ const path = require('path');
 const axios = require('axios');
 const holdingsCache = require('../cache');
 const historicalDataCache = require('../historical-cache');
+const watchlistCache = require('../watchlist-cache');
 const fileTracker = require('../file-tracker');
 const router = express.Router();
 
@@ -192,6 +193,26 @@ function savePortfolios(portfolios, fileMetadata = null) {
     
     fs.writeFileSync(PORTFOLIO_FILE, JSON.stringify(portfolioData, null, 2));
     console.log(`💾 Saved ${Object.keys(portfolioData).length} file entries containing ${portfolios.size} portfolios`);
+
+    // Update watchlist cache with the most recent portfolio's holdings
+    try {
+      const portfolioEntries = Object.values(portfolioData);
+      if (portfolioEntries.length > 0) {
+        const mostRecentEntry = portfolioEntries.reduce((latest, current) => {
+          const currentDate = new Date(current.fileMetadata?.processedAt || current.portfolio?.createdAt || 0);
+          const latestDate = new Date(latest.fileMetadata?.processedAt || latest.portfolio?.createdAt || 0);
+          return currentDate > latestDate ? current : latest;
+        });
+
+        const mostRecentPortfolio = mostRecentEntry.portfolio || mostRecentEntry;
+        if (mostRecentPortfolio.holdings && Array.isArray(mostRecentPortfolio.holdings)) {
+          watchlistCache.updateFromHoldings(mostRecentPortfolio.holdings);
+          console.log(`📋 Updated watchlist cache from portfolio ${mostRecentPortfolio.id}`);
+        }
+      }
+    } catch (watchlistError) {
+      console.warn('⚠️ Could not update watchlist cache:', watchlistError.message);
+    }
   } catch (error) {
     console.error('❌ Could not save portfolios to file:', error.message);
   }
@@ -1011,6 +1032,182 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
   }
 });
 
+// Watchlist management endpoints
+router.get('/watchlist', (req, res) => {
+  try {
+    const watchlist = watchlistCache.getWatchlist();
+    res.json({
+      success: true,
+      watchlist,
+      message: `Watchlist contains ${watchlist.totalSymbols} symbols (${watchlist.active.length} active, ${watchlist.inactive.length} inactive)`
+    });
+  } catch (error) {
+    console.error('Watchlist fetch error:', error);
+    res.status(500).json({ error: 'Failed to get watchlist' });
+  }
+});
+
+router.get('/watchlist/stats', (req, res) => {
+  try {
+    const stats = watchlistCache.getStats();
+    res.json({
+      success: true,
+      stats,
+      message: `Watchlist: ${stats.activeCount} active, ${stats.inactiveCount} inactive symbols`
+    });
+  } catch (error) {
+    console.error('Watchlist stats error:', error);
+    res.status(500).json({ error: 'Failed to get watchlist statistics' });
+  }
+});
+
+router.post('/watchlist/add', (req, res) => {
+  try {
+    const { symbol, isActive } = req.body;
+
+    if (!symbol) {
+      return res.status(400).json({ error: 'Symbol is required' });
+    }
+
+    watchlistCache.addSymbol(symbol, isActive !== false);
+    const watchlist = watchlistCache.getWatchlist();
+
+    res.json({
+      success: true,
+      watchlist,
+      message: `Added ${symbol} to ${isActive !== false ? 'active' : 'inactive'} watchlist`
+    });
+  } catch (error) {
+    console.error('Watchlist add error:', error);
+    res.status(500).json({ error: 'Failed to add symbol to watchlist' });
+  }
+});
+
+router.delete('/watchlist/remove/:symbol', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const removed = watchlistCache.removeSymbol(symbol);
+
+    if (removed) {
+      const watchlist = watchlistCache.getWatchlist();
+      res.json({
+        success: true,
+        watchlist,
+        message: `Removed ${symbol} from watchlist`
+      });
+    } else {
+      res.status(404).json({ error: `Symbol ${symbol} not found in watchlist` });
+    }
+  } catch (error) {
+    console.error('Watchlist remove error:', error);
+    res.status(500).json({ error: 'Failed to remove symbol from watchlist' });
+  }
+});
+
+router.delete('/watchlist/clear', (req, res) => {
+  try {
+    const result = watchlistCache.clearAll();
+    res.json({
+      success: true,
+      message: `Cleared watchlist: ${result.activeCount} active, ${result.inactiveCount} inactive symbols removed`
+    });
+  } catch (error) {
+    console.error('Watchlist clear error:', error);
+    res.status(500).json({ error: 'Failed to clear watchlist' });
+  }
+});
+
+router.post('/watchlist/refresh', (req, res) => {
+  try {
+    // Get the most recent portfolio and refresh watchlist
+    const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
+
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+      const portfolioData = JSON.parse(data);
+      const portfolios = Object.values(portfolioData);
+
+      if (portfolios.length > 0) {
+        const mostRecentEntry = portfolios.reduce((latest, current) => {
+          const currentDate = new Date(current.fileMetadata?.processedAt || current.portfolio?.createdAt || current.createdAt || 0);
+          const latestDate = new Date(latest.fileMetadata?.processedAt || latest.portfolio?.createdAt || latest.createdAt || 0);
+          return currentDate > latestDate ? current : latest;
+        });
+
+        const mostRecentPortfolio = mostRecentEntry.portfolio || mostRecentEntry;
+
+        if (mostRecentPortfolio.holdings && Array.isArray(mostRecentPortfolio.holdings)) {
+          watchlistCache.updateFromHoldings(mostRecentPortfolio.holdings);
+          const watchlist = watchlistCache.getWatchlist();
+
+          res.json({
+            success: true,
+            watchlist,
+            message: `Refreshed watchlist from portfolio: ${watchlist.active.length} active, ${watchlist.inactive.length} inactive symbols`
+          });
+        } else {
+          res.status(404).json({ error: 'No holdings found in most recent portfolio' });
+        }
+      } else {
+        res.status(404).json({ error: 'No portfolios found' });
+      }
+    } else {
+      res.status(404).json({ error: 'No portfolio file found' });
+    }
+  } catch (error) {
+    console.error('Watchlist refresh error:', error);
+    res.status(500).json({ error: 'Failed to refresh watchlist' });
+  }
+});
+
+// Add symbol to custom watchlist
+router.post('/watchlist/custom/add', (req, res) => {
+  try {
+    const { symbol } = req.body;
+
+    if (!symbol) {
+      return res.status(400).json({ error: 'Symbol is required' });
+    }
+
+    const added = watchlistCache.addCustomSymbol(symbol);
+    const watchlist = watchlistCache.getWatchlist();
+
+    res.json({
+      success: true,
+      added,
+      watchlist,
+      message: added
+        ? `Added ${symbol.toUpperCase()} to custom watchlist`
+        : `${symbol.toUpperCase()} already in custom watchlist`
+    });
+  } catch (error) {
+    console.error('Custom watchlist add error:', error);
+    res.status(500).json({ error: 'Failed to add symbol to custom watchlist' });
+  }
+});
+
+// Remove symbol from custom watchlist
+router.delete('/watchlist/custom/remove/:symbol', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const removed = watchlistCache.removeCustomSymbol(symbol);
+
+    if (removed) {
+      const watchlist = watchlistCache.getWatchlist();
+      res.json({
+        success: true,
+        watchlist,
+        message: `Removed ${symbol.toUpperCase()} from custom watchlist`
+      });
+    } else {
+      res.status(404).json({ error: `Symbol ${symbol} not found in custom watchlist` });
+    }
+  } catch (error) {
+    console.error('Custom watchlist remove error:', error);
+    res.status(500).json({ error: 'Failed to remove symbol from custom watchlist' });
+  }
+});
+
 // Get portfolio summary
 router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
   const { portfolioId } = req.params;
@@ -1490,17 +1687,40 @@ async function cacheStockPricesFromHoldings(holdings) {
   }
 
   // Get ALL holdings (stocks AND crypto) with valid symbols
-  const allHoldings = holdings.filter(holding => 
+  const portfolioHoldings = holdings.filter(holding =>
     holding && holding.symbol && (holding.type === 's' || holding.type === 'c')
   );
+
+  // Get custom watchlist symbols and add them to the list to cache
+  const watchlist = watchlistCache.getWatchlist();
+  const customSymbols = watchlist.custom || [];
+
+  // Create holdings objects for custom symbols (try to detect if stock or crypto)
+  const customHoldings = customSymbols.map(symbol => {
+    // Detect crypto vs stock (simple heuristic: common crypto symbols)
+    const cryptoSymbols = ['BTC', 'ETH', 'DOGE', 'SOL', 'ADA', 'XRP', 'USDT', 'BNB', 'USDC', 'SHIB', 'AVAX', 'DOT', 'MATIC', 'LTC', 'TRX', 'LINK', 'UNI', 'ATOM', 'XMR', 'ZEC', 'TRUMP'];
+    const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
+
+    return {
+      symbol: symbol,
+      type: isCrypto ? 'c' : 's',
+      quantity: 0, // Custom symbols have no quantity
+      isCustom: true
+    };
+  });
+
+  // Combine portfolio holdings and custom holdings, removing duplicates
+  const symbolSet = new Set(portfolioHoldings.map(h => h.symbol.toUpperCase()));
+  const uniqueCustomHoldings = customHoldings.filter(h => !symbolSet.has(h.symbol.toUpperCase()));
+  const allHoldings = [...portfolioHoldings, ...uniqueCustomHoldings];
 
   if (allHoldings.length === 0) {
     console.log('📊 No holdings found for caching');
     return;
   }
 
-  console.log(`🔄 Starting proactive caching for ALL ${allHoldings.length} holdings:`, 
-    allHoldings.map(h => `${h.symbol}(${h.type})`).join(', '));
+  console.log(`🔄 Starting proactive caching for ${allHoldings.length} assets (${portfolioHoldings.length} portfolio + ${uniqueCustomHoldings.length} custom):`,
+    allHoldings.map(h => `${h.symbol}(${h.type}${h.isCustom ? ',custom' : ''})`).join(', '));
 
   // Process assets concurrently but with a reasonable limit to avoid overwhelming APIs
   const batchSize = 5; // Reduced from 10 to 5 to avoid rate limits
