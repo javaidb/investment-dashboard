@@ -62,6 +62,8 @@ const PortfolioSummary: React.FC = () => {
     totalInvested: number;
     totalPnL: number;
     totalPnLPercent: number;
+    totalRealized: number;
+    totalAmountSold: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weeklyChanges, setWeeklyChanges] = useState<{[symbol: string]: number}>({});
@@ -474,7 +476,9 @@ const PortfolioSummary: React.FC = () => {
         currentValue: currentTotalValue,
         totalInvested: totalInvested, // Current position cost for display
         totalPnL: tradingTotalPnL,
-        totalPnLPercent: tradingTotalPnLPercent // This uses totalAmountInvested in calculation
+        totalPnLPercent: tradingTotalPnLPercent, // This uses totalAmountInvested in calculation
+        totalRealized: totalRealizedPnL,
+        totalAmountSold: totalAmountSold
       });
       
       console.log('✅ Portfolio data processing completed successfully');
@@ -624,7 +628,7 @@ const PortfolioSummary: React.FC = () => {
                     <div style={{
                       padding: '20px 24px',
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gridTemplateColumns: 'repeat(5, 1fr)',
                       gap: '24px',
                       alignItems: 'center',
                       borderBottom: '1px solid #e5e7eb',
@@ -687,13 +691,31 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
-                          fontWeight: '700',
-                          color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          marginBottom: '4px'
                         }}>
-                          {formatCurrency(summary.totalUnrealizedPnL)}
+                          <div style={{
+                            fontSize: '28px',
+                            fontWeight: '700',
+                            color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(summary.totalUnrealizedPnL)}
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <span>{summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '↑' : '↓'}</span>
+                            <span>{summary.totalInvested > 0 ? formatPercentage((summary.totalUnrealizedPnL || 0) / summary.totalInvested * 100) : '0.00%'}</span>
+                          </div>
                         </div>
                         <div style={{
                           fontSize: '12px',
@@ -709,13 +731,31 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
-                          fontWeight: '700',
-                          color: (summary.totalUnrealizedPnL && summary.totalInvested && (summary.totalUnrealizedPnL / summary.totalInvested) >= 0) ? '#166534' : '#dc2626',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          marginBottom: '4px'
                         }}>
-                          {summary.totalInvested > 0 ? formatPercentage((summary.totalUnrealizedPnL || 0) / summary.totalInvested * 100) : '0.00%'}
+                          <div style={{
+                            fontSize: '28px',
+                            fontWeight: '700',
+                            color: summary.totalRealized && summary.totalRealized >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(summary.totalRealized)}
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: summary.totalRealized && summary.totalRealized >= 0 ? '#166534' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <span>{summary.totalRealized && summary.totalRealized >= 0 ? '↑' : '↓'}</span>
+                            <span>{summary.totalAmountSold && summary.totalAmountSold > 0 ? formatPercentage((summary.totalRealized || 0) / summary.totalAmountSold * 100) : '0.00%'}</span>
+                          </div>
                         </div>
                         <div style={{
                           fontSize: '12px',
@@ -726,7 +766,7 @@ const PortfolioSummary: React.FC = () => {
                           display: 'inline-block',
                           border: '1px solid #bfdbfe'
                         }}>
-                          Unrealized %
+                          Realized P/L
                         </div>
                       </div>
                     </div>
@@ -735,7 +775,7 @@ const PortfolioSummary: React.FC = () => {
                     <div style={{
                       padding: '20px 24px',
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gridTemplateColumns: 'repeat(5, 1fr)',
                       gap: '24px',
                       alignItems: 'center',
                       borderRight: '2px solid #e5e7eb',
@@ -797,13 +837,31 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
-                          fontWeight: '700',
-                          color: (tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          marginBottom: '4px'
                         }}>
-                          {formatCurrency(tradingSummary.currentValue - tradingSummary.totalInvested)}
+                          <div style={{
+                            fontSize: '28px',
+                            fontWeight: '700',
+                            color: (tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(tradingSummary.currentValue - tradingSummary.totalInvested)}
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: ((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <span>{(tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '↑' : '↓'}</span>
+                            <span>{tradingSummary.totalInvested > 0 ? formatPercentage((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested * 100) : '0.00%'}</span>
+                          </div>
                         </div>
                         <div style={{
                           fontSize: '12px',
@@ -819,13 +877,31 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
-                          fontWeight: '700',
-                          color: ((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          marginBottom: '4px'
                         }}>
-                          {tradingSummary.totalInvested > 0 ? formatPercentage((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested * 100) : '0.00%'}
+                          <div style={{
+                            fontSize: '28px',
+                            fontWeight: '700',
+                            color: tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(tradingSummary.totalRealized)}
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '#166534' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <span>{tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '↑' : '↓'}</span>
+                            <span>{tradingSummary.totalAmountSold && tradingSummary.totalAmountSold > 0 ? formatPercentage((tradingSummary.totalRealized || 0) / tradingSummary.totalAmountSold * 100) : '0.00%'}</span>
+                          </div>
                         </div>
                         <div style={{
                           fontSize: '12px',
@@ -836,7 +912,7 @@ const PortfolioSummary: React.FC = () => {
                           display: 'inline-block',
                           border: '1px solid #fde68a'
                         }}>
-                          Unrealized %
+                          Realized P/L
                         </div>
                       </div>
                     </div>
