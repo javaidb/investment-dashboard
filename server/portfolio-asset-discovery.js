@@ -166,19 +166,42 @@ class PortfolioAssetDiscovery {
     }
   }
 
-  // Get all unique symbols from all sources (portfolios + CSV files)
+  // Get all unique symbols from all sources (portfolios + CSV files + custom watchlist)
   getAllUniqueSymbols() {
     const portfolioSymbols = this.getAllUniqueSymbolsFromPortfolios();
     const csvSymbols = this.getAllUniqueSymbolsFromCSVFiles();
-    
+    const watchlistSymbols = this.getAllUniqueSymbolsFromWatchlist();
+
     // Combine and deduplicate
-    const allSymbols = new Set([...portfolioSymbols, ...csvSymbols]);
+    const allSymbols = new Set([...portfolioSymbols, ...csvSymbols, ...watchlistSymbols]);
     const uniqueSymbols = Array.from(allSymbols).sort();
-    
+
     console.log(`🔍 Total unique symbols discovered: ${uniqueSymbols.length}`);
-    console.log(`📊 From portfolios: ${portfolioSymbols.length}, From CSVs: ${csvSymbols.length}, Combined: ${uniqueSymbols.length}`);
-    
+    console.log(`📊 From portfolios: ${portfolioSymbols.length}, From CSVs: ${csvSymbols.length}, From watchlist: ${watchlistSymbols.length}, Combined: ${uniqueSymbols.length}`);
+
     return uniqueSymbols;
+  }
+
+  // Get all unique symbols from custom watchlist
+  getAllUniqueSymbolsFromWatchlist() {
+    try {
+      const watchlistCache = require('./watchlist-cache');
+      const watchlist = watchlistCache.getWatchlist();
+
+      // Include all custom symbols, and optionally active/inactive
+      const allWatchlistSymbols = [
+        ...(watchlist.active || []),
+        ...(watchlist.inactive || []),
+        ...(watchlist.custom || [])
+      ];
+
+      const uniqueSymbols = Array.from(new Set(allWatchlistSymbols)).sort();
+      console.log(`📊 Discovered ${uniqueSymbols.length} unique symbols from watchlist:`, uniqueSymbols);
+      return uniqueSymbols;
+    } catch (error) {
+      console.error('❌ Error reading watchlist symbols:', error.message);
+      return [];
+    }
   }
 
   // Get symbols that need historical data updates
