@@ -626,26 +626,27 @@ const PortfolioSummary: React.FC = () => {
                   <div>
                     {/* Row 1: Total Portfolio Current Positions */}
                     <div style={{
-                      padding: '20px 24px',
+                      padding: '30px 24px',
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(5, 1fr)',
+                      gridTemplateColumns: '180px repeat(3, 1fr)',
                       gap: '24px',
                       alignItems: 'center',
                       borderBottom: '1px solid #e5e7eb',
                       borderRight: '2px solid #e5e7eb',
                       background: 'linear-gradient(to right, #eff6ff, #f0f9ff)'
                     }}>
-                      <div style={{textAlign: 'center'}}>
+                      <div style={{textAlign: 'left'}}>
                         <div style={{
-                          fontSize: '10px',
+                          fontSize: '14px',
                           color: '#2563eb',
                           fontWeight: '700',
-                          marginBottom: '8px',
                           letterSpacing: '0.5px',
                           textTransform: 'uppercase'
                         }}>
                           Total Portfolio
                         </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
                         <div style={{
                           fontSize: '28px',
                           fontWeight: '700',
@@ -729,69 +730,30 @@ const PortfolioSummary: React.FC = () => {
                           Unrealized P/L
                         </div>
                       </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px',
-                          marginBottom: '4px'
-                        }}>
-                          <div style={{
-                            fontSize: '28px',
-                            fontWeight: '700',
-                            color: summary.totalRealized && summary.totalRealized >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(summary.totalRealized)}
-                          </div>
-                          <div style={{
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: summary.totalRealized && summary.totalRealized >= 0 ? '#166534' : '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}>
-                            <span>{summary.totalRealized && summary.totalRealized >= 0 ? '↑' : '↓'}</span>
-                            <span>{summary.totalAmountSold && summary.totalAmountSold > 0 ? formatPercentage((summary.totalRealized || 0) / summary.totalAmountSold * 100) : '0.00%'}</span>
-                          </div>
-                        </div>
-                        <div style={{
-                          fontSize: '12px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #bfdbfe'
-                        }}>
-                          Realized P/L
-                        </div>
-                      </div>
                     </div>
 
                     {/* Row 2: Trading Holdings Only */}
                     <div style={{
-                      padding: '20px 24px',
+                      padding: '30px 24px',
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(5, 1fr)',
+                      gridTemplateColumns: '180px repeat(3, 1fr)',
                       gap: '24px',
                       alignItems: 'center',
                       borderRight: '2px solid #e5e7eb',
                       background: 'linear-gradient(to right, #fefce8, #fef9c3)'
                     }}>
-                      <div style={{textAlign: 'center'}}>
+                      <div style={{textAlign: 'left'}}>
                         <div style={{
-                          fontSize: '10px',
+                          fontSize: '14px',
                           color: '#ca8a04',
                           fontWeight: '700',
-                          marginBottom: '8px',
                           letterSpacing: '0.5px',
                           textTransform: 'uppercase'
                         }}>
                           Trading Holdings
                         </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
                         <div style={{
                           fontSize: '28px',
                           fontWeight: '700',
@@ -873,46 +835,6 @@ const PortfolioSummary: React.FC = () => {
                           border: '1px solid #fde68a'
                         }}>
                           Unrealized P/L
-                        </div>
-                      </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px',
-                          marginBottom: '4px'
-                        }}>
-                          <div style={{
-                            fontSize: '28px',
-                            fontWeight: '700',
-                            color: tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(tradingSummary.totalRealized)}
-                          </div>
-                          <div style={{
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '#166534' : '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}>
-                            <span>{tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '↑' : '↓'}</span>
-                            <span>{tradingSummary.totalAmountSold && tradingSummary.totalAmountSold > 0 ? formatPercentage((tradingSummary.totalRealized || 0) / tradingSummary.totalAmountSold * 100) : '0.00%'}</span>
-                          </div>
-                        </div>
-                        <div style={{
-                          fontSize: '12px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Realized P/L
                         </div>
                       </div>
                     </div>
