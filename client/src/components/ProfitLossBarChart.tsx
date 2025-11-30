@@ -51,16 +51,16 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
   });
 
   // Prepare data for the chart - sort by P&L (least to most profitable)
-  // Filter out holdings where quantity is 0 or very close to 0
+  // Include all holdings (active, inactive, and custom)
   const chartData = holdings
-    .filter(holding => holding.quantity > 0.01) // Only include holdings with meaningful quantity
     .map(holding => ({
       symbol: holding.symbol,
       pnl: holding.totalPnL || 0,
       companyName: holding.companyName,
       type: holding.type,
       iconUrl: iconUrls[holding.symbol.toUpperCase()],
-      weeklyChangePercent: holding.weeklyChangePercent // Add weekly change data
+      weeklyChangePercent: holding.weeklyChangePercent, // Add weekly change data
+      quantity: holding.quantity
     }))
     .sort((a, b) => a.pnl - b.pnl); // Sort ascending by P&L (least to most profitable)
 
@@ -88,6 +88,12 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
   const CustomBackground = (props: any) => {
     const { x, y, width, height, index } = props;
     const entry = chartData[index];
+
+    // Safety check: return empty rect if entry doesn't exist
+    if (!entry) {
+      return <rect x={x} y={y} width={width} height={height} fill="none" />;
+    }
+
     const isNegativeProfit = entry.pnl < 0;
     const isPositiveWeeklyChange = entry.weeklyChangePercent && entry.weeklyChangePercent > 0;
     const isInGreyZone = entry.pnl > -50 && entry.pnl < 50;
