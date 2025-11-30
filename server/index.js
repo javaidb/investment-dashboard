@@ -21,6 +21,7 @@ const recurringInvestmentsRoutes = require('./routes/recurring-investments');
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
 const historicalDataCache = require('./historical-cache');
+const watchlistCache = require('./watchlist-cache');
 const fileTracker = require('./file-tracker');
 const historicalDataPreloader = require('./historical-data-preloader');
 const portfolioAssetDiscovery = require('./portfolio-asset-discovery');
@@ -177,9 +178,15 @@ async function initializeCache() {
           
           // Cache prices for the most recent portfolio's holdings
           await cacheStockPricesFromHoldings(mostRecentPortfolio.holdings);
-          
+
           const statsAfter = holdingsCache.getStats();
           console.log(`📊 Cache after initialization: ${statsAfter.totalEntries} entries`);
+
+          // Initialize watchlist cache with active/inactive symbols
+          console.log('📋 Initializing watchlist cache...');
+          watchlistCache.updateFromHoldings(mostRecentPortfolio.holdings);
+          const watchlistStats = watchlistCache.getStats();
+          console.log(`📋 Watchlist initialized: ${watchlistStats.activeCount} active, ${watchlistStats.inactiveCount} inactive symbols`);
           
           // Pre-populate historical cache for all portfolio assets
           console.log('📈 Pre-populating historical cache for all portfolio assets...');
