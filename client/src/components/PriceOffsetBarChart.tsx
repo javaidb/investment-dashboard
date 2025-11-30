@@ -62,7 +62,7 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
     async () => {
       const averages: {[symbol: string]: number} = {};
 
-      await Promise.all(holdings.filter(h => h.quantity > 0.01).map(async (holding) => {
+      await Promise.all(holdings.map(async (holding) => {
         try {
           // Request 1 year of data to ensure we have at least 200 trading days
           const response = await axios.get(`/api/portfolio/cache/historical/${holding.symbol}?period=1y`);
@@ -104,10 +104,9 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
   }, [historicalAverages]);
 
   // Prepare data for the chart - calculate offset from 200-day SMA as percentage
-  // Filter out holdings where quantity is 0 or very close to 0
+  // Include all holdings (active, inactive, and custom)
 
   const chartData = holdings
-    .filter(holding => holding.quantity > 0.01)
     .map(holding => {
       // Both currentPrice and historical cache should be in the SAME currency
       // Since historical cache stores native prices (USD for US stocks, CAD for CA stocks)
