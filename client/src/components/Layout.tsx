@@ -12,7 +12,8 @@ import {
   PieChart,
   Activity,
   Calculator,
-  Eye
+  Eye,
+  LineChart
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -30,6 +31,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Risk', href: '/ratios', icon: Calculator },
     { name: 'Analysis', href: '/analysis', icon: Activity },
     { name: 'Trends', href: '/trends', icon: TrendingUp },
+    { name: 'P&L Tracker', href: '/pnl', icon: LineChart },
     { name: 'Icons', href: '/icons', icon: Image },
     { name: 'Cache', href: '/cache', icon: Database },
     { name: 'Search', href: '/search', icon: Search },

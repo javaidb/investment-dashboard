@@ -11,6 +11,7 @@ import Ratios from './pages/Ratios';
 import Portfolio from './pages/Portfolio';
 import Search from './pages/Search';
 import CacheManagement from './pages/CacheManagement';
+import PnLTracker from './pages/PnLTracker';
 import Icons from './components/Icons';
 import NotFound from './pages/NotFound';
 import IconTest from './components/IconTest';
@@ -28,6 +29,7 @@ function App() {
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/ratios" element={<Ratios />} />
             <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/pnl" element={<PnLTracker />} />
             <Route path="/search" element={<Search />} />
             <Route path="/icons" element={<Icons />} />
             <Route path="/cache" element={<CacheManagement />} />
