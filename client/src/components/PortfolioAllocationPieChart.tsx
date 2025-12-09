@@ -64,7 +64,7 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
       let category = 'Stock';
       if (holding.type === 'c') {
         category = 'Crypto';
-      } else if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') || holding.symbol.includes('QQQ')) {
+      } else if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') || holding.symbol.includes('QQQ') || holding.symbol.includes('IBIT')) {
         category = 'ETF';
       }
 
