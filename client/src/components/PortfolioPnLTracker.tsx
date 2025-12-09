@@ -39,6 +39,17 @@ interface PortfolioPnLTrackerProps {
   portfolioId: string;
 }
 
+interface Trade {
+  symbol: string;
+  date: string;
+  action: 'buy' | 'sell';
+  quantity: number;
+  price: number;
+  total: number;
+  type: 's' | 'c';
+  currency: string;
+}
+
 const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }) => {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -47,10 +58,37 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [calculatingSymbol, setCalculatingSymbol] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+  const [selectedSymbolTrades, setSelectedSymbolTrades] = useState<Trade[]>([]);
 
   useEffect(() => {
     fetchSummary();
   }, [portfolioId]);
+
+  useEffect(() => {
+    if (selectedSymbol) {
+      fetchTradesForSymbol(selectedSymbol);
+    }
+  }, [selectedSymbol]);
+
+  const fetchTradesForSymbol = async (symbol: string) => {
+    try {
+      // Fetch from cached portfolio endpoint
+      const response = await fetch(`/api/portfolio/${portfolioId}/cached`);
+      const portfolio = await response.json();
+
+      if (portfolio && portfolio.trades) {
+        const symbolTrades = portfolio.trades
+          .filter((t: Trade) => t.symbol === symbol)
+          .sort((a: Trade, b: Trade) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        setSelectedSymbolTrades(symbolTrades);
+      } else {
+        setSelectedSymbolTrades([]);
+      }
+    } catch (err) {
+      console.error('Error fetching trades:', err);
+      setSelectedSymbolTrades([]);
+    }
+  };
 
   const fetchSummary = async () => {
     try {
@@ -158,7 +196,7 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
   };
 
   const getAssetIcon = (symbol: string) => {
-    return `/api/icons/${symbol.replace('.', '-')}.png`;
+    return `/api/icons/symbol/${symbol}`;
   };
 
   if (loading) {
@@ -404,28 +442,28 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
         )}
 
         {assetsWithData.length > 0 && (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
-            overflow: 'hidden',
-            marginBottom: '24px'
-          }}>
+          <div style={{ display: 'grid', gridTemplateColumns: selectedSymbol ? '1fr 1fr' : '1fr', gap: '24px', marginBottom: '24px' }}>
             <div style={{
-              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-              padding: '20px 24px',
-              borderBottom: '1px solid #e5e7eb'
+              backgroundColor: 'white',
+              borderRadius: '16px',
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+              border: '1px solid #e5e7eb',
+              overflow: 'hidden'
             }}>
-              <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
-                Assets with P&L Data
-              </h2>
-              <p style={{ fontSize: '14px', color: '#6b7280' }}>
-                {assetsWithData.length} of {summary?.totalSymbols} assets tracked
-              </p>
-            </div>
+              <div style={{
+                background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+                padding: '20px 24px',
+                borderBottom: '1px solid #e5e7eb'
+              }}>
+                <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+                  Assets with P&L Data
+                </h2>
+                <p style={{ fontSize: '14px', color: '#6b7280' }}>
+                  {assetsWithData.length} of {summary?.totalSymbols} assets tracked
+                </p>
+              </div>
 
-            <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '500px' }}>
+              <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '500px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                   <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
@@ -516,6 +554,108 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                 </tbody>
               </table>
             </div>
+            </div>
+
+            {/* Trades Table */}
+            {selectedSymbol && selectedSymbolTrades.length > 0 && (
+              <div style={{
+                backgroundColor: 'white',
+                borderRadius: '16px',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                border: '1px solid #e5e7eb',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+                  padding: '20px 24px',
+                  borderBottom: '1px solid #e5e7eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}>
+                  <img
+                    src={getAssetIcon(selectedSymbol)}
+                    alt={selectedSymbol}
+                    style={{ width: '40px', height: '40px', borderRadius: '8px' }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${selectedSymbol}&size=40&background=667eea&color=fff&bold=true`;
+                    }}
+                  />
+                  <div>
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+                      {selectedSymbol} Trades
+                    </h2>
+                    <p style={{ fontSize: '14px', color: '#6b7280' }}>
+                      {selectedSymbolTrades.length} transactions
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ overflowY: 'auto', maxHeight: '500px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                      <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Date</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Action</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Quantity</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Price</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedSymbolTrades.map((trade, index) => (
+                        <tr
+                          key={index}
+                          style={{
+                            borderBottom: index === selectedSymbolTrades.length - 1 ? 'none' : '1px solid #f3f4f6'
+                          }}
+                        >
+                          <td style={{ padding: '12px 16px', fontSize: '13px', color: '#374151' }}>
+                            {new Date(trade.date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <div style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              backgroundColor: trade.action === 'buy' ? '#d1fae5' : '#fee2e2',
+                              color: trade.action === 'buy' ? '#065f46' : '#991b1b'
+                            }}>
+                              <div style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: trade.action === 'buy' ? '#10b981' : '#ef4444'
+                              }} />
+                              {trade.action.toUpperCase()}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
+                            {trade.quantity.toFixed(4)}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', color: '#6b7280' }}>
+                            {formatCurrency(trade.price)}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                            {formatCurrency(trade.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
