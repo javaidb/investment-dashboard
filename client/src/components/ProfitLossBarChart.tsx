@@ -179,7 +179,7 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
     let assetType = 'Stock';
     if (data.type === 'c') {
       assetType = 'Crypto';
-    } else if (data.symbol.includes('XEQT') || data.symbol.includes('VOO') || data.symbol.includes('QQQ')) {
+    } else if (data.symbol.includes('XEQT') || data.symbol.includes('VOO') || data.symbol.includes('QQQ') || data.symbol.includes('IBIT')) {
       assetType = 'ETF';
     }
 
