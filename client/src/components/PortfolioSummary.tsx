@@ -36,6 +36,7 @@ interface Holding {
   exchangeRate?: number; // Exchange rate used for conversion
   cacheUsed?: boolean; // Flag to indicate if cache was used
   weeklyChangePercent?: number; // Weekly change percentage
+  dailyChangePercent?: number; // Daily change percentage (24h)
   currentPosition?: number; // Current position in sorted order (1-indexed)
   lastWeekPosition?: number; // Position from last week
   positionChange?: 'up' | 'down' | 'same' | 'new'; // Position movement
@@ -67,6 +68,7 @@ const PortfolioSummary: React.FC = () => {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weeklyChanges, setWeeklyChanges] = useState<{[symbol: string]: number}>({});
+  const [dailyChanges, setDailyChanges] = useState<{[symbol: string]: number}>({});
   const [positionHistory, setPositionHistory] = useState<{[symbol: string]: number}>({});
   // Calculate total capital from portfolio net value
   const totalCapital = summary ? (summary.currentTotalValue || 0) : 0;
@@ -102,12 +104,14 @@ const PortfolioSummary: React.FC = () => {
   useEffect(() => {
     if (latestPortfolio && cachedHoldings && Object.keys(cachedHoldings).length > 0) {
       console.log('🔄 Transferring portfolio cache context data to React Query persistent cache');
-      queryClient.setQueryData('persistent-portfolio-cache', { 
-        holdings: cachedHoldings, 
-        portfolio: latestPortfolio 
+      queryClient.setQueryData('persistent-portfolio-cache', {
+        holdings: cachedHoldings,
+        portfolio: latestPortfolio
       });
+      // Force React Query to recognize the data change
+      queryClient.invalidateQueries('persistent-portfolio-cache');
     }
-  }, [latestPortfolio, cachedHoldings, queryClient]);
+  }, [latestPortfolio, cachedHoldings, portfolioTimestamp, queryClient]);
 
   // Use persistent data if available, fallback to cache context
   const activeHoldings = persistentPortfolio?.holdings || cachedHoldings;
@@ -165,6 +169,33 @@ const PortfolioSummary: React.FC = () => {
       retry: 1
     }
   );
+
+  // Use React Query to get daily changes from historical cache
+  const { data: dailyChangesData, isLoading: isDailyChangesLoading, error: dailyChangesError } = useQuery(
+    ['daily-changes-batch', holdings.map(h => h.symbol).join(',')],
+    async () => {
+      if (holdings.length === 0) return {};
+
+      console.log('🔄 Fetching daily changes for', holdings.length, 'holdings via batch endpoint');
+      const symbols = holdings.map(h => h.symbol);
+
+      try {
+        const response = await axios.post('/api/portfolio/cache/daily-changes', { symbols });
+        console.log('✅ Daily changes batch response:', response.data);
+
+        return response.data.dailyChanges || {};
+      } catch (error) {
+        console.error('❌ Failed to fetch daily changes batch:', error);
+        return {};
+      }
+    },
+    {
+      enabled: holdings.length > 0,
+      staleTime: 300000, // 5 minutes
+      cacheTime: 900000, // 15 minutes
+      retry: 1
+    }
+  );
   
   // Get historical positions from a week ago for comparison
   const { data: historicalPositions } = useQuery(
@@ -205,12 +236,28 @@ const PortfolioSummary: React.FC = () => {
       isLoading: isWeeklyChangesLoading,
       error: weeklyChangesError
     });
-    
+
     if (weeklyChangesData) {
       console.log('✅ Setting weekly changes state:', weeklyChangesData);
       setWeeklyChanges(weeklyChangesData);
     }
   }, [weeklyChangesData, isWeeklyChangesLoading, weeklyChangesError]);
+
+  // Update dailyChanges when data is available
+  React.useEffect(() => {
+    console.log('🔄 Daily changes useEffect triggered:', {
+      hasData: !!dailyChangesData,
+      dataKeys: dailyChangesData ? Object.keys(dailyChangesData) : [],
+      data: dailyChangesData,
+      isLoading: isDailyChangesLoading,
+      error: dailyChangesError
+    });
+
+    if (dailyChangesData) {
+      console.log('✅ Setting daily changes state:', dailyChangesData);
+      setDailyChanges(dailyChangesData);
+    }
+  }, [dailyChangesData, isDailyChangesLoading, dailyChangesError]);
 
   // Update position history when historical positions are available
   React.useEffect(() => {
@@ -300,13 +347,15 @@ const PortfolioSummary: React.FC = () => {
     console.log('📦 Processing portfolio data from', persistentPortfolio ? 'persistent cache' : 'live cache context', {
       weeklyChangesAvailable: Object.keys(weeklyChanges).length,
       weeklyChangesData: weeklyChanges,
+      dailyChangesAvailable: Object.keys(dailyChanges).length,
+      dailyChangesData: dailyChanges,
       positionHistoryAvailable: Object.keys(positionHistory).length,
       positionHistoryData: positionHistory
     });
     setError(null); // Clear any previous errors
     processPortfolioData();
     // eslint-disable-next-line
-  }, [activePortfolio, activeHoldings, persistentPortfolio, weeklyChanges, positionHistory]);
+  }, [activePortfolio, activeHoldings, persistentPortfolio, weeklyChanges, dailyChanges, positionHistory]);
 
   const processPortfolioData = () => {
     try {
@@ -353,8 +402,9 @@ const PortfolioSummary: React.FC = () => {
           (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
         
         const weeklyChange = weeklyChanges[symbol];
-        console.log(`🔍 Processing holding ${symbol}: weeklyChange=${weeklyChange}, hasWeeklyChanges=${Object.keys(weeklyChanges).length > 0}`);
-        
+        const dailyChange = dailyChanges[symbol];
+        console.log(`🔍 Processing holding ${symbol}: weeklyChange=${weeklyChange}, dailyChange=${dailyChange}, hasWeeklyChanges=${Object.keys(weeklyChanges).length > 0}, hasDailyChanges=${Object.keys(dailyChanges).length > 0}`);
+
         return {
           symbol: symbol || 'UNKNOWN',
           quantity: holding.quantity || 0,
@@ -372,7 +422,8 @@ const PortfolioSummary: React.FC = () => {
           totalPnL: totalPnL,
           totalPnLPercent: totalPnLPercent,
           cacheUsed: !!cachedPrice,
-          weeklyChangePercent: weeklyChange !== undefined ? weeklyChange : null
+          weeklyChangePercent: weeklyChange !== undefined ? weeklyChange : null,
+          dailyChangePercent: dailyChange !== undefined ? dailyChange : null
         };
       });
       
@@ -960,7 +1011,7 @@ const PortfolioSummary: React.FC = () => {
             let category = 'Stock';
             if (holding.type === 'c') {
               category = 'Crypto';
-            } else if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') || holding.symbol.includes('QQQ')) {
+            } else if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') || holding.symbol.includes('QQQ') || holding.symbol.includes('IBIT')) {
               category = 'ETF';
             }
 
@@ -1011,11 +1062,20 @@ const PortfolioSummary: React.FC = () => {
             // Calculate the overall return on investment
             const overallReturnPercent = totalInvested > 0 ? ((currentValue - totalInvested) / totalInvested) * 100 : 0;
 
-            // For categories with holdings data, calculate weighted weekly change
+            // For categories with holdings data, calculate weighted daily and weekly changes
             // For Index Fund category (recurring investments), use the overall return
             if (categoryData.holdings && categoryData.holdings.length > 0) {
               const totalCurrentValue = categoryData.holdings.reduce((sum: number, h: Holding) =>
                 sum + (h.currentValue || 0), 0);
+
+              const dailyChange = categoryData.holdings.reduce((sum: number, h: Holding) => {
+                if (h.dailyChangePercent !== null && h.dailyChangePercent !== undefined && h.currentValue) {
+                  // Weight by current value
+                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                  return sum + (h.dailyChangePercent * weight);
+                }
+                return sum;
+              }, 0);
 
               const weeklyChange = categoryData.holdings.reduce((sum: number, h: Holding) => {
                 if (h.weeklyChangePercent !== null && h.weeklyChangePercent !== undefined && h.currentValue) {
@@ -1036,6 +1096,7 @@ const PortfolioSummary: React.FC = () => {
               };
 
               return {
+                dailyChange: dailyChange,
                 weeklyChange: weeklyChange,
                 thisWeekChange: capChange(weeklyChange * 0.7, 50), // Current week progress
                 monthlyChange: capChange(weeklyChange * 4, 100), // ~4 weeks
@@ -1054,8 +1115,10 @@ const PortfolioSummary: React.FC = () => {
 
               // Estimate weekly change from yearly return (assuming ~52 weeks/year)
               const estimatedWeeklyChange = overallReturnPercent / 52;
+              const estimatedDailyChange = overallReturnPercent / 365;
 
               return {
+                dailyChange: capChange(estimatedDailyChange, 3),
                 weeklyChange: capChange(estimatedWeeklyChange, 10),
                 thisWeekChange: capChange(estimatedWeeklyChange * 0.7, 7),
                 monthlyChange: capChange(estimatedWeeklyChange * 4, 30),
@@ -1131,6 +1194,9 @@ const PortfolioSummary: React.FC = () => {
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                         % of Portfolio
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Daily Change
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                         Weekly Change
@@ -1276,6 +1342,31 @@ const PortfolioSummary: React.FC = () => {
                               width: 'fit-content'
                             }}>
                               {portfolioPercent.toFixed(2)}%
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.dailyChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.dailyChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.dailyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.dailyChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.dailyChange)}
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
@@ -1520,6 +1611,9 @@ const PortfolioSummary: React.FC = () => {
                       P&L ↓
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                      Daily Change %
+                    </th>
+                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       Weekly Change %
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
@@ -1752,6 +1846,49 @@ const PortfolioSummary: React.FC = () => {
                             </div>
                           )}
                         </div>
+                      </td>
+                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                        {holding.dailyChangePercent !== null && holding.dailyChangePercent !== undefined ? (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '6px 12px',
+                            borderRadius: '16px',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            backgroundColor: holding.dailyChangePercent >= 0 ? '#dcfce7' : '#fef2f2',
+                            color: holding.dailyChangePercent >= 0 ? '#166534' : '#dc2626',
+                            border: `2px solid ${holding.dailyChangePercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                          }}>
+                            {holding.dailyChangePercent >= 0 ? (
+                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                              </svg>
+                            ) : (
+                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                              </svg>
+                            )}
+                            {formatPercentage(holding.dailyChangePercent)}
+                          </div>
+                        ) : (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            backgroundColor: '#f3f4f6',
+                            color: '#6b7280',
+                            border: '1px solid #d1d5db'
+                          }}>
+                            <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Loading...
+                          </div>
+                        )}
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
                         {holding.weeklyChangePercent !== null && holding.weeklyChangePercent !== undefined ? (
