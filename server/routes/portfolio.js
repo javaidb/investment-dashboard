@@ -92,23 +92,25 @@ function loadPortfolios() {
       } else {
         // New file-based format: filename -> { fileMetadata, portfolio }
         // All files with the same portfolio ID should be merged into one portfolio entry
-        // We'll take the portfolio with the latest processedAt timestamp
+        // FIX: Use the file with the MOST trades/holdings, not the latest timestamp
         let totalPortfolios = 0;
         const portfoliosById = new Map();
 
         for (const [filename, fileData] of Object.entries(portfolioData)) {
           if (fileData && fileData.portfolio && typeof fileData.portfolio === 'object') {
             const portfolioId = fileData.portfolio.id;
-            const processedAt = new Date(fileData.fileMetadata?.processedAt || 0);
+            const tradesCount = fileData.portfolio.trades?.length || 0;
+            const holdingsCount = fileData.portfolio.holdings?.length || 0;
 
-            // If we don't have this portfolio ID yet, or this one is newer, use it
+            // If we don't have this portfolio ID yet, or this one has more data, use it
             if (!portfoliosById.has(portfolioId)) {
-              portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, processedAt, filename });
+              portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, tradesCount, holdingsCount, filename });
               totalPortfolios++;
             } else {
               const existing = portfoliosById.get(portfolioId);
-              if (processedAt > existing.processedAt) {
-                portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, processedAt, filename });
+              // Prefer the portfolio with more trades and holdings
+              if (tradesCount > existing.tradesCount || holdingsCount > existing.holdingsCount) {
+                portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, tradesCount, holdingsCount, filename });
               }
             }
           }
@@ -117,6 +119,7 @@ function loadPortfolios() {
         // Extract just the portfolios
         for (const [id, data] of portfoliosById.entries()) {
           portfolios.set(id, data.portfolio);
+          console.log(`📊 Using portfolio from ${data.filename} (${data.holdingsCount} holdings, ${data.tradesCount} trades)`);
         }
 
         console.log(`📁 Loaded ${totalPortfolios} unique portfolios from ${Object.keys(portfolioData).length} files`);
@@ -225,13 +228,13 @@ const portfolios = loadPortfolios();
 (async function startupFileCheck() {
   try {
     console.log('🚀 Running startup file modification check...');
-    
+
     const modificationCheck = checkFileModifications();
-    
+
     if (modificationCheck.hasOutdatedFiles) {
       console.log(`📄 Startup detected ${modificationCheck.outdatedFiles.length} outdated files, auto-reprocessing...`);
       console.log(`📄 Outdated files: ${modificationCheck.outdatedFiles.map(f => f.name).join(', ')}`);
-      
+
       // Wait a moment for the server to fully initialize
       setTimeout(async () => {
         try {
@@ -253,7 +256,7 @@ const portfolios = loadPortfolios();
               }
             })
           };
-          
+
           await processUploadedFiles(fakeReq, fakeRes);
         } catch (error) {
           console.warn('⚠️ Startup auto-reprocessing error:', error.message);
@@ -2617,6 +2620,56 @@ router.post('/cache/weekly-changes', (req, res) => {
   }
 });
 
+// Batch endpoint to get daily changes for multiple symbols at once
+router.post('/cache/daily-changes', (req, res) => {
+  try {
+    const { symbols } = req.body;
+
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      return res.status(400).json({ error: 'symbols array is required' });
+    }
+
+    console.log(`📊 Calculating daily changes for ${symbols.length} symbols from cache`);
+    const dailyChanges = {};
+
+    symbols.forEach(symbol => {
+      try {
+        const cacheEntry = historicalDataCache.cache.get(symbol);
+
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 2) {
+          console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
+          return;
+        }
+
+        // Sort data from earliest to latest
+        const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const currentPrice = sortedData[sortedData.length - 1].close;
+        const previousDayPrice = sortedData[sortedData.length - 2].close;
+
+        if (currentPrice && previousDayPrice) {
+          const changePercent = ((currentPrice - previousDayPrice) / previousDayPrice) * 100;
+          dailyChanges[symbol] = changePercent;
+        }
+      } catch (err) {
+        console.warn(`❌ Error calculating daily change for ${symbol}:`, err.message);
+      }
+    });
+
+    console.log(`✅ Calculated daily changes for ${Object.keys(dailyChanges).length}/${symbols.length} symbols`);
+
+    res.json({
+      success: true,
+      dailyChanges,
+      calculatedCount: Object.keys(dailyChanges).length,
+      requestedCount: symbols.length
+    });
+  } catch (error) {
+    console.error('Daily changes batch error:', error);
+    res.status(500).json({ error: 'Failed to calculate daily changes' });
+  }
+});
+
 router.delete('/cache/:symbol', (req, res) => {
   try {
     const { symbol } = req.params;
@@ -2631,6 +2684,19 @@ router.delete('/cache/:symbol', (req, res) => {
     console.error('Cache delete error:', error);
     res.status(500).json({ error: 'Failed to delete cache entry' });
   }
+});
+
+// Debug endpoint to reset processing flag
+router.post('/debug/reset-flag', (req, res) => {
+  const wasProcessing = isProcessing;
+  isProcessing = false;
+  console.log(`🔓 DEBUG: Manual reset of processing flag (was: ${wasProcessing})`);
+  res.json({
+    success: true,
+    message: 'Processing flag has been reset',
+    wasProcessing: wasProcessing,
+    nowProcessing: isProcessing
+  });
 });
 
 // File tracking management endpoints
@@ -2793,20 +2859,24 @@ async function processUploadedFiles(req, res) {
   }
 
   isProcessing = true;
+  const processingStartTime = Date.now();
+  const PROCESSING_TIMEOUT = 300000; // 5 minutes timeout
+
   try {
     console.log('🔄 Processing uploaded CSV files...');
-    
+
     // Check for file changes first
     const changes = fileTracker.checkForChanges();
     if (changes.hasChanges) {
       console.log(`📊 File changes detected: ${changes.newFiles.length} new, ${changes.modifiedFiles.length} modified, ${changes.deletedFiles.length} deleted`);
     }
-    
+
     // Get all current files
     const allFiles = fileTracker.getAllCSVFiles();
-    
+
     console.log('📁 Found files:', allFiles.map(f => f.name));
-    
+    console.log(`⏱️ Processing timeout set to ${PROCESSING_TIMEOUT / 1000} seconds`);
+
     if (allFiles.length === 0) {
       console.log('❌ No CSV files found in uploads directory');
       return res.status(404).json({
@@ -2823,20 +2893,23 @@ async function processUploadedFiles(req, res) {
     const fileMetadataList = [];
     
     // Process each CSV file
-    for (const fileInfo of allFiles) {
+    for (let i = 0; i < allFiles.length; i++) {
+      const fileInfo = allFiles[i];
       const { path: filePath, folder: fileType } = fileInfo;
       const trades = [];
-      console.log(`📄 Processing ${fileType} file:`, fileInfo.name);
-      
+      console.log(`📄 [${i+1}/${allFiles.length}] Processing ${fileType} file:`, fileInfo.name);
+
       // Get file metadata
       let fileStats;
       try {
         fileStats = fs.statSync(filePath);
+        console.log(`   ✓ File stats retrieved: ${fileStats.size} bytes`);
       } catch (statError) {
-        console.error(`Error getting file stats for ${fileInfo.name}:`, statError.message);
+        console.error(`   ✗ Error getting file stats for ${fileInfo.name}:`, statError.message);
         continue;
       }
 
+      console.log(`   ⏳ Starting CSV parsing for ${fileInfo.name}...`);
       await new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
           .pipe(csv())
@@ -2866,8 +2939,8 @@ async function processUploadedFiles(req, res) {
           })
           .on('end', () => {
             allTrades = allTrades.concat(trades);
-            console.log(`✅ Completed processing ${fileInfo.name}, found ${trades.length} trades`);
-            
+            console.log(`   ✅ Completed processing ${fileInfo.name}, found ${trades.length} trades`);
+
             // Add file metadata for this file
             fileMetadataList.push({
               folder: fileType, // 'crypto', 'wealthsimple', or 'questrade'
@@ -2877,11 +2950,11 @@ async function processUploadedFiles(req, res) {
               portfolioId: portfolioId, // Will be set after portfolio creation
               tradesCount: trades.length
             });
-            
+
             resolve();
           })
           .on('error', (error) => {
-            console.error(`Error processing ${fileInfo.name}:`, error.message);
+            console.error(`   ✗ Error processing ${fileInfo.name}:`, error.message);
             resolve(); // Continue with other files instead of rejecting
           });
       });
@@ -2894,10 +2967,23 @@ async function processUploadedFiles(req, res) {
     const portfolio = await processTrades(allTrades);
     console.log('✅ Portfolio calculation completed');
     
-    // Proactively cache stock prices for the new portfolio
+    // Check if we're approaching timeout
+    const elapsedTime = Date.now() - processingStartTime;
+    console.log(`⏱️ Elapsed time: ${elapsedTime / 1000}s`);
+
+    // Proactively cache stock prices for the new portfolio (with timeout)
     console.log('📊 Proactively caching stock prices for new portfolio...');
     try {
-      await cacheStockPricesFromHoldings(portfolio.holdings);
+      const remainingTime = PROCESSING_TIMEOUT - elapsedTime;
+      if (remainingTime > 30000) { // Only cache if we have at least 30 seconds left
+        const cachePromise = cacheStockPricesFromHoldings(portfolio.holdings);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Price caching timeout')), Math.min(remainingTime - 5000, 60000))
+        );
+        await Promise.race([cachePromise, timeoutPromise]);
+      } else {
+        console.warn('⚠️ Skipping price caching due to time constraints');
+      }
     } catch (cacheError) {
       console.warn('⚠️ Stock price caching failed for new portfolio:', cacheError.message);
     }
