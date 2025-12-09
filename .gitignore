@@ -81,3 +81,6 @@ server/data/cache/
 # Icons directory - ignore everything except gnrc.png
 server/data/icons/*
 !server/data/icons/gnrc.png
+
+# Test scripts (one-time development tests)
+test-scripts/
