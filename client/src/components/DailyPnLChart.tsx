@@ -73,12 +73,19 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
 
-      const response = await fetch(`/api/pnl/symbol/${symbol}?${params.toString()}`);
-      const data = await response.json();
+      const response = await fetch(`/api/pnl/symbol/${symbol}?${params.toString()}`, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch PnL data');
+        const text = await response.text();
+        console.error('Response error:', text);
+        throw new Error(`Failed to fetch PnL data: ${response.status} ${response.statusText}`);
       }
+
+      const data = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || 'PnL data not available');
@@ -224,13 +231,23 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
-        <div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
-            {symbol} - Daily P&L Chart
-          </h2>
-          <p style={{ fontSize: '13px', color: '#6b7280' }}>
-            From {formatDate(pnlData.assetInfo.firstPurchaseDate)} • {pnlData.totalRecords} days tracked
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img
+            src={`/api/icons/symbol/${symbol}`}
+            alt={symbol}
+            style={{ width: '40px', height: '40px', borderRadius: '8px' }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${symbol}&size=40&background=667eea&color=fff&bold=true`;
+            }}
+          />
+          <div>
+            <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+              {symbol} - Daily P&L Chart
+            </h2>
+            <p style={{ fontSize: '13px', color: '#6b7280' }}>
+              From {formatDate(pnlData.assetInfo.firstPurchaseDate)} • {pnlData.totalRecords} days tracked
+            </p>
+          </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Current Position</p>
