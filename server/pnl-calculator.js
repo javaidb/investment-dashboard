@@ -1,5 +1,43 @@
 const pnlCache = require('./pnl-cache');
 const historicalDataCache = require('./historical-cache');
+const axios = require('axios');
+
+// Currency conversion cache
+const currencyCache = new Map();
+const CURRENCY_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+// Helper function to get USD to CAD exchange rate
+async function getUSDtoCADRate() {
+  const cacheKey = 'usd_cad_rate';
+  const cached = currencyCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CURRENCY_CACHE_DURATION) {
+    console.log(`✅ Using cached USD/CAD rate: ${cached.rate}`);
+    return cached.rate;
+  }
+
+  try {
+    console.log('🌐 Fetching USD/CAD exchange rate...');
+    const response = await axios.get('https://api.exchangerate-api.com/v4/latest/USD', {
+      timeout: 10000
+    });
+
+    const rate = response.data.rates.CAD;
+    console.log(`✅ Fetched USD/CAD rate: ${rate}`);
+
+    // Cache the rate
+    currencyCache.set(cacheKey, {
+      rate: rate,
+      timestamp: Date.now()
+    });
+
+    return rate;
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch USD/CAD rate, using fallback rate of 1.35');
+    // Fallback rate (approximate USD/CAD rate)
+    return 1.35;
+  }
+}
 
 /**
  * PnLCalculator - Calculate daily P&L for portfolio assets
@@ -41,11 +79,26 @@ class PnLCalculator {
       return [];
     }
 
+    // Determine if we need to convert USD prices to CAD
+    // Historical prices for US stocks and crypto are in USD, but trades are stored in CAD
+    const historicalCurrency = historicalData.assetInfo?.currency || 'CAD';
+    const needsCurrencyConversion = historicalCurrency === 'USD';
+
+    // Get current USD to CAD exchange rate
+    let USD_TO_CAD_RATE = 1.35; // Default fallback
+    if (needsCurrencyConversion) {
+      USD_TO_CAD_RATE = await getUSDtoCADRate();
+      const assetTypeLabel = assetInfo.type === 'c' ? 'crypto' : 'stock';
+      console.log(`💱 ${symbol} (${assetTypeLabel}) prices in historical cache are USD, converting to CAD (rate: ${USD_TO_CAD_RATE})`);
+    }
+
     // Create a map of dates to closing prices for fast lookup
     const priceMap = new Map();
     historicalData.data.forEach(dataPoint => {
       const dateStr = new Date(dataPoint.date).toISOString().split('T')[0];
-      priceMap.set(dateStr, dataPoint.close);
+      // Convert USD prices to CAD if needed
+      const closePrice = needsCurrencyConversion ? dataPoint.close * USD_TO_CAD_RATE : dataPoint.close;
+      priceMap.set(dateStr, closePrice);
     });
 
     // Get all trading days from first purchase to today
@@ -68,16 +121,15 @@ class PnLCalculator {
       });
     });
 
-    // Calculate daily PnL records
+    // Calculate daily PnL records using AVERAGE COST BASIS (same as breakdown tab)
     const dailyRecords = [];
     let totalShares = 0;
-    let totalCostBasis = 0; // Total amount invested in current position
+    let totalCostBasis = 0; // Total amount invested in current position (average cost method)
     let totalRealizedPnL = 0; // Cumulative realized P&L from sells
     let totalAmountInvested = 0; // Total ever invested (for accurate P&L %)
     let totalAmountReceived = 0; // Total received from sells
-
-    // Track cost basis per share using FIFO (First In, First Out)
-    const shareLots = []; // [{quantity, costPerShare, purchaseDate}]
+    let totalBuyAmount = 0; // Total amount spent on all buys (for calculating average price)
+    let totalBuyShares = 0; // Total shares bought (for calculating average price)
 
     for (const tradingDay of tradingDays) {
       const dateStr = tradingDay.toISOString().split('T')[0];
@@ -116,50 +168,37 @@ class PnLCalculator {
       for (const transaction of dayTransactions) {
         if (transaction.action === 'buy') {
           const quantity = transaction.quantity;
-          const costPerShare = transaction.total / quantity;
+          const amount = transaction.total;
 
-          // Add to share lots for FIFO tracking
-          shareLots.push({
-            quantity,
-            costPerShare,
-            purchaseDate: dateStr
-          });
+          // Track total buys for average price calculation
+          totalBuyShares += quantity;
+          totalBuyAmount += amount;
 
+          // Add shares and update cost basis
           totalShares += quantity;
-          totalCostBasis += transaction.total;
-          totalAmountInvested += transaction.total;
+          totalAmountInvested += amount;
+
+          // Recalculate cost basis using average price
+          const averagePrice = totalBuyAmount / totalBuyShares;
+          totalCostBasis = totalShares * averagePrice;
 
         } else if (transaction.action === 'sell') {
-          const quantityToSell = transaction.quantity;
-          let remainingToSell = quantityToSell;
-          let costOfSoldShares = 0;
-          let actualQuantitySold = 0; // Track actual shares sold from lots
+          const quantity = transaction.quantity;
+          const saleProceeds = transaction.total;
 
-          // Use FIFO to calculate cost basis of sold shares
-          while (remainingToSell > 0 && shareLots.length > 0) {
-            const lot = shareLots[0];
+          // Calculate average price of all shares bought
+          const averagePrice = totalBuyShares > 0 ? totalBuyAmount / totalBuyShares : 0;
 
-            if (lot.quantity <= remainingToSell) {
-              // Sell entire lot
-              costOfSoldShares += lot.quantity * lot.costPerShare;
-              actualQuantitySold += lot.quantity;
-              remainingToSell -= lot.quantity;
-              shareLots.shift(); // Remove lot
-            } else {
-              // Sell partial lot
-              costOfSoldShares += remainingToSell * lot.costPerShare;
-              actualQuantitySold += remainingToSell;
-              lot.quantity -= remainingToSell;
-              remainingToSell = 0;
-            }
-          }
+          // Calculate cost basis of sold shares using average price
+          const costOfSoldShares = quantity * averagePrice;
 
-          // Only decrement by actual shares sold (not the requested amount)
-          totalShares -= actualQuantitySold;
-          totalCostBasis -= costOfSoldShares;
+          // Decrement shares
+          totalShares -= quantity;
+
+          // Recalculate cost basis for remaining shares
+          totalCostBasis = totalShares * averagePrice;
 
           // Calculate realized P&L from this sale
-          const saleProceeds = transaction.total;
           dayRealizedPnL += saleProceeds - costOfSoldShares;
           totalAmountReceived += saleProceeds;
         }
@@ -204,7 +243,7 @@ class PnLCalculator {
       dailyRecords.push(record);
     }
 
-    console.log(`✅ Calculated ${dailyRecords.length} daily PnL records for ${symbol}`);
+    console.log(`✅ Calculated ${dailyRecords.length} daily PnL records for ${symbol} using average cost basis`);
     return dailyRecords;
   }
 
