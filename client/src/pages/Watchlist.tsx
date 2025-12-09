@@ -6,6 +6,7 @@ import Watchlists from '../components/Watchlists';
 import HoldingsChartWrapper from '../components/HoldingsChartWrapper';
 import ProfitLossBarChart from '../components/ProfitLossBarChart';
 import PriceOffsetBarChart from '../components/PriceOffsetBarChart';
+import Below200WeekMA from '../components/Below200WeekMA';
 
 interface Holding {
   symbol: string;
@@ -244,6 +245,11 @@ const Watchlist: React.FC = () => {
 
             {/* Watchlists Section */}
             <Watchlists />
+
+            {/* Below 200-Week MA Section */}
+            {holdings.length > 0 && (
+              <Below200WeekMA holdings={holdings} />
+            )}
 
             {/* Holdings Chart */}
             {holdings.length > 0 && (

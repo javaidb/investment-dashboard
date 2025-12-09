@@ -9,7 +9,8 @@ import {
   ResponsiveContainer,
   Area,
   AreaChart,
-  ReferenceLine
+  ReferenceLine,
+  Line
 } from 'recharts';
 
 interface Holding {
@@ -60,6 +61,8 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
   const [selectionBox, setSelectionBox] = useState<{x: number, y: number, width: number, height: number} | null>(null);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [show200WeekMA, setShow200WeekMA] = useState<boolean>(false);
+  const [show50WeekMA, setShow50WeekMA] = useState<boolean>(false);
   const lastMouseMove = useRef<number>(0);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
@@ -244,39 +247,132 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     };
   }).filter(trade => trade.chartDate);
 
-  // Filter data based on date range or zoom selection
+  // Calculate 200-week moving average on FULL dataset (before filtering)
+  // Using ~1000 trading days as 200 weeks has ~260 trading days per year, so 200 weeks ≈ ~770 trading days
+  // For periods < 200 weeks, use all available data up to that point
+  const calculate200WeekMA = (data: StockData[]) => {
+    const targetPeriod = 1000; // 200 weeks * 5 trading days per week
+    if (!data || data.length === 0) return [];
+
+    return data.map((item, index) => {
+      // Use the minimum of target period or all available data up to current point
+      const actualPeriod = Math.min(targetPeriod, index + 1);
+
+      const slice = data.slice(Math.max(0, index - actualPeriod + 1), index + 1);
+      const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+      const ma = sum / slice.length;
+
+      return { ...item, ma200Week: ma };
+    });
+  };
+
+  // Calculate 50-week moving average on FULL dataset (before filtering)
+  // Using ~250 trading days as 50 weeks ≈ ~250 trading days
+  const calculate50WeekMA = (data: StockData[]) => {
+    const targetPeriod = 250; // 50 weeks * 5 trading days per week
+    if (!data || data.length === 0) return [];
+
+    return data.map((item, index) => {
+      // Use the minimum of target period or all available data up to current point
+      const actualPeriod = Math.min(targetPeriod, index + 1);
+
+      const slice = data.slice(Math.max(0, index - actualPeriod + 1), index + 1);
+      const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+      const ma = sum / slice.length;
+
+      return { ...item, ma50Week: ma };
+    });
+  };
+
+  // Calculate MAs on full dataset first
+  let dataWithMA = historicalData || [];
+  if (show200WeekMA) {
+    dataWithMA = calculate200WeekMA(dataWithMA);
+  }
+  if (show50WeekMA) {
+    dataWithMA = calculate50WeekMA(dataWithMA);
+  }
+
+  // Filter data based on date range or zoom selection (AFTER MA calculation)
   const getFilteredData = (data: StockData[]) => {
     if (!data) return data;
-    
+
     let filtered = data;
-    
+
     // First apply date range filtering if dates are selected
     if (startDate || endDate) {
       filtered = data.filter(item => {
         const itemDate = new Date(item.date);
         const start = startDate ? new Date(startDate) : new Date(0);
         const end = endDate ? new Date(endDate) : new Date();
-        
+
         return itemDate >= start && itemDate <= end;
       });
     }
-    
+
     // Then apply zoom selection if it exists
     if (zoomStart !== null && zoomEnd !== null && filtered.length > 0) {
       const startIndex = Math.max(0, Math.floor(zoomStart));
       const endIndex = Math.min(filtered.length - 1, Math.ceil(zoomEnd));
       filtered = filtered.slice(startIndex, endIndex + 1);
     }
-    
+
     return filtered;
   };
 
-  const filteredData = getFilteredData(historicalData || []);
+  const filteredData = getFilteredData(dataWithMA);
+
+  // Check if a holding is an ETF (same logic as in Breakdown tab)
+  const isETF = (holding: Holding): boolean => {
+    return holding.type === 's' && (
+      holding.symbol.includes('XEQT') ||
+      holding.symbol.includes('VOO') ||
+      holding.symbol.includes('QQQ') ||
+      holding.symbol.includes('IBIT')
+    );
+  };
+
+  // Get asset category: 'crypto', 'etf', or 'stock'
+  const getAssetCategory = (holding: Holding): 'crypto' | 'etf' | 'stock' => {
+    if (holding.type === 'c') return 'crypto';
+    if (isETF(holding)) return 'etf';
+    return 'stock';
+  };
+
+  // Sort holdings by asset type, then alphabetically
+  const sortedHoldings = [...holdings].sort((a, b) => {
+    const catA = getAssetCategory(a);
+    const catB = getAssetCategory(b);
+
+    // Sort order: crypto, etf, stock
+    const order = { crypto: 0, etf: 1, stock: 2 };
+    if (order[catA] !== order[catB]) {
+      return order[catA] - order[catB];
+    }
+    // Then sort alphabetically by symbol
+    return a.symbol.localeCompare(b.symbol);
+  });
+
+  // Get color based on asset category
+  const getAssetColor = (holding: Holding): string => {
+    const category = getAssetCategory(holding);
+    if (category === 'crypto') return '#F59E0B'; // Orange for crypto
+    if (category === 'etf') return '#3B82F6';    // Blue for ETFs
+    return '#10B981';                              // Green for stocks
+  };
+
+  // Get emoji for asset category
+  const getAssetEmoji = (holding: Holding): string => {
+    const category = getAssetCategory(holding);
+    if (category === 'crypto') return '🟠'; // Orange circle for crypto
+    if (category === 'etf') return '🔵';    // Blue circle for ETFs
+    return '🟢';                            // Green circle for stocks
+  };
 
   // Auto-select first holding if none selected
   useEffect(() => {
     if (holdings.length > 0 && !selectedHolding) {
-      setSelectedHolding(holdings[0]);
+      setSelectedHolding(sortedHoldings[0]);
     }
   }, [holdings, selectedHolding]);
 
@@ -306,26 +402,36 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
           gap: '1rem', 
           marginBottom: '1rem'
         }}>
-          <div className="search-container">
+          <div className="search-container" style={{ position: 'relative' }}>
             <select
               value={selectedHolding?.symbol || ''}
               onChange={(e) => {
-                const holding = holdings.find(h => h.symbol === e.target.value);
+                const holding = sortedHoldings.find(h => h.symbol === e.target.value);
                 setSelectedHolding(holding || null);
               }}
               className="search-input"
               style={{ width: '16rem' }}
             >
-              {holdings.map((holding) => (
+              {sortedHoldings.map((holding) => (
                 <option key={holding.symbol} value={holding.symbol}>
-                  {holding.symbol} - {holding.companyName}
+                  {getAssetEmoji(holding)} {holding.symbol} - {holding.companyName}
                 </option>
               ))}
             </select>
           </div>
           
-          <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827' }}>
-            {selectedHolding?.symbol || 'Select Holding'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {selectedHolding && (
+              <div style={{
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                backgroundColor: getAssetColor(selectedHolding)
+              }}></div>
+            )}
+            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827' }}>
+              {selectedHolding?.symbol || 'Select Holding'}
+            </div>
           </div>
         </div>
 
@@ -412,6 +518,43 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
               Reset Zoom
             </button>
           )}
+
+          {/* 50-Week MA Toggle */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer',
+            marginLeft: 'auto'
+          }}>
+            <input
+              type="checkbox"
+              checked={show50WeekMA}
+              onChange={(e) => setShow50WeekMA(e.target.checked)}
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: '500' }}>
+              50-Week MA
+            </span>
+          </label>
+
+          {/* 200-Week MA Toggle */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={show200WeekMA}
+              onChange={(e) => setShow200WeekMA(e.target.checked)}
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: '500' }}>
+              200-Week MA
+            </span>
+          </label>
         </div>
       </div>
 
@@ -437,8 +580,8 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
             onMouseUp={handleMouseUp}
           >
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart 
-                data={filteredData} 
+              <AreaChart
+                data={filteredData}
                 margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               >
               <defs>
@@ -478,7 +621,31 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
                 fillOpacity={1}
                 fill="url(#colorPrice)"
               />
-              
+
+              {/* 50-Week Moving Average Line */}
+              {show50WeekMA && (
+                <Line
+                  type="monotone"
+                  dataKey="ma50Week"
+                  stroke="#F59E0B"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                />
+              )}
+
+              {/* 200-Week Moving Average Line */}
+              {show200WeekMA && (
+                <Line
+                  type="monotone"
+                  dataKey="ma200Week"
+                  stroke="#9333EA"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                />
+              )}
+
               {/* Transaction Lines */}
               {transactionLines.map((trade, index) => (
                 <ReferenceLine
