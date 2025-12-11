@@ -79,7 +79,7 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
       if (portfolio && portfolio.trades) {
         const symbolTrades = portfolio.trades
           .filter((t: Trade) => t.symbol === symbol)
-          .sort((a: Trade, b: Trade) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          .sort((a: Trade, b: Trade) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Most recent first
         setSelectedSymbolTrades(symbolTrades);
       } else {
         setSelectedSymbolTrades([]);
@@ -210,13 +210,13 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
     );
   }
 
-  // Sort assets by type (crypto first, then stocks) and then by total P&L (highest first)
+  // Sort assets by type (stocks first, then crypto) and then by total P&L (highest to lowest)
   const assetsWithData = (summary?.assets.filter(a => a.hasPnLData) || []).sort((a, b) => {
-    // First sort by type: crypto ('c') before stocks ('s')
+    // First sort by type: stocks ('s') before crypto ('c')
     if (a.assetInfo?.type !== b.assetInfo?.type) {
-      return a.assetInfo?.type === 'c' ? -1 : 1;
+      return a.assetInfo?.type === 's' ? -1 : 1;
     }
-    // Then sort by total P&L (highest first)
+    // Then sort by total P&L (highest to lowest, + to -)
     return (b.totalPnL || 0) - (a.totalPnL || 0);
   });
   const assetsWithoutData = summary?.assets.filter(a => !a.hasPnLData) || [];
@@ -497,7 +497,16 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                           />
                           <div>
                             <div style={{ fontSize: '15px', fontWeight: '600', color: '#1f2937' }}>{asset.symbol}</div>
-                            <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                            <div style={{
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              color: asset.assetInfo?.type === 's' ? '#2563eb' : '#7c3aed',
+                              backgroundColor: asset.assetInfo?.type === 's' ? '#dbeafe' : '#f3e8ff',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              display: 'inline-block',
+                              marginTop: '4px'
+                            }}>
                               {asset.assetInfo?.type === 's' ? 'Stock' : 'Crypto'}
                             </div>
                           </div>
