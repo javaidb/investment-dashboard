@@ -232,7 +232,9 @@ class PnLCalculator {
         realizedPnL: totalRealizedPnL,
         totalPnL,
         totalPnLPercent,
-        closePrice
+        closePrice,
+        totalAmountInvested, // Total ever invested (for accurate P&L calculation)
+        totalAmountReceived  // Total received from sells
       };
 
       // Add transactions if any occurred on this day
