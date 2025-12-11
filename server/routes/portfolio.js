@@ -2670,6 +2670,106 @@ router.post('/cache/daily-changes', (req, res) => {
   }
 });
 
+// Batch endpoint to get monthly changes for multiple symbols at once
+router.post('/cache/monthly-changes', (req, res) => {
+  try {
+    const { symbols } = req.body;
+
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      return res.status(400).json({ error: 'symbols array is required' });
+    }
+
+    console.log(`📊 Calculating monthly changes for ${symbols.length} symbols from cache`);
+    const monthlyChanges = {};
+
+    symbols.forEach(symbol => {
+      try {
+        const cacheEntry = historicalDataCache.cache.get(symbol);
+
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 30) {
+          console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
+          return;
+        }
+
+        // Sort data from earliest to latest
+        const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const currentPrice = sortedData[sortedData.length - 1].close;
+        const oneMonthAgoPrice = sortedData[sortedData.length - 31].close; // ~30 trading days
+
+        if (currentPrice && oneMonthAgoPrice) {
+          const changePercent = ((currentPrice - oneMonthAgoPrice) / oneMonthAgoPrice) * 100;
+          monthlyChanges[symbol] = changePercent;
+        }
+      } catch (err) {
+        console.warn(`❌ Error calculating monthly change for ${symbol}:`, err.message);
+      }
+    });
+
+    console.log(`✅ Calculated monthly changes for ${Object.keys(monthlyChanges).length}/${symbols.length} symbols`);
+
+    res.json({
+      success: true,
+      monthlyChanges,
+      calculatedCount: Object.keys(monthlyChanges).length,
+      requestedCount: symbols.length
+    });
+  } catch (error) {
+    console.error('Monthly changes batch error:', error);
+    res.status(500).json({ error: 'Failed to calculate monthly changes' });
+  }
+});
+
+// Batch endpoint to get quarterly changes for multiple symbols at once
+router.post('/cache/quarterly-changes', (req, res) => {
+  try {
+    const { symbols } = req.body;
+
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      return res.status(400).json({ error: 'symbols array is required' });
+    }
+
+    console.log(`📊 Calculating quarterly changes for ${symbols.length} symbols from cache`);
+    const quarterlyChanges = {};
+
+    symbols.forEach(symbol => {
+      try {
+        const cacheEntry = historicalDataCache.cache.get(symbol);
+
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 90) {
+          console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
+          return;
+        }
+
+        // Sort data from earliest to latest
+        const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const currentPrice = sortedData[sortedData.length - 1].close;
+        const threeMonthsAgoPrice = sortedData[sortedData.length - 91].close; // ~90 trading days
+
+        if (currentPrice && threeMonthsAgoPrice) {
+          const changePercent = ((currentPrice - threeMonthsAgoPrice) / threeMonthsAgoPrice) * 100;
+          quarterlyChanges[symbol] = changePercent;
+        }
+      } catch (err) {
+        console.warn(`❌ Error calculating quarterly change for ${symbol}:`, err.message);
+      }
+    });
+
+    console.log(`✅ Calculated quarterly changes for ${Object.keys(quarterlyChanges).length}/${symbols.length} symbols`);
+
+    res.json({
+      success: true,
+      quarterlyChanges,
+      calculatedCount: Object.keys(quarterlyChanges).length,
+      requestedCount: symbols.length
+    });
+  } catch (error) {
+    console.error('Quarterly changes batch error:', error);
+    res.status(500).json({ error: 'Failed to calculate quarterly changes' });
+  }
+});
+
 router.delete('/cache/:symbol', (req, res) => {
   try {
     const { symbol } = req.params;
