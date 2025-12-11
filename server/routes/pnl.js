@@ -214,11 +214,14 @@ router.post('/update/:symbol', async (req, res) => {
 
 // Get PnL summary for all symbols in a portfolio
 router.get('/portfolio/:portfolioId/summary', async (req, res) => {
+  console.log('🔥🔥🔥 PnL SUMMARY ENDPOINT - USING PORTFOLIO HOLDINGS DATA 🔥🔥🔥');
   try {
     const { portfolioId } = req.params;
-    const portfolios = loadPortfolios();
 
+    // Load portfolio data directly (same way as other endpoints)
+    const portfolios = loadPortfolios();
     const portfolio = portfolios.get(portfolioId);
+
     if (!portfolio) {
       return res.status(404).json({
         success: false,
@@ -227,81 +230,146 @@ router.get('/portfolio/:portfolioId/summary', async (req, res) => {
       });
     }
 
-    // Get unique symbols from trades
-    const symbols = [...new Set(portfolio.trades?.map(t => t.symbol) || [])];
-
-    const summary = {
-      portfolioId,
-      totalSymbols: symbols.length,
-      assets: []
-    };
-
-    // Get holdings cache to fetch current prices
+    // Get holdings and enrich with current prices (same logic as portfolio.js)
+    const rawHoldings = portfolio.holdings || [];
     const holdingsCache = require('../cache');
 
-    for (const symbol of symbols) {
-      const pnlData = pnlCache.get(symbol);
+    console.log(`\n📊 PnL Summary Calculation (using portfolio holdings):`);
+    console.log(`Total holdings: ${rawHoldings.length}`);
 
-      if (pnlData && pnlData.dailyRecords && pnlData.dailyRecords.length > 0) {
-        const latestRecord = pnlData.dailyRecords[pnlData.dailyRecords.length - 1];
+    // Enrich holdings with current prices and calculate P&L
+    const enrichedHoldings = [];
+    for (const holding of rawHoldings) {
+      let currentPrice = null;
+      let currentValue = 0;
+      let unrealizedPnL = 0;
 
-        // Fetch current price from holdings cache (same as portfolio summary)
-        let currentPrice = null;
-        let currentValue = latestRecord.marketValue; // fallback to historical
-        let unrealizedPnL = latestRecord.unrealizedPnL;
-        let totalPnL = latestRecord.totalPnL;
-        let totalPnLPercent = latestRecord.totalPnLPercent;
+      // Fetch current price from cache (same as portfolio endpoint)
+      try {
+        const cachedData = await holdingsCache.get(holding.symbol);
+        if (cachedData && (cachedData.cadPrice || cachedData.price)) {
+          currentPrice = cachedData.cadPrice || cachedData.price;
+          const exchangeRate = cachedData.exchangeRate || 1.35;
 
-        try {
-          const cachedData = await holdingsCache.get(symbol);
-          if (cachedData && (cachedData.cadPrice || cachedData.price)) {
-            // Use live current price (already in CAD from cache)
-            currentPrice = cachedData.cadPrice || cachedData.price;
-            currentValue = currentPrice * latestRecord.shares;
-            unrealizedPnL = currentValue - latestRecord.costBasis;
-            totalPnL = unrealizedPnL + latestRecord.realizedPnL;
+          // Convert holdings values to CAD if needed
+          const totalInvestedCAD = holding.currency === 'USD'
+            ? (Number(holding.totalInvested) || 0) * exchangeRate
+            : (Number(holding.totalInvested) || 0);
+          const totalAmountInvestedCAD = holding.currency === 'USD'
+            ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate
+            : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
+          const realizedPnLCAD = holding.currency === 'USD'
+            ? (Number(holding.realizedPnL) || 0) * exchangeRate
+            : (Number(holding.realizedPnL) || 0);
 
-            // Calculate P&L percentage based on cost basis
-            if (latestRecord.costBasis > 0) {
-              totalPnLPercent = (totalPnL / latestRecord.costBasis) * 100;
-            }
-          }
-        } catch (err) {
-          // Fall back to historical data if live price fetch fails
-          console.warn(`Failed to fetch current price for ${symbol}, using historical data:`, err.message);
+          currentValue = currentPrice * (Number(holding.quantity) || 0);
+          unrealizedPnL = currentValue - totalInvestedCAD;
+          const totalPnL = unrealizedPnL + realizedPnLCAD;
+
+          // Calculate P&L percentage using totalAmountInvested (same as Breakdown tab)
+          const totalPnLPercent = totalAmountInvestedCAD > 0
+            ? (totalPnL / totalAmountInvestedCAD) * 100
+            : 0;
+
+          enrichedHoldings.push({
+            ...holding,
+            currentPrice,
+            currentValue,
+            unrealizedPnL,
+            realizedPnL: realizedPnLCAD,
+            totalPnL,
+            totalPnLPercent
+          });
+        } else {
+          // No price data, use holding as-is with zeros
+          enrichedHoldings.push({
+            ...holding,
+            currentPrice: null,
+            currentValue: 0,
+            unrealizedPnL: 0,
+            totalPnL: holding.realizedPnL || 0
+          });
         }
-
-        summary.assets.push({
-          symbol,
-          assetInfo: pnlData.assetInfo,
-          latestDate: latestRecord.date,
-          currentShares: latestRecord.shares,
-          currentPrice: currentPrice,
-          currentValue: currentValue,
-          totalPnL: totalPnL,
-          totalPnLPercent: totalPnLPercent,
-          unrealizedPnL: unrealizedPnL,
-          realizedPnL: latestRecord.realizedPnL,
-          recordCount: pnlData.dailyRecords.length,
-          hasPnLData: true
-        });
-      } else {
-        summary.assets.push({
-          symbol,
-          hasPnLData: false
+      } catch (err) {
+        console.warn(`Failed to fetch price for ${holding.symbol}:`, err.message);
+        enrichedHoldings.push({
+          ...holding,
+          currentPrice: null,
+          currentValue: 0,
+          unrealizedPnL: 0,
+          totalPnL: holding.realizedPnL || 0
         });
       }
     }
 
-    // Calculate portfolio totals
-    const assetsWithData = summary.assets.filter(a => a.hasPnLData);
-    summary.portfolioTotals = {
-      totalValue: assetsWithData.reduce((sum, a) => sum + (a.currentValue || 0), 0),
-      totalPnL: assetsWithData.reduce((sum, a) => sum + (a.totalPnL || 0), 0),
-      totalUnrealizedPnL: assetsWithData.reduce((sum, a) => sum + (a.unrealizedPnL || 0), 0),
-      totalRealizedPnL: assetsWithData.reduce((sum, a) => sum + (a.realizedPnL || 0), 0),
-      assetsWithData: assetsWithData.length,
-      assetsWithoutData: summary.assets.length - assetsWithData.length
+    // Filter to current holdings (quantity > 0)
+    const currentHoldings = enrichedHoldings.filter(h => h.quantity > 0);
+    console.log(`Current holdings (qty > 0): ${currentHoldings.length}`);
+    console.log(`Fully sold holdings: ${enrichedHoldings.length - currentHoldings.length}`);
+
+    // Calculate totals using SAME logic as Breakdown tab
+    const totalUnrealizedPnL = currentHoldings.reduce((sum, h) => sum + (h.unrealizedPnL || 0), 0);
+    const totalRealizedPnL = enrichedHoldings.reduce((sum, h) => sum + (h.realizedPnL || 0), 0);
+    let totalPnL = totalUnrealizedPnL + totalRealizedPnL;
+    let totalValue = currentHoldings.reduce((sum, h) => sum + (h.currentValue || 0), 0);
+
+    console.log(`Total Unrealized P&L: ${totalUnrealizedPnL.toFixed(2)}`);
+    console.log(`Total Realized P&L: ${totalRealizedPnL.toFixed(2)}`);
+    console.log(`Trading P&L (before recurring): ${totalPnL.toFixed(2)}`);
+
+    // Add recurring investments to totals (same as Breakdown tab)
+    let recurringPnL = 0;
+    try {
+      const axios = require('axios');
+      const recurringResponse = await axios.get('http://localhost:5000/api/recurring-investments');
+
+      if (recurringResponse.data && recurringResponse.data.totals) {
+        const recurringTotals = recurringResponse.data.totals;
+        totalValue += recurringTotals.currentValue || 0;
+        recurringPnL = recurringTotals.profitLoss || 0;
+        totalPnL += recurringPnL;
+
+        console.log(`📊 Including recurring investments P&L: +${recurringPnL.toFixed(2)} CAD`);
+        console.log(`📊 FINAL TOTAL P&L: ${totalPnL.toFixed(2)} CAD`);
+      }
+    } catch (err) {
+      console.warn('⚠️ Failed to fetch recurring investments for PnL summary:', err.message);
+    }
+
+    // Build assets list for UI (using enriched holdings data)
+    const assets = enrichedHoldings.map(h => {
+      const pnlData = pnlCache.get(h.symbol);
+      return {
+        symbol: h.symbol,
+        assetInfo: {
+          symbol: h.symbol,
+          type: h.type,
+          currency: h.currency || 'CAD'
+        },
+        currentShares: h.quantity,
+        currentPrice: h.currentPrice,
+        currentValue: h.currentValue,
+        totalPnL: h.totalPnL,
+        totalPnLPercent: h.totalPnLPercent,
+        unrealizedPnL: h.unrealizedPnL,
+        realizedPnL: h.realizedPnL,
+        recordCount: pnlData?.dailyRecords?.length || 0,
+        hasPnLData: !!(pnlData && pnlData.dailyRecords && pnlData.dailyRecords.length > 0)
+      };
+    });
+
+    const summary = {
+      portfolioId,
+      totalSymbols: enrichedHoldings.length,
+      assets: assets,
+      portfolioTotals: {
+        totalValue: totalValue,
+        totalPnL: totalPnL,
+        totalUnrealizedPnL: totalUnrealizedPnL + recurringPnL,
+        totalRealizedPnL: totalRealizedPnL,
+        assetsWithData: assets.filter(a => a.hasPnLData).length,
+        assetsWithoutData: assets.filter(a => !a.hasPnLData).length
+      }
     };
 
     res.json({
