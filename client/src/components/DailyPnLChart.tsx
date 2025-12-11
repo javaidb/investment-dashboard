@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   LineChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -58,7 +59,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
   const [pnlData, setPnlData] = useState<PnLData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMetric, setSelectedMetric] = useState<'totalPnL' | 'totalPnLPercent' | 'marketValue'>('totalPnL');
+  const [selectedMetric, setSelectedMetric] = useState<'totalPnL' | 'totalPnLPercent' | 'marketValue' | 'shares'>('totalPnL');
 
   useEffect(() => {
     fetchPnLData();
@@ -208,10 +209,15 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
   const latestRecord = pnlData.dailyRecords[pnlData.dailyRecords.length - 1];
 
-  // Prepare chart data - add transaction markers
+  // Prepare chart data - add transaction markers and split positive/negative for area fills
+  // Use null instead of 0 to avoid drawing flat lines at the x-axis
   const chartData = pnlData.dailyRecords.map(record => ({
     ...record,
-    hasTransaction: record.transactions && record.transactions.length > 0
+    hasTransaction: record.transactions && record.transactions.length > 0,
+    totalPnLPositive: record.totalPnL > 0 ? record.totalPnL : null,
+    totalPnLNegative: record.totalPnL < 0 ? record.totalPnL : null,
+    totalPnLPercentPositive: record.totalPnLPercent > 0 ? record.totalPnLPercent : null,
+    totalPnLPercentNegative: record.totalPnLPercent < 0 ? record.totalPnLPercent : null
   }));
 
   return (
@@ -323,11 +329,39 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
           >
             Market Value
           </button>
+          <button
+            onClick={() => setSelectedMetric('shares')}
+            style={{
+              padding: '10px 18px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              border: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              backgroundColor: selectedMetric === 'shares' ? '#4f46e5' : '#f3f4f6',
+              color: selectedMetric === 'shares' ? 'white' : '#6b7280'
+            }}
+          >
+            Shares
+          </button>
         </div>
 
         {/* Chart */}
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <defs>
+              {/* Green gradient for positive values */}
+              <linearGradient id="colorPositive" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#10b981" stopOpacity={0.3}/>
+                <stop offset="100%" stopColor="#10b981" stopOpacity={0.05}/>
+              </linearGradient>
+              {/* Red gradient for negative values */}
+              <linearGradient id="colorNegative" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ef4444" stopOpacity={0.05}/>
+                <stop offset="100%" stopColor="#ef4444" stopOpacity={0.3}/>
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
             <XAxis
               dataKey="date"
@@ -340,7 +374,11 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             />
             <YAxis
               tickFormatter={(value) =>
-                selectedMetric === 'totalPnLPercent' ? `${value}%` : formatCurrency(value)
+                selectedMetric === 'totalPnLPercent'
+                  ? `${value}%`
+                  : selectedMetric === 'shares'
+                  ? value.toFixed(4)
+                  : formatCurrency(value)
               }
               stroke="#6b7280"
               style={{ fontSize: '12px' }}
@@ -353,10 +391,57 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
               <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
             )}
 
+            {/* Render lines for positive and negative P&L separately */}
+            {selectedMetric === 'totalPnL' && (
+              <>
+                <Line
+                  type="monotone"
+                  dataKey="totalPnLPositive"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="totalPnLNegative"
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                />
+              </>
+            )}
+            {selectedMetric === 'totalPnLPercent' && (
+              <>
+                <Line
+                  type="monotone"
+                  dataKey="totalPnLPercentPositive"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="totalPnLPercentNegative"
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                />
+              </>
+            )}
+
+            {/* Main line for other metrics or to show transaction dots */}
             <Line
               type="monotone"
               dataKey={selectedMetric}
-              stroke="#4f46e5"
+              stroke={(selectedMetric === 'totalPnL' || selectedMetric === 'totalPnLPercent') ? "transparent" : "#4f46e5"}
               strokeWidth={2}
               dot={(props: any) => {
                 const { cx, cy, payload } = props;
@@ -409,6 +494,8 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                   ? 'Total P&L'
                   : selectedMetric === 'totalPnLPercent'
                   ? 'Total P&L %'
+                  : selectedMetric === 'shares'
+                  ? 'Shares'
                   : 'Market Value'
               }
             />
