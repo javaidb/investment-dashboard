@@ -2082,7 +2082,22 @@ const PortfolioSummary: React.FC = () => {
                         {(() => {
                           const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
                           const percentage = totalCapital > 0 ? (netInvested / totalCapital) * 100 : 0;
-                          const isBelow2Percent = percentage < 2;
+
+                          // Color coding: Purple > 5%, Blue 1-5%, Green <= 1%
+                          let backgroundColor, textColor, borderColor;
+                          if (percentage > 5) {
+                            backgroundColor = '#f3e8ff'; // Purple
+                            textColor = '#6b21a8';
+                            borderColor = '#e9d5ff';
+                          } else if (percentage > 1) {
+                            backgroundColor = '#dbeafe'; // Blue
+                            textColor = '#2563eb';
+                            borderColor = '#93c5fd';
+                          } else {
+                            backgroundColor = '#dcfce7'; // Green
+                            textColor = '#166534';
+                            borderColor = '#bbf7d0';
+                          }
 
                           return (
                             <div style={{
@@ -2092,9 +2107,9 @@ const PortfolioSummary: React.FC = () => {
                               borderRadius: '16px',
                               fontSize: '14px',
                               fontWeight: '600',
-                              backgroundColor: isBelow2Percent ? '#dcfce7' : '#dbeafe',
-                              color: isBelow2Percent ? '#166534' : '#2563eb',
-                              border: `2px solid ${isBelow2Percent ? '#bbf7d0' : '#93c5fd'}`
+                              backgroundColor,
+                              color: textColor,
+                              border: `2px solid ${borderColor}`
                             }}>
                               {percentage.toFixed(2)}%
                             </div>
