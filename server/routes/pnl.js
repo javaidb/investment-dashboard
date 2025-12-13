@@ -106,6 +106,78 @@ router.get('/symbol/:symbol', (req, res) => {
   }
 });
 
+// Fetch historical price data for all assets in a portfolio
+router.post('/fetch-historical/:portfolioId', async (req, res) => {
+  try {
+    const { portfolioId } = req.params;
+    const portfolios = loadPortfolios();
+    const portfolio = portfolios.get(portfolioId);
+
+    if (!portfolio) {
+      return res.status(404).json({
+        success: false,
+        error: 'Portfolio not found',
+        portfolioId
+      });
+    }
+
+    if (!portfolio.trades || portfolio.trades.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Portfolio has no trades'
+      });
+    }
+
+    // Get unique symbols
+    const symbols = [...new Set(portfolio.trades.map(t => t.symbol))];
+    console.log(`📈 Fetching historical data for ${symbols.length} symbols`);
+
+    const axios = require('axios');
+    const results = {
+      success: true,
+      fetched: 0,
+      failed: 0,
+      symbols: []
+    };
+
+    // Fetch historical data for each symbol
+    for (const symbol of symbols) {
+      try {
+        const trade = portfolio.trades.find(t => t.symbol === symbol);
+        const isStock = trade.type === 's';
+        const endpoint = isStock ? `/api/historical/stock/${symbol}` : `/api/historical/crypto/${symbol}`;
+
+        console.log(`Fetching historical data for ${symbol} (${isStock ? 'stock' : 'crypto'})`);
+        const response = await axios.get(`http://localhost:5000${endpoint}?period=max`);
+
+        if (response.data && response.data.success) {
+          results.fetched++;
+          results.symbols.push({ symbol, success: true });
+          console.log(`✅ Fetched ${symbol}`);
+        } else {
+          results.failed++;
+          results.symbols.push({ symbol, success: false, error: 'No data returned' });
+        }
+      } catch (error) {
+        console.error(`❌ Failed to fetch ${symbol}:`, error.message);
+        results.failed++;
+        results.symbols.push({ symbol, success: false, error: error.message });
+      }
+    }
+
+    console.log(`📊 Historical data fetch complete: ${results.fetched} fetched, ${results.failed} failed`);
+    res.json(results);
+
+  } catch (error) {
+    console.error('Fetch historical data error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch historical data',
+      message: error.message
+    });
+  }
+});
+
 // Calculate and cache PnL for a portfolio
 router.post('/calculate/:portfolioId', async (req, res) => {
   try {

@@ -122,6 +122,50 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
     }
   };
 
+  const calculatePnL = async () => {
+    try {
+      setCalculating(true);
+      setError(null);
+
+      // Step 1: Fetch historical price data for all assets first
+      console.log('Step 1: Fetching historical price data...');
+      const fetchHistoricalResponse = await fetch(`/api/pnl/fetch-historical/${portfolioId}`, {
+        method: 'POST'
+      });
+
+      const historicalData = await fetchHistoricalResponse.json();
+      console.log('Historical data fetch response:', historicalData);
+
+      if (historicalData.success) {
+        console.log(`Fetched historical data for ${historicalData.fetched || 0} assets`);
+      }
+
+      // Step 2: Calculate P&L using the fetched historical data
+      console.log('Step 2: Calculating P&L...');
+      const response = await fetch(`/api/pnl/calculate/${portfolioId}`, {
+        method: 'POST'
+      });
+
+      const data = await response.json();
+      console.log('Calculate P&L response:', data);
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to calculate P&L');
+      }
+
+      // Refresh the summary after calculation
+      await fetchSummary();
+
+      const message = `Successfully calculated P&L!\n\nHistorical data: ${historicalData.fetched || 0} fetched, ${historicalData.failed || 0} failed\nP&L calculation: ${data.processed || 0} succeeded, ${data.failed || 0} failed`;
+      alert(message);
+    } catch (err: any) {
+      console.error('Error calculating P&L:', err);
+      setError(err.message || 'Failed to calculate P&L');
+    } finally {
+      setCalculating(false);
+    }
+  };
+
   const calculateMissingAssets = async () => {
     if (!summary) return;
 
@@ -228,6 +272,36 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
           <h1 className="dashboard-title">Daily P&L Tracker</h1>
           <p className="dashboard-subtitle">Track performance day by day since first purchase</p>
         </div>
+        <button
+          onClick={calculatePnL}
+          disabled={calculating}
+          style={{
+            padding: '12px 24px',
+            backgroundColor: calculating ? '#9ca3af' : '#4f46e5',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: calculating ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s'
+          }}
+        >
+          {calculating ? (
+            <>
+              <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></div>
+              Calculating...
+            </>
+          ) : (
+            <>
+              <span>🔄</span>
+              Calculate / Update P&L
+            </>
+          )}
+        </button>
       </div>
 
       <div className="dashboard-content">
@@ -607,12 +681,25 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                         <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Date</th>
                         <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Action</th>
                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Quantity</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Running Total</th>
                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Price</th>
                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedSymbolTrades.map((trade, index) => (
+                      {selectedSymbolTrades.map((trade, index) => {
+                        // Calculate running total (since trades are sorted most recent first, we need to reverse calculate)
+                        let runningTotal = 0;
+                        for (let i = selectedSymbolTrades.length - 1; i >= index; i--) {
+                          const t = selectedSymbolTrades[i];
+                          if (t.action === 'buy') {
+                            runningTotal += t.quantity;
+                          } else {
+                            runningTotal -= t.quantity;
+                          }
+                        }
+
+                        return (
                         <tr
                           key={index}
                           style={{
@@ -652,6 +739,9 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                           <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
                             {trade.quantity.toFixed(4)}
                           </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: runningTotal >= 0 ? '#059669' : '#dc2626' }}>
+                            {runningTotal.toFixed(4)}
+                          </td>
                           <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', color: '#6b7280' }}>
                             {formatCurrency(trade.price)}
                           </td>
@@ -659,7 +749,8 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                             {formatCurrency(trade.total)}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
