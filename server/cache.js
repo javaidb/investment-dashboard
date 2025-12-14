@@ -63,6 +63,7 @@ class HoldingsCache {
       usdPrice: data.usdPrice,
       cadPrice: data.cadPrice,
       companyName: data.companyName,
+      sector: data.sector || null, // Sector/category information (permanent, doesn't change)
       exchangeRate: data.exchangeRate,
       lastUpdated: new Date().toISOString(),
       priceDate: data.priceDate || new Date().toISOString(), // Store when the price data refers to
@@ -79,6 +80,12 @@ class HoldingsCache {
     if (!data || !data.price) {
       console.log(`⚠️ Skipping cache update for ${symbol}: no valid price data`);
       return;
+    }
+
+    // Preserve existing sector if not provided in update (sector doesn't change)
+    const existing = this.cache.get(symbol);
+    if (existing && existing.sector && !data.sector) {
+      data.sector = existing.sector;
     }
 
     this.set(symbol, data);
