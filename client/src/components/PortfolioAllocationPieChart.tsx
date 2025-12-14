@@ -20,6 +20,7 @@ interface Holding {
   type: string;
   currency: string;
   companyName?: string;
+  sector?: string;
   currentPrice?: number;
   currentValue?: number;
   unrealizedPnL?: number;
@@ -119,12 +120,51 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
     'ETF + Index Fund': '#9333EA'  // Purple for combined target allocation
   };
 
-  // Colors for individual assets (varying shades)
-  const assetColors = combinedData.map(asset => {
-    const baseColor = categoryColors[asset.category];
-    // Could add variation here if needed
-    return baseColor;
-  });
+  // Calculate sector allocation from holdings
+  const sectorData = holdings
+    .filter(holding => holding.quantity > 0.01 && holding.currentValue && holding.currentValue > 0)
+    .reduce((acc, holding) => {
+      let sector = holding.sector;
+
+      // If no sector, derive from type/symbol
+      if (!sector) {
+        if (holding.type === 'c') {
+          sector = 'Cryptocurrency';
+        } else if (holding.symbol?.includes('XEQT') || holding.symbol?.includes('VOO') ||
+                   holding.symbol?.includes('QQQ') || holding.symbol?.includes('IBIT')) {
+          sector = 'ETF - Index Fund';
+        } else {
+          sector = 'Unknown';
+        }
+      }
+
+      acc[sector] = (acc[sector] || 0) + (holding.currentValue || 0);
+      return acc;
+    }, {} as {[key: string]: number});
+
+  const sectorChartData = Object.entries(sectorData)
+    .map(([sector, value]) => ({ sector, value }))
+    .sort((a, b) => b.value - a.value);
+
+  const totalSectorValue = sectorChartData.reduce((sum, sector) => sum + sector.value, 0);
+
+  // Colors for sectors (diverse palette)
+  const sectorColors: {[key: string]: string} = {
+    'Technology': '#3B82F6',
+    'Consumer Cyclical': '#10B981',
+    'Industrials': '#F59E0B',
+    'Healthcare': '#EF4444',
+    'Financial Services': '#8B5CF6',
+    'Utilities': '#06B6D4',
+    'Energy': '#F97316',
+    'Basic Materials': '#84CC16',
+    'Real Estate': '#EC4899',
+    'Communication Services': '#6366F1',
+    'ETF - Index Fund': '#9333EA',
+    'Smart Contract Platform': '#F59E0B',
+    'Cryptocurrency': '#FBBF24',
+    'Unknown': '#9CA3AF'
+  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-CA', {
@@ -137,6 +177,11 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
 
   const formatPercent = (value: number) => {
     const percent = (value / totalValue) * 100;
+    return `${percent.toFixed(1)}%`;
+  };
+
+  const formatSectorPercent = (value: number) => {
+    const percent = (value / totalSectorValue) * 100;
     return `${percent.toFixed(1)}%`;
   };
 
@@ -257,104 +302,150 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-      <div style={{
-        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-        padding: '20px 24px',
-        borderBottom: '1px solid #e5e7eb'
-      }}>
-        <h3 style={{
-          fontSize: '20px',
-          fontWeight: 'bold',
-          color: '#111827'
-        }}>Portfolio Allocation by Asset</h3>
-        <p style={{
-          fontSize: '14px',
-          color: '#6b7280',
-          marginTop: '4px'
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+      {/* Section 1: Portfolio by Asset Type */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+        <div style={{
+          background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+          padding: '20px 24px',
+          borderBottom: '1px solid #e5e7eb'
         }}>
-          Current value distribution across all holdings
-        </p>
-      </div>
+          <h3 style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            color: '#111827'
+          }}>Portfolio by Asset Type</h3>
+          <p style={{
+            fontSize: '14px',
+            color: '#6b7280',
+            marginTop: '4px'
+          }}>
+            Current vs target allocation across asset categories
+          </p>
+        </div>
 
-      <div style={{ padding: '24px' }}>
-        {/* Main layout: Assets on left, Pie charts on right */}
-        <div style={{ display: 'grid', gridTemplateColumns: '400px 1fr 1fr', gap: '24px' }}>
-          {/* Left side: Individual assets breakdown */}
-          <div>
-            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px' }}>
-              Individual Assets
-            </h4>
-            <div style={{
-              maxHeight: '500px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              paddingRight: '8px'
-            }}>
-              {combinedData.map((asset, index) => (
-                <div
-                  key={asset.symbol}
-                  style={{
-                    padding: '8px 10px',
-                    backgroundColor: '#f9fafb',
-                    borderRadius: '6px',
-                    borderLeft: `3px solid ${categoryColors[asset.category]}`,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    opacity: activeIndex === null || activeIndex === index ? 1 : 0.6,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onMouseLeave={() => setActiveIndex(null)}
-                >
-                  <CompanyIcon
-                    symbol={asset.symbol}
-                    iconUrl={asset.iconUrl}
-                    companyName={asset.name}
-                    size="xs"
-                    showFallback={true}
-                    showTooltip={false}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '13px', fontWeight: '600', margin: 0, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {asset.symbol}
-                    </p>
-                    <p style={{ fontSize: '11px', margin: 0, color: '#6b7280' }}>
-                      {asset.category}
-                    </p>
+        <div style={{ padding: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '24px' }}>
+            {/* Individual Assets List */}
+            <div>
+              <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px' }}>
+                Individual Assets
+              </h4>
+              <div style={{
+                maxHeight: '832px',
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                paddingRight: '8px'
+              }}>
+                {combinedData.map((asset, index) => (
+                  <div
+                    key={asset.symbol}
+                    style={{
+                      padding: '8px 10px',
+                      backgroundColor: '#f9fafb',
+                      borderRadius: '6px',
+                      borderLeft: `3px solid ${categoryColors[asset.category]}`,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      opacity: activeIndex === null || activeIndex === index ? 1 : 0.6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onMouseLeave={() => setActiveIndex(null)}
+                  >
+                    <CompanyIcon
+                      symbol={asset.symbol}
+                      iconUrl={asset.iconUrl}
+                      companyName={asset.name}
+                      size="xs"
+                      showFallback={true}
+                      showTooltip={false}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: '13px', fontWeight: '600', margin: 0, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {asset.symbol}
+                      </p>
+                      <p style={{ fontSize: '11px', margin: 0, color: '#6b7280' }}>
+                        {asset.category}
+                      </p>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ fontSize: '13px', fontWeight: '600', color: '#111827', margin: 0, whiteSpace: 'nowrap' }}>
+                        {formatCurrency(asset.value)}
+                      </p>
+                      <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>
+                        {formatPercent(asset.value)}
+                      </p>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontSize: '13px', fontWeight: '600', color: '#111827', margin: 0, whiteSpace: 'nowrap' }}>
-                      {formatCurrency(asset.value)}
-                    </p>
-                    <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>
-                      {formatPercent(asset.value)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
 
-          {/* Center: Current Allocation Pie chart */}
-          <div>
-            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
-              Current Allocation
-            </h4>
-            <ResponsiveContainer width="100%" height={550}>
+            {/* Pie Chart Section */}
+            <div>
+              <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
+                Current vs Target Allocation
+              </h4>
+              <div style={{ marginBottom: '12px', textAlign: 'center' }}>
+                <p style={{ fontSize: '12px', color: '#6b7280', margin: '2px 0' }}>
+                  <span style={{ fontWeight: '600' }}>Target:</span> Crypto 15% • ETF/Index 50% • Stock 35%
+                </p>
+              </div>
+              <ResponsiveContainer width="100%" height={550}>
               <PieChart>
+                <defs>
+                  <linearGradient id="etfIndexGradient" x1="0%" y1="50%" x2="100%" y2="50%">
+                    <stop offset="0%" stopColor="#DC2626" />
+                    <stop offset="100%" stopColor="#3B82F6" />
+                  </linearGradient>
+                </defs>
+
+                {/* Background: Target Allocation (semi-transparent, slightly larger radius) */}
+                <Pie
+                  data={[
+                    { category: 'Crypto', value: 15, label: '15%' },
+                    { category: 'ETF + Index Fund', value: 50, label: '50%' },
+                    { category: 'Stock', value: 35, label: '35%' }
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  outerRadius={200}
+                  innerRadius={60}
+                  fill="#8884d8"
+                  dataKey="value"
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  {[
+                    { category: 'Crypto', value: 15 },
+                    { category: 'ETF + Index Fund', value: 50 },
+                    { category: 'Stock', value: 35 }
+                  ].map((entry, index) => (
+                    <Cell
+                      key={`target-cell-${index}`}
+                      fill={entry.category === 'ETF + Index Fund' ? 'url(#etfIndexGradient)' : categoryColors[entry.category]}
+                      opacity={0.35}
+                      stroke="#ffffff"
+                      strokeWidth={3}
+                    />
+                  ))}
+                </Pie>
+
+                {/* Foreground: Current Allocation (smaller radius to show target behind) */}
                 <Pie
                   data={combinedData}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
                   label={renderCustomLabel}
-                  outerRadius={180}
-                  innerRadius={70}
+                  outerRadius={175}
+                  innerRadius={75}
                   fill="#8884d8"
                   dataKey="value"
                   onMouseEnter={onPieEnter}
@@ -375,120 +466,194 @@ const PortfolioAllocationPieChart: React.FC<PortfolioAllocationPieChartProps> = 
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
               </PieChart>
-            </ResponsiveContainer>
-          </div>
+              </ResponsiveContainer>
 
-          {/* Right: Target Allocation Pie chart */}
-          <div>
-            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
-              Target Allocation
-            </h4>
-            <ResponsiveContainer width="100%" height={550}>
-              <PieChart>
-                <defs>
-                  <linearGradient id="etfIndexGradient" x1="0%" y1="50%" x2="100%" y2="50%">
-                    <stop offset="0%" stopColor="#DC2626" />
-                    <stop offset="100%" stopColor="#3B82F6" />
-                  </linearGradient>
-                </defs>
-                <Pie
-                  data={[
-                    { category: 'Crypto', value: 15, label: '15%' },
-                    { category: 'ETF + Index Fund', value: 50, label: '50%' },
-                    { category: 'Stock', value: 35, label: '35%' }
-                  ]}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  outerRadius={180}
-                  innerRadius={70}
-                  fill="#8884d8"
-                  dataKey="value"
-                  startAngle={90}
-                  endAngle={-270}
-                  label={(props) => {
-                    const { cx, cy, midAngle, innerRadius, outerRadius, value } = props;
-
-                    if (midAngle === undefined || cx === undefined || cy === undefined ||
-                        innerRadius === undefined || outerRadius === undefined) {
-                      return null;
-                    }
-
-                    const RADIAN = Math.PI / 180;
-                    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
-                    return (
-                      <text
-                        x={x}
-                        y={y}
-                        fill="white"
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                        fontSize="16px"
-                        fontWeight="bold"
-                      >
-                        {`${value}%`}
-                      </text>
-                    );
-                  }}
-                >
-                  {[
-                    { category: 'Crypto', value: 15 },
-                    { category: 'ETF + Index Fund', value: 50 },
-                    { category: 'Stock', value: 35 }
-                  ].map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={entry.category === 'ETF + Index Fund' ? 'url(#etfIndexGradient)' : categoryColors[entry.category]}
-                    />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ marginTop: '16px', textAlign: 'center' }}>
-              <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0' }}>
-                <strong>Recommended Split:</strong>
-              </p>
-              <p style={{ fontSize: '11px', color: '#6b7280', margin: '2px 0' }}>
-                Crypto: 15% • ETF + Index Fund: 50% • Stock: 35%
-              </p>
+              {/* Category breakdown cards below chart */}
+              <div style={{
+                marginTop: '24px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '12px'
+              }}>
+                {Object.entries(categoryTotals).map(([category, value]) => (
+                  <div
+                    key={category}
+                    style={{
+                      padding: '16px',
+                      backgroundColor: '#f9fafb',
+                      borderRadius: '12px',
+                      borderLeft: `4px solid ${categoryColors[category]}`,
+                      transition: 'all 0.2s',
+                      cursor: 'pointer'
+                    }}
+                    onMouseEnter={() => {
+                      const index = combinedData.findIndex(d => d.category === category);
+                      if (index !== -1) setActiveIndex(index);
+                    }}
+                    onMouseLeave={() => setActiveIndex(null)}
+                  >
+                    <p style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: '#6b7280',
+                      margin: '0 0 8px 0'
+                    }}>
+                      {category}
+                    </p>
+                    <p style={{
+                      fontSize: '20px',
+                      fontWeight: 'bold',
+                      color: '#111827',
+                      margin: '0 0 4px 0'
+                    }}>
+                      {formatCurrency(value)}
+                    </p>
+                    <p style={{
+                      fontSize: '13px',
+                      color: '#6b7280',
+                      margin: 0
+                    }}>
+                      {formatPercent(value)}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Category breakdown - below everything */}
+      {/* Section 2: Portfolio by Sector */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
         <div style={{
-          marginTop: '24px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '16px'
+          background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+          padding: '20px 24px',
+          borderBottom: '1px solid #e5e7eb'
         }}>
-          {Object.entries(categoryTotals).map(([category, value]) => (
-            <div key={category} style={{
-              padding: '16px',
-              backgroundColor: '#f9fafb',
-              borderRadius: '8px',
-              border: `2px solid ${categoryColors[category]}`
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <div style={{
-                  width: '16px',
-                  height: '16px',
-                  backgroundColor: categoryColors[category],
-                  borderRadius: '4px'
-                }}></div>
-                <span style={{ fontWeight: 'bold', color: '#111827' }}>{category}</span>
-              </div>
-              <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#111827', margin: '4px 0' }}>
-                {formatCurrency(value)}
-              </p>
-              <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
-                {formatPercent(value)} of portfolio
-              </p>
+          <h3 style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            color: '#111827'
+          }}>Portfolio by Sector</h3>
+          <p style={{
+            fontSize: '14px',
+            color: '#6b7280',
+            marginTop: '4px'
+          }}>
+            Diversification across industries and sectors
+          </p>
+        </div>
+
+        <div style={{ padding: '24px' }}>
+          <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
+            Sector Allocation
+          </h4>
+          <div style={{ marginBottom: '12px', textAlign: 'center' }}>
+            <p style={{ fontSize: '12px', color: '#6b7280', margin: '2px 0' }}>
+              Diversification across industries
+            </p>
+          </div>
+          {sectorChartData.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: '8px', marginTop: '20px' }}>
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>Loading sector data...</p>
             </div>
-          ))}
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={550}>
+                <PieChart>
+                  <Pie
+                    data={sectorChartData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    outerRadius={180}
+                    innerRadius={70}
+                    fill="#8884d8"
+                    dataKey="value"
+                    startAngle={90}
+                    endAngle={-270}
+                    label={(props) => {
+                      const { cx, cy, midAngle, outerRadius, percent, index } = props;
+
+                      if (percent === undefined || percent < 0.03) return null;
+                      if (midAngle === undefined || cx === undefined || cy === undefined ||
+                          outerRadius === undefined || index === undefined) {
+                        return null;
+                      }
+
+                      const RADIAN = Math.PI / 180;
+                      const startRadius = outerRadius + 5;
+                      const x1 = cx + startRadius * Math.cos(-midAngle * RADIAN);
+                      const y1 = cy + startRadius * Math.sin(-midAngle * RADIAN);
+
+                      const lineLength = 35;
+                      const x2 = cx + (outerRadius + lineLength) * Math.cos(-midAngle * RADIAN);
+                      const y2 = cy + (outerRadius + lineLength) * Math.sin(-midAngle * RADIAN);
+
+                      const sector = sectorChartData[index];
+                      if (!sector) return null;
+
+                      const isRightSide = Math.cos(-midAngle * RADIAN) > 0;
+                      const textAnchor = isRightSide ? 'start' : 'end';
+                      const textX = isRightSide ? x2 + 5 : x2 - 5;
+
+                      return (
+                        <g>
+                          <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#6b7280" strokeWidth={1} />
+                          <text x={textX} y={y2 - 2} textAnchor={textAnchor} fill="#111827" fontSize="11px" fontWeight="600">
+                            {sector.sector}
+                          </text>
+                          <text x={textX} y={y2 + 10} textAnchor={textAnchor} fill="#6b7280" fontSize="10px">
+                            {formatSectorPercent(sector.value)}
+                          </text>
+                        </g>
+                      );
+                    }}
+                  >
+                    {sectorChartData.map((entry, index) => (
+                      <Cell key={`sector-cell-${index}`} fill={sectorColors[entry.sector] || '#9CA3AF'} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }: any) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div style={{ backgroundColor: 'white', padding: '12px 16px', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                            <p style={{ fontWeight: 'bold', margin: '0 0 8px 0', color: '#111827' }}>{data.sector}</p>
+                            <p style={{ margin: '4px 0', color: '#374151' }}><strong>Value:</strong> {formatCurrency(data.value)}</p>
+                            <p style={{ margin: '4px 0', color: '#374151' }}><strong>Allocation:</strong> {formatSectorPercent(data.value)}</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+
+              {sectorChartData.length > 0 && (
+                <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '12px', maxHeight: '200px', overflowY: 'auto' }}>
+                  <h5 style={{ fontSize: '12px', fontWeight: 'bold', color: '#111827', marginBottom: '12px' }}>
+                    Sector Breakdown
+                  </h5>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {sectorChartData.map((sector) => (
+                      <div key={sector.sector} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '12px', height: '12px', backgroundColor: sectorColors[sector.sector] || '#9CA3AF', borderRadius: '3px' }}></div>
+                          <span style={{ fontSize: '11px', color: '#374151' }}>{sector.sector}</span>
+                        </div>
+                        <span style={{ fontSize: '11px', fontWeight: '600', color: '#111827' }}>
+                          {formatSectorPercent(sector.value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
