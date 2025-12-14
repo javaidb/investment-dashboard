@@ -1722,6 +1722,9 @@ const PortfolioSummary: React.FC = () => {
                     </th>
                     <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                       % of Portfolio
+                      <div style={{fontSize: '10px', fontWeight: '400', color: '#6b7280', marginTop: '2px', textTransform: 'none'}}>
+                        (based on net invested)
+                      </div>
                     </th>
                   </tr>
                 </thead>
