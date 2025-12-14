@@ -27,6 +27,7 @@ interface Holding {
   type: string; // 's' for stock, 'c' for crypto
   currency: string; // 'CAD' for Canadian dollars
   companyName?: string;
+  sector?: string; // Sector/industry classification
   currentPrice?: number; // Now in CAD
   currentValue?: number; // Now in CAD
   unrealizedPnL?: number; // Now in CAD
@@ -495,7 +496,8 @@ const PortfolioSummary: React.FC = () => {
           amountSold: holding.amountSold || 0,
           type: holding.type || 's',
           currency: holding.currency || 'CAD',
-          companyName: cachedPrice?.companyName || holding.companyName || symbol || 'UNKNOWN',
+          companyName: holding.companyName || cachedPrice?.companyName || symbol || 'UNKNOWN',
+          sector: holding.sector || cachedPrice?.sector || null,
           currentPrice: currentPrice,
           currentValue: currentValue,
           unrealizedPnL: unrealizedPnL,
