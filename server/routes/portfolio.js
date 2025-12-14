@@ -1468,6 +1468,15 @@ router.get('/:portfolioId/cached', async (req, res) => {
       const symbol = holding.symbol;
       const cachedHolding = holdingsCache?.cache?.get(symbol);
 
+      // Debug: Log cache lookup for first few holdings
+      if (portfolio.holdings.indexOf(holding) < 3) {
+        console.log(`🔍 Cache lookup for ${symbol}:`, {
+          found: !!cachedHolding,
+          sector: cachedHolding?.sector,
+          companyName: cachedHolding?.companyName
+        });
+      }
+
       if (cachedHolding) {
         // Calculate current values using cached prices
         const currentPrice = cachedHolding.cadPrice || cachedHolding.price || null;
@@ -1490,6 +1499,7 @@ router.get('/:portfolioId/cached', async (req, res) => {
           totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
             (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
           companyName: cachedHolding.companyName || holding.companyName || symbol,
+          sector: cachedHolding.sector || holding.sector || null,
           cacheUsed: true,
           cacheTimestamp: cachedHolding.lastUpdated || cachedHolding.fetchedAt
         };
