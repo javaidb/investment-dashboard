@@ -58,8 +58,8 @@ const CompanyIcon: React.FC<CompanyIconProps> = ({
         />
         
         {/* Fallback that's initially hidden */}
-        {showFallback && (
-          <div 
+        {showFallback && symbol && (
+          <div
             className={`${baseClasses} rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold items-center justify-center ${textSizes[size]} absolute inset-0`}
             style={{ display: 'none', width: '40px', height: '40px' }}
           >
@@ -78,14 +78,14 @@ const CompanyIcon: React.FC<CompanyIconProps> = ({
   }
 
   // No icon URL - show fallback or placeholder
-  if (showFallback) {
+  if (showFallback && symbol) {
     return (
-      <div 
+      <div
         className={`${baseClasses} rounded-lg bg-gradient-to-br from-blue-400 to-purple-600 text-white font-semibold flex items-center justify-center ${textSizes[size]} group relative border-2 border-blue-300`}
         style={{ width: '40px', height: '40px' }}
       >
         {symbol.slice(0, 2).toUpperCase()}
-        
+
         {/* Tooltip on hover */}
         {showTooltip && (
           <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
@@ -96,7 +96,7 @@ const CompanyIcon: React.FC<CompanyIconProps> = ({
     );
   }
 
-  // No fallback - return nothing
+  // No fallback - return nothing or placeholder for undefined symbol
   return null;
 };
 
