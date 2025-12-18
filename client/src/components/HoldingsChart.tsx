@@ -71,22 +71,40 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
     ['holdingHistorical', selectedHolding?.symbol, selectedHolding?.type],
     async () => {
       if (!selectedHolding) return [];
-      
+
       console.log(`📊 Fetching historical data for ${selectedHolding.symbol} ENTIRELY from cache`);
-      
+
       // Use cache endpoint to read entirely from cache
       const response = await axios.get(`/api/portfolio/cache/historical/${selectedHolding.symbol}`, {
         params: {
           period: 'max' // Get maximum available data from cache
         }
       });
-      
-      const data = response.data.data || [];
+
+      let data = response.data.data || [];
       console.log(`📊 Retrieved ${data.length} data points from cache for ${selectedHolding.symbol}, sorted earliest to latest`);
-      
+
       // Ensure data is sorted from earliest to latest (ascending chronological order)
       data.sort((a: StockData, b: StockData) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
+
+      // For crypto, convert USD historical data to CAD
+      if (selectedHolding.type === 'c') {
+        // Get exchange rate from holdings cache
+        const cacheResponse = await axios.get('/api/portfolio/cache/data');
+        const cachedPrice = cacheResponse.data.cache?.[selectedHolding.symbol];
+        const exchangeRate = cachedPrice?.exchangeRate || 1.4;
+
+        console.log(`💱 ${selectedHolding.symbol}: Converting historical USD data to CAD using rate ${exchangeRate.toFixed(4)}`);
+
+        data = data.map((point: StockData) => ({
+          ...point,
+          close: point.close * exchangeRate,
+          open: point.open * exchangeRate,
+          high: point.high * exchangeRate,
+          low: point.low * exchangeRate
+        }));
+      }
+
       return data;
     },
     {
