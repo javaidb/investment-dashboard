@@ -45,17 +45,16 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
       iconUrl: iconUrls[holding.symbol.toUpperCase()]
     }));
 
-  // Calculate sector allocation from holdings
+  // Calculate sector allocation from holdings (excluding cryptocurrency)
   const sectorData = holdings
     .filter(holding => holding.quantity > 0.01 && holding.currentValue && holding.currentValue > 0)
+    .filter(holding => holding.type !== 'c') // Exclude cryptocurrency
     .reduce((acc, holding) => {
       let sector = holding.sector;
 
       // If no sector, derive from type/symbol
       if (!sector) {
-        if (holding.type === 'c') {
-          sector = 'Cryptocurrency';
-        } else if (holding.symbol?.includes('XEQT') || holding.symbol?.includes('VOO') ||
+        if (holding.symbol?.includes('XEQT') || holding.symbol?.includes('VOO') ||
                    holding.symbol?.includes('QQQ') || holding.symbol?.includes('IBIT')) {
           sector = 'ETF - Index Fund';
         } else {
@@ -264,12 +263,11 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
                 paddingLeft: '8px'
               }}>
                 {combinedData
+                  .filter(asset => asset.type !== 'c') // Exclude cryptocurrency
                   .sort((a, b) => {
                     // Get sectors for both assets
-                    const sectorA = holdings.find(h => h.symbol === a.symbol)?.sector ||
-                                   (a.type === 'c' ? 'Cryptocurrency' : 'Unknown');
-                    const sectorB = holdings.find(h => h.symbol === b.symbol)?.sector ||
-                                   (b.type === 'c' ? 'Cryptocurrency' : 'Unknown');
+                    const sectorA = holdings.find(h => h.symbol === a.symbol)?.sector || 'Unknown';
+                    const sectorB = holdings.find(h => h.symbol === b.symbol)?.sector || 'Unknown';
 
                     // Get total values for each sector from sectorChartData
                     const sectorATotal = sectorChartData.find(s => s.sector === sectorA)?.value || 0;
@@ -284,8 +282,7 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
                     return b.value - a.value;
                   })
                   .map((asset) => {
-                    const sector = holdings.find(h => h.symbol === asset.symbol)?.sector ||
-                                  (asset.type === 'c' ? 'Cryptocurrency' : 'Unknown');
+                    const sector = holdings.find(h => h.symbol === asset.symbol)?.sector || 'Unknown';
                     const sectorColor = sectorColors[sector] || '#9CA3AF';
 
                     return (
