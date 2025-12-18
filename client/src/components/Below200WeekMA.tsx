@@ -6,6 +6,8 @@ interface Holding {
   symbol: string;
   companyName?: string;
   currentPrice?: number;
+  usdPrice?: number;
+  exchangeRate?: number;
   type: string;
 }
 
@@ -99,9 +101,25 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
           // Sort data chronologically
           data.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-          // Calculate both MAs
-          const ma200Week = calculate200WeekMA(data);
-          const ma50Week = calculate50WeekMA(data);
+          // For crypto, convert USD historical data to CAD using exchange rate
+          const exchangeRate = holding.exchangeRate || 1.4;
+          let processedData = data;
+
+          if (holding.type === 'c') {
+            // Convert all USD prices to CAD for crypto
+            processedData = data.map((point: any) => ({
+              ...point,
+              close: point.close * exchangeRate,
+              open: point.open * exchangeRate,
+              high: point.high * exchangeRate,
+              low: point.low * exchangeRate
+            }));
+            console.log(`💱 ${holding.symbol}: Converted historical USD data to CAD using rate ${exchangeRate.toFixed(4)}`);
+          }
+
+          // Calculate both MAs using CAD-converted data for crypto
+          const ma200Week = calculate200WeekMA(processedData);
+          const ma50Week = calculate50WeekMA(processedData);
 
           if (!ma200Week || !ma50Week) {
             console.log(`⚠️ ${holding.symbol}: Could not calculate moving averages`);
@@ -112,13 +130,13 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
             continue;
           }
 
-          // Calculate percentages from both MAs
+          // Calculate percentages from both MAs (all in CAD now)
           const percentFrom200MA = ((holding.currentPrice - ma200Week) / ma200Week) * 100;
           const percentFrom50MA = ((holding.currentPrice - ma50Week) / ma50Week) * 100;
           const isBelow200MA = holding.currentPrice < ma200Week;
           const isBelow50MA = holding.currentPrice < ma50Week;
 
-          console.log(`📊 ${holding.symbol}: Current $${holding.currentPrice.toFixed(2)}, 200W MA $${ma200Week.toFixed(2)} (${percentFrom200MA.toFixed(2)}%), 50W MA $${ma50Week.toFixed(2)} (${percentFrom50MA.toFixed(2)}%)`);
+          console.log(`📊 ${holding.symbol}: Current $${holding.currentPrice.toFixed(2)} CAD, 200W MA $${ma200Week.toFixed(2)} CAD (${percentFrom200MA.toFixed(2)}%), 50W MA $${ma50Week.toFixed(2)} CAD (${percentFrom50MA.toFixed(2)}%)`);
 
           // Include if close to or below either MA (within 20% above or below)
           if (percentFrom200MA <= 20 || percentFrom50MA <= 20) {
