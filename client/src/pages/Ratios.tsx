@@ -13,6 +13,13 @@ interface RiskMetrics {
   riskLevel: string;
 }
 
+interface Targets {
+  defaultRiskPrice: number | null;
+  defaultRewardPrice: number | null;
+  customRiskPrice: number | null;
+  customRewardPrice: number | null;
+}
+
 interface HoldingWithRisk {
   symbol: string;
   companyName: string;
@@ -34,6 +41,7 @@ interface HoldingWithRisk {
   riskPrice?: number | null;
   rewardPrice?: number | null;
   riskRewardRatio?: number | null;
+  targets?: Targets;
 }
 
 const Ratios: React.FC = () => {
@@ -41,6 +49,10 @@ const Ratios: React.FC = () => {
   const [riskData, setRiskData] = useState<HoldingWithRisk[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingSymbol, setEditingSymbol] = useState<string | null>(null);
+  const [editRiskPrice, setEditRiskPrice] = useState<string>('');
+  const [editRewardPrice, setEditRewardPrice] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
 
   // Fetch icons for all holdings
   const symbolsForIcons = riskData.length > 0 ? riskData.map(holding => ({
@@ -194,6 +206,80 @@ const Ratios: React.FC = () => {
 
     fetchRiskMetrics();
   }, [latestPortfolio?.id]);
+
+  // Handle editing targets
+  const handleEditTargets = (holding: HoldingWithRisk) => {
+    setEditingSymbol(holding.symbol);
+    const avgPrice = holding.totalInvested > 0 && holding.quantity > 0
+      ? holding.totalInvested / holding.quantity
+      : 0;
+
+    // Use custom values if set, otherwise show defaults
+    setEditRiskPrice((holding.riskPrice || avgPrice * 0.9).toFixed(2));
+    setEditRewardPrice((holding.rewardPrice || avgPrice * 2).toFixed(2));
+  };
+
+  // Handle saving custom targets
+  const handleSaveTargets = async (symbol: string) => {
+    setIsSaving(true);
+    try {
+      const customRiskPrice = parseFloat(editRiskPrice) || null;
+      const customRewardPrice = parseFloat(editRewardPrice) || null;
+
+      await axios.put(`/api/portfolio/targets/${symbol}`, {
+        customRiskPrice,
+        customRewardPrice
+      });
+
+      // Update local state
+      setRiskData(prev => prev.map(h => {
+        if (h.symbol === symbol) {
+          return {
+            ...h,
+            riskPrice: customRiskPrice,
+            rewardPrice: customRewardPrice
+          };
+        }
+        return h;
+      }));
+
+      setEditingSymbol(null);
+      setEditRiskPrice('');
+      setEditRewardPrice('');
+    } catch (err) {
+      console.error('Failed to save targets:', err);
+      alert('Failed to save custom targets');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Handle canceling edit
+  const handleCancelEdit = () => {
+    setEditingSymbol(null);
+    setEditRiskPrice('');
+    setEditRewardPrice('');
+  };
+
+  // Handle resetting to defaults
+  const handleResetToDefaults = async (symbol: string) => {
+    setIsSaving(true);
+    try {
+      // Set custom values to null to use defaults
+      await axios.put(`/api/portfolio/targets/${symbol}`, {
+        customRiskPrice: null,
+        customRewardPrice: null
+      });
+
+      // Refresh data to get defaults
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to reset targets:', err);
+      alert('Failed to reset to defaults');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (cacheLoading || isLoading) {
     return (
@@ -600,6 +686,7 @@ const Ratios: React.FC = () => {
                            holding.totalInvested > 0 && holding.quantity > 0 ? (
                             (() => {
                               const avgBuyPrice = holding.totalInvested / holding.quantity;
+                              const isEditing = editingSymbol === holding.symbol;
 
                               // Start the range from whichever is lower (risk or avg buy)
                               const rangeStart = Math.min(holding.riskPrice, avgBuyPrice);
@@ -612,25 +699,119 @@ const Ratios: React.FC = () => {
 
                               return (
                                 <div style={{ width: '100%' }}>
-                                  {/* Price labels */}
-                                  <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    marginBottom: '8px',
-                                    fontSize: '11px',
-                                    fontWeight: '600'
-                                  }}>
-                                    <span style={{ color: '#6b7280' }}>Avg: C${avgBuyPrice.toFixed(2)}</span>
-                                    <span style={{ color: '#dc2626' }}>Risk: C${holding.riskPrice.toFixed(2)}</span>
-                                    <span style={{
-                                      color: '#2563eb',
-                                      fontSize: '13px',
-                                      fontWeight: '700'
-                                    }}>
-                                      C${holding.currentPrice.toFixed(2)}
-                                    </span>
-                                    <span style={{ color: '#166534' }}>Target: C${holding.rewardPrice.toFixed(2)}</span>
-                                  </div>
+                                  {/* Edit Mode */}
+                                  {isEditing ? (
+                                    <div style={{ marginBottom: '12px' }}>
+                                      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                        <div style={{ flex: 1 }}>
+                                          <label style={{ fontSize: '10px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>Risk Price</label>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            value={editRiskPrice}
+                                            onChange={(e) => setEditRiskPrice(e.target.value)}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              border: '1px solid #d1d5db',
+                                              borderRadius: '6px',
+                                              fontSize: '12px'
+                                            }}
+                                          />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                          <label style={{ fontSize: '10px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>Reward Price</label>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            value={editRewardPrice}
+                                            onChange={(e) => setEditRewardPrice(e.target.value)}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              border: '1px solid #d1d5db',
+                                              borderRadius: '6px',
+                                              fontSize: '12px'
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                          onClick={() => handleSaveTargets(holding.symbol)}
+                                          disabled={isSaving}
+                                          style={{
+                                            flex: 1,
+                                            padding: '6px 12px',
+                                            backgroundColor: '#10b981',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: '600',
+                                            cursor: isSaving ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
+                                          {isSaving ? 'Saving...' : 'Save'}
+                                        </button>
+                                        <button
+                                          onClick={handleCancelEdit}
+                                          disabled={isSaving}
+                                          style={{
+                                            flex: 1,
+                                            padding: '6px 12px',
+                                            backgroundColor: '#6b7280',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: '600',
+                                            cursor: isSaving ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          onClick={() => handleResetToDefaults(holding.symbol)}
+                                          disabled={isSaving}
+                                          style={{
+                                            padding: '6px 12px',
+                                            backgroundColor: '#ef4444',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: '600',
+                                            cursor: isSaving ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
+                                          Reset
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {/* Price labels */}
+                                      <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        marginBottom: '8px',
+                                        fontSize: '11px',
+                                        fontWeight: '600'
+                                      }}>
+                                        <span style={{ color: '#6b7280' }}>Avg: C${avgBuyPrice.toFixed(2)}</span>
+                                        <span style={{ color: '#dc2626' }}>Risk: C${holding.riskPrice.toFixed(2)}</span>
+                                        <span style={{
+                                          color: '#2563eb',
+                                          fontSize: '13px',
+                                          fontWeight: '700'
+                                        }}>
+                                          C${holding.currentPrice.toFixed(2)}
+                                        </span>
+                                        <span style={{ color: '#166534' }}>Target: C${holding.rewardPrice.toFixed(2)}</span>
+                                      </div>
+                                    </>
+                                  )}
                                   {/* Slider track */}
                                   <div style={{
                                     position: 'relative',
@@ -728,6 +909,26 @@ const Ratios: React.FC = () => {
                                       borderRadius: '2px'
                                     }}></div>
                                   </div>
+                                  {/* Edit button - only show when not editing */}
+                                  {!isEditing && (
+                                    <div style={{ marginTop: '8px', textAlign: 'center' }}>
+                                      <button
+                                        onClick={() => handleEditTargets(holding)}
+                                        style={{
+                                          padding: '4px 12px',
+                                          backgroundColor: '#3b82f6',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '6px',
+                                          fontSize: '11px',
+                                          fontWeight: '600',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        Edit Targets
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })()
