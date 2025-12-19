@@ -13,7 +13,8 @@ import {
   Activity,
   Calculator,
   Eye,
-  LineChart
+  LineChart,
+  Newspaper
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -21,17 +22,30 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
+type NavigationItem = {
+  name: string;
+  href: string;
+  icon: React.ComponentType<any>;
+};
+
+type NavigationSeparator = {
+  type: 'separator';
+};
+
+type NavigationElement = NavigationItem | NavigationSeparator;
+
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navigation = [
+  const navigation: NavigationElement[] = [
     { name: 'Breakdown', href: '/breakdown', icon: PieChart },
     { name: 'Watchlist', href: '/watchlist', icon: Eye },
     { name: 'Risk', href: '/ratios', icon: Calculator },
     { name: 'Analysis', href: '/analysis', icon: Activity },
-    { name: 'Trends', href: '/trends', icon: TrendingUp },
     { name: 'P&L Tracker', href: '/pnl', icon: LineChart },
+    { name: 'NewsBoard', href: '/newsboard', icon: Newspaper },
+    { type: 'separator' },
     { name: 'Icons', href: '/icons', icon: Image },
     { name: 'Cache', href: '/cache', icon: Database },
     { name: 'Search', href: '/search', icon: Search },
@@ -54,16 +68,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               
               {/* Desktop Navigation */}
               <div className="nav-links">
-                {navigation.map((item) => {
-                  const Icon = item.icon;
+                {navigation.map((item, index) => {
+                  if ('type' in item && item.type === 'separator') {
+                    return (
+                      <div
+                        key={`separator-${index}`}
+                        style={{
+                          width: '1px',
+                          height: '24px',
+                          backgroundColor: '#d1d5db',
+                          margin: '1rem 2rem',
+                        }}
+                      />
+                    );
+                  }
+                  const navItem = item as NavigationItem;
+                  const Icon = navItem.icon;
                   return (
                     <Link
-                      key={item.name}
-                      to={item.href}
-                      className={`nav-link ${isActive(item.href) ? 'active' : ''}`}
+                      key={navItem.name}
+                      to={navItem.href}
+                      className={`nav-link ${isActive(navItem.href) ? 'active' : ''}`}
                     >
                       <Icon />
-                      {item.name}
+                      {navItem.name}
                     </Link>
                   );
                 })}
@@ -97,18 +125,31 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Mobile Navigation Menu */}
         {mobileMenuOpen && (
           <div className="mobile-menu active">
-            {navigation.map((item) => {
-              const Icon = item.icon;
+            {navigation.map((item, index) => {
+              if ('type' in item && item.type === 'separator') {
+                return (
+                  <div
+                    key={`separator-${index}`}
+                    style={{
+                      height: '1px',
+                      backgroundColor: '#d1d5db',
+                      margin: '0.5rem 1rem',
+                    }}
+                  />
+                );
+              }
+              const navItem = item as NavigationItem;
+              const Icon = navItem.icon;
               return (
                 <Link
-                  key={item.name}
-                  to={item.href}
+                  key={navItem.name}
+                  to={navItem.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`mobile-nav-link ${isActive(item.href) ? 'active' : ''}`}
+                  className={`mobile-nav-link ${isActive(navItem.href) ? 'active' : ''}`}
                 >
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <Icon style={{ marginRight: '0.75rem', width: '1.25rem', height: '1.25rem' }} />
-                    {item.name}
+                    {navItem.name}
                   </div>
                 </Link>
               );
