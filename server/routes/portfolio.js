@@ -3590,20 +3590,9 @@ async function calculateRiskMetrics(symbol, holding, historicalData, currentMark
     // 9. Calculate average buy price (total invested / quantity)
     const averageBuyPrice = holding.quantity > 0 ? holding.totalInvested / holding.quantity : currentPrice;
 
-    // 10. Calculate profit percentage
-    const profitPercent = averageBuyPrice > 0 ? ((currentPrice - averageBuyPrice) / averageBuyPrice) * 100 : 0;
-
-    // 11. Calculate default targets based on average buy price
-    // If profit > 50%, set risk to lock in 50% profit (avg price * 1.5)
-    // Otherwise, set risk to avg price - 10%
-    let defaultRiskPrice;
-    if (profitPercent > 50) {
-      defaultRiskPrice = averageBuyPrice * 1.50; // Lock in 50% profit
-    } else {
-      defaultRiskPrice = averageBuyPrice * 0.90; // avg price - 10%
-    }
-
-    const defaultRewardPrice = averageBuyPrice * 2.0; // avg price × 2
+    // 10. Calculate default targets based on average buy price
+    const defaultRiskPrice = averageBuyPrice * 0.90; // avg price - 10%
+    const defaultRewardPrice = averageBuyPrice * 1.5; // avg price × 1.5
 
     // 12. Check for custom targets in cache, otherwise use defaults
     const cachedTargets = holdingsCache.getTargets(symbol);
