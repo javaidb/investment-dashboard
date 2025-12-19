@@ -18,6 +18,8 @@ const historicalRoutes = require('./routes/historical');
 const iconRoutes = require('./routes/icons');
 const recurringInvestmentsRoutes = require('./routes/recurring-investments');
 const pnlRoutes = require('./routes/pnl');
+const newsboardRoutes = require('./routes/newsboard');
+const portfolioValueRoutes = require('./routes/portfolio-value');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
@@ -26,6 +28,8 @@ const watchlistCache = require('./watchlist-cache');
 const fileTracker = require('./file-tracker');
 const historicalDataPreloader = require('./historical-data-preloader');
 const portfolioAssetDiscovery = require('./portfolio-asset-discovery');
+const portfolioValueCache = require('./portfolio-value-cache');
+const portfolioValuePreloader = require('./portfolio-value-preloader');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -89,6 +93,8 @@ app.use('/api/historical', historicalRoutes);
 app.use('/api/icons', iconRoutes);
 app.use('/api/recurring-investments', recurringInvestmentsRoutes);
 app.use('/api/pnl', pnlRoutes);
+app.use('/api/newsboard', newsboardRoutes);
+app.use('/api/portfolio-value', portfolioValueRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -197,6 +203,15 @@ async function initializeCache() {
               const preloadResult = await historicalDataPreloader.prePopulateHistoricalCache();
               if (preloadResult.success) {
                 console.log(`✅ Historical cache pre-population completed: ${preloadResult.symbolsProcessed} symbols processed in ${preloadResult.duration}ms`);
+
+                // After historical cache is populated, calculate portfolio value over time
+                console.log('💰 Calculating portfolio value over time...');
+                const portfolioValueResult = await portfolioValuePreloader.prePopulatePortfolioValue();
+                if (portfolioValueResult.success) {
+                  console.log(`✅ Portfolio value cache pre-population completed in ${portfolioValueResult.duration}ms`);
+                } else {
+                  console.log(`⚠️ Portfolio value cache pre-population failed: ${portfolioValueResult.message}`);
+                }
               } else {
                 console.log(`⚠️ Historical cache pre-population failed: ${preloadResult.message}`);
               }
