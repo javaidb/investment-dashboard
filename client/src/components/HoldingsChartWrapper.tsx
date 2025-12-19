@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useQuery } from 'react-query';
+import axios from 'axios';
 import { useCache } from '../contexts/CacheContext';
 import HoldingsChart from './HoldingsChart';
 
@@ -27,19 +29,57 @@ interface Holding {
   totalPnL?: number;
   totalPnLPercent?: number;
   cacheUsed?: boolean;
+  usdPrice?: number;
+  exchangeRate?: number;
 }
 
 const HoldingsChartWrapper: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [error, setError] = useState<string | null>(null);
-  
-  const { 
-    holdings: cachedHoldings, 
-    latestPortfolio, 
+
+  const {
+    holdings: cachedHoldings,
+    latestPortfolio,
     isLoading,
     error: cacheError
   } = useCache();
+
+  // Fetch watchlist data to get custom symbols
+  const { data: watchlistData } = useQuery(
+    'watchlist',
+    async () => {
+      const response = await axios.get('/api/portfolio/watchlist');
+      return response.data.watchlist;
+    },
+    {
+      staleTime: 300000, // 5 minutes
+      cacheTime: 900000, // 15 minutes
+      retry: 1
+    }
+  );
+
+  // Fetch cached prices for custom symbols
+  const { data: cachedPrices } = useQuery(
+    ['cached-prices-for-chart', watchlistData?.custom],
+    async () => {
+      const customSymbols = watchlistData?.custom || [];
+      if (customSymbols.length === 0) return {};
+
+      try {
+        const response = await axios.get('/api/portfolio/cache/data');
+        return response.data.cache || {};
+      } catch (error) {
+        console.error('Failed to fetch cached prices:', error);
+        return {};
+      }
+    },
+    {
+      enabled: (watchlistData?.custom?.length || 0) > 0,
+      staleTime: 300000, // 5 minutes
+      cacheTime: 900000, // 15 minutes
+    }
+  );
 
   console.log('🔍 HoldingsChartWrapper component rendered from cache context');
 
@@ -53,7 +93,7 @@ const HoldingsChartWrapper: React.FC = () => {
     setError(null); // Clear any previous errors
     processPortfolioData();
     // eslint-disable-next-line
-  }, [latestPortfolio, cachedHoldings]);
+  }, [latestPortfolio, cachedHoldings, watchlistData, cachedPrices]);
 
   const processPortfolioData = () => {
     try {
@@ -113,13 +153,57 @@ const HoldingsChartWrapper: React.FC = () => {
           unrealizedPnL: unrealizedPnL,
           totalPnL: totalPnL,
           totalPnLPercent: totalPnLPercent,
-          cacheUsed: !!cachedPrice
+          cacheUsed: !!cachedPrice,
+          usdPrice: cachedPrice?.usdPrice || holding.usdPrice || 0,
+          exchangeRate: cachedPrice?.exchangeRate || holding.exchangeRate || 1.4
         };
       });
-      
-      setHoldings(safeHoldings);
-      
-      console.log('✅ HoldingsChartWrapper: Portfolio data processing completed successfully');
+
+      // Add custom watchlist symbols that aren't already in portfolio
+      const customSymbols = watchlistData?.custom || [];
+      const prices = cachedPrices || {};
+      const portfolioSymbols = new Set(safeHoldings.map((h: Holding) => h.symbol));
+
+      const customHoldings = customSymbols
+        .filter((symbol: string) => !portfolioSymbols.has(symbol))
+        .map((symbol: string) => {
+          const cachedPrice = prices[symbol];
+          if (!cachedPrice) return null;
+
+          // Detect if symbol is crypto based on common crypto symbols
+          const cryptoSymbols = ['BTC', 'ETH', 'DOGE', 'SOL', 'ADA', 'XRP', 'USDT', 'BNB', 'USDC', 'SHIB', 'AVAX', 'DOT', 'MATIC', 'LTC', 'TRX', 'LINK', 'UNI', 'ATOM', 'XMR', 'ZEC', 'TRUMP'];
+          const isCrypto = cryptoSymbols.includes(symbol.toUpperCase());
+
+          return {
+            symbol,
+            quantity: 0,
+            averagePrice: 0,
+            totalInvested: 0,
+            totalAmountInvested: 0,
+            realizedPnL: 0,
+            amountSold: 0,
+            type: isCrypto ? 'c' : 's',
+            currency: 'CAD',
+            companyName: cachedPrice.companyName || symbol,
+            currentPrice: cachedPrice.cadPrice || cachedPrice.price || 0,
+            currentValue: 0,
+            unrealizedPnL: 0,
+            totalPnL: 0,
+            totalPnLPercent: 0,
+            cacheUsed: true,
+            // Add these for compatibility with HoldingsChart
+            usdPrice: cachedPrice.usdPrice || 0,
+            exchangeRate: cachedPrice.exchangeRate || 1.4
+          } as Holding & { usdPrice?: number; exchangeRate?: number };
+        })
+        .filter(Boolean) as Holding[];
+
+      // Combine portfolio holdings and custom symbols
+      const allHoldings = [...safeHoldings, ...customHoldings];
+
+      setHoldings(allHoldings);
+
+      console.log(`✅ HoldingsChartWrapper: Portfolio data processing completed successfully (${safeHoldings.length} portfolio + ${customHoldings.length} custom = ${allHoldings.length} total)`);
     } catch (processingError) {
       console.error('Error processing portfolio data in HoldingsChartWrapper:', processingError);
       setError(`Failed to process portfolio data: ${processingError instanceof Error ? processingError.message : 'Unknown error'}`);
