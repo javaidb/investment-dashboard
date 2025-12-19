@@ -237,13 +237,92 @@ async function initializeCache() {
     
     console.log('✅ Cache initialization completed');
     console.log(`📈 Cache ready for portfolio operations`);
-    
+
     // Display file tracking summary
     const fileStats = fileTracker.getStats();
     console.log(`📋 File tracking: ${fileStats.totalFiles} total files, ${fileStats.processedFiles} processed`);
-    
+
+    // Recalculate default risk/reward targets for all holdings
+    await recalculateDefaultTargets();
+
   } catch (error) {
     console.warn('⚠️ Cache initialization failed, will populate on first request:', error.message);
+  }
+}
+
+// Recalculate default risk/reward targets for all portfolio holdings
+async function recalculateDefaultTargets() {
+  try {
+    console.log('🎯 Recalculating default risk/reward targets...');
+
+    // Load portfolios from file
+    const fs = require('fs');
+    const PORTFOLIO_FILE = path.join(__dirname, 'data/cache', 'portfolios.json');
+
+    if (!fs.existsSync(PORTFOLIO_FILE)) {
+      console.log('📝 No portfolio file found, skipping target recalculation');
+      return;
+    }
+
+    const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+    const portfolioData = JSON.parse(data);
+    const portfolios = Object.values(portfolioData);
+
+    if (portfolios.length === 0) {
+      console.log('📝 No portfolios found, skipping target recalculation');
+      return;
+    }
+
+    // Get the most recent portfolio
+    const mostRecentEntry = portfolios.reduce((latest, current) => {
+      const currentDate = new Date(current.fileMetadata?.processedAt || current.portfolio?.createdAt || current.createdAt || 0);
+      const latestDate = new Date(latest.fileMetadata?.processedAt || latest.portfolio?.createdAt || latest.createdAt || 0);
+      return currentDate > latestDate ? current : latest;
+    });
+
+    const mostRecentPortfolio = mostRecentEntry.portfolio || mostRecentEntry;
+
+    if (!mostRecentPortfolio.holdings || !Array.isArray(mostRecentPortfolio.holdings)) {
+      console.log('⚠️ No holdings found in portfolio');
+      return;
+    }
+
+    // Recalculate defaults for each holding
+    let updatedCount = 0;
+    for (const holding of mostRecentPortfolio.holdings) {
+      const symbol = holding.symbol;
+      const averageBuyPrice = holding.quantity > 0 ? holding.totalInvested / holding.quantity : 0;
+
+      if (averageBuyPrice <= 0) continue;
+
+      // Get current price from cache
+      const cachedHolding = holdingsCache.get(symbol);
+      const currentPrice = cachedHolding?.cadPrice || cachedHolding?.price || 0;
+
+      if (currentPrice <= 0) continue;
+
+      // Calculate default targets based on average buy price
+      const defaultRiskPrice = averageBuyPrice * 0.90; // avg price - 10%
+      const defaultRewardPrice = averageBuyPrice * 1.5; // avg price × 1.5
+
+      // Get existing targets to preserve custom values
+      const existingTargets = holdingsCache.getTargets(symbol);
+
+      // Update only default targets, preserve custom values
+      holdingsCache.updateTargets(symbol, {
+        defaultRiskPrice: defaultRiskPrice,
+        defaultRewardPrice: defaultRewardPrice,
+        customRiskPrice: existingTargets?.customRiskPrice || null,
+        customRewardPrice: existingTargets?.customRewardPrice || null
+      });
+
+      updatedCount++;
+    }
+
+    console.log(`✅ Updated default targets for ${updatedCount} holdings`);
+
+  } catch (error) {
+    console.error('❌ Error recalculating default targets:', error.message);
   }
 }
 
