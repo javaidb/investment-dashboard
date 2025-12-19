@@ -84,3 +84,7 @@ server/data/icons/*
 
 # Test scripts (one-time development tests)
 test-scripts/
+
+# Temporary portfolio data files
+portfolio-temp.json
+*-temp.json
