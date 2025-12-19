@@ -1306,6 +1306,7 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
             return {
               ...holding,
               companyName: cachedData.companyName || holding.symbol,
+              sector: cachedData.sector || holding.sector || null, // Use sector from cache, fallback to holding
               currentPrice: cadPrice,
               currentValue: currentValue,
               unrealizedPnL: unrealizedPnL,
@@ -2807,6 +2808,38 @@ router.delete('/cache/:symbol', (req, res) => {
   } catch (error) {
     console.error('Cache delete error:', error);
     res.status(500).json({ error: 'Failed to delete cache entry' });
+  }
+});
+
+// Update sector for a symbol in cache
+router.put('/cache/:symbol/sector', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { sector } = req.body;
+
+    console.log(`🏷️ Updating sector for ${symbol} to: ${sector || 'null'}`);
+
+    // Get existing cache entry
+    const cached = holdingsCache.cache.get(symbol);
+    if (!cached) {
+      return res.status(404).json({ error: `Symbol ${symbol} not found in cache` });
+    }
+
+    // Update sector
+    cached.sector = sector || null;
+    holdingsCache.cache.set(symbol, cached);
+    holdingsCache.saveCache();
+
+    res.json({
+      success: true,
+      symbol: symbol,
+      sector: cached.sector,
+      message: `Updated sector for ${symbol}`
+    });
+
+  } catch (error) {
+    console.error('Sector update error:', error);
+    res.status(500).json({ error: 'Failed to update sector' });
   }
 });
 
