@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import DailyPnLChart from './DailyPnLChart';
+import TotalPortfolioPnLChart from './TotalPortfolioPnLChart';
 
 interface AssetSummary {
   symbol: string;
@@ -509,11 +510,21 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
           </div>
         )}
 
-        {selectedSymbol && (
-          <div style={{ marginBottom: '24px' }}>
+        {/* Charts Section - Portfolio Total and Individual Symbol Side by Side */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: selectedSymbol ? '1fr 1fr' : '1fr',
+          gap: '24px',
+          marginBottom: '24px'
+        }}>
+          {/* Total Portfolio P&L Chart */}
+          <TotalPortfolioPnLChart portfolioId={portfolioId} />
+
+          {/* Individual Symbol P&L Chart */}
+          {selectedSymbol && (
             <DailyPnLChart symbol={selectedSymbol} />
-          </div>
-        )}
+          )}
+        </div>
 
         {assetsWithData.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: selectedSymbol ? '1fr 1fr' : '1fr', gap: '24px', marginBottom: '24px' }}>
