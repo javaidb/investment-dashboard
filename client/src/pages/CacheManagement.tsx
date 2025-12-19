@@ -15,11 +15,31 @@ interface CacheData {
     usdPrice: number;
     cadPrice: number;
     companyName: string;
+    sector?: string | null;
     exchangeRate: number;
     lastUpdated: string;
     priceDate: string;
   };
 }
+
+// Predefined sector options
+const SECTOR_OPTIONS = [
+  'Alternative Investments',
+  'Automotive',
+  'Consumer Cyclical',
+  'Consumer Defensive',
+  'Cryptocurrency',
+  'Energy',
+  'ETF',
+  'Financial Services',
+  'Healthcare',
+  'Industrials',
+  'Raw Materials',
+  'Real Estate',
+  'Tech',
+  'Telecommunications',
+  'Utilities'
+];
 
 const CacheManagement: React.FC = () => {
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
@@ -27,6 +47,8 @@ const CacheManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshingPortfolio, setRefreshingPortfolio] = useState(false);
+  const [editingSector, setEditingSector] = useState<string | null>(null);
+  const [editSectorValue, setEditSectorValue] = useState<string>('');
 
   const { refreshCache } = useCache();
 
@@ -115,6 +137,48 @@ const CacheManagement: React.FC = () => {
       await loadCacheStats();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete cache entry');
+    }
+  };
+
+  const startEditingSector = (symbol: string, currentSector?: string | null) => {
+    setEditingSector(symbol);
+    setEditSectorValue(currentSector || '');
+  };
+
+  const cancelEditingSector = () => {
+    setEditingSector(null);
+    setEditSectorValue('');
+  };
+
+  const saveSector = async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/portfolio/cache/${symbol}/sector`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ sector: editSectorValue || null })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update sector');
+      }
+
+      // Update local cache data
+      if (cacheData) {
+        setCacheData({
+          ...cacheData,
+          [symbol]: {
+            ...cacheData[symbol],
+            sector: editSectorValue || null
+          }
+        });
+      }
+
+      setEditingSector(null);
+      setEditSectorValue('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update sector');
     }
   };
 
@@ -501,22 +565,25 @@ const CacheManagement: React.FC = () => {
               <table style={{backgroundColor: 'white', width: '100%', tableLayout: 'fixed'}}>
                 <thead>
                   <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
                       Symbol
                     </th>
-                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '20%'}}>
+                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '18%'}}>
                       Company
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '13%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
+                      Sector
+                    </th>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '11%'}}>
                       USD Price
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '13%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '11%'}}>
                       CAD Price
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '8%'}}>
                       FX Rate
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '20%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '18%'}}>
                       Last Updated
                     </th>
                     <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
@@ -525,7 +592,7 @@ const CacheManagement: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {cacheStats.symbols.map((symbol, index) => {
+                  {cacheStats.symbols.sort((a, b) => a.localeCompare(b)).map((symbol, index) => {
                     const entry = cacheData?.[symbol];
                     return (
                       <tr
@@ -557,6 +624,91 @@ const CacheManagement: React.FC = () => {
                           }} title={entry?.companyName}>
                             {entry?.companyName || '-'}
                           </div>
+                        </td>
+                        {/* Sector column with edit functionality */}
+                        <td className="py-3 px-6 text-center">
+                          {editingSector === symbol ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
+                              <select
+                                value={editSectorValue}
+                                onChange={(e) => setEditSectorValue(e.target.value)}
+                                style={{
+                                  fontSize: '12px',
+                                  padding: '4px 8px',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'white',
+                                  width: '100%'
+                                }}
+                              >
+                                <option value="">-- Select Sector --</option>
+                                {SECTOR_OPTIONS.map(sector => (
+                                  <option key={sector} value={sector}>{sector}</option>
+                                ))}
+                              </select>
+                              <div style={{ display: 'flex', gap: '4px', width: '100%' }}>
+                                <button
+                                  onClick={() => saveSector(symbol)}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: 'white',
+                                    backgroundColor: '#10b981',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={cancelEditingSector}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: '#6b7280',
+                                    backgroundColor: '#f3f4f6',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => startEditingSector(symbol, entry?.sector)}
+                              style={{
+                                cursor: 'pointer',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                color: entry?.sector ? '#374151' : '#9ca3af',
+                                backgroundColor: entry?.sector ? '#f3f4f6' : '#fafafa',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '6px',
+                                display: 'inline-block',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#e5e7eb';
+                                e.currentTarget.style.borderColor = '#d1d5db';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = entry?.sector ? '#f3f4f6' : '#fafafa';
+                                e.currentTarget.style.borderColor = '#e5e7eb';
+                              }}
+                              title="Click to edit sector"
+                            >
+                              {entry?.sector || 'Not set'}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-6 text-center">
                           <div style={{
