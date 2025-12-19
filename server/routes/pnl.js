@@ -481,6 +481,128 @@ router.delete('/symbol/:symbol', (req, res) => {
   }
 });
 
+// Get aggregated daily P&L for entire portfolio
+router.get('/portfolio/:portfolioId/daily', async (req, res) => {
+  try {
+    const { portfolioId } = req.params;
+
+    // Load portfolio data
+    const portfolios = loadPortfolios();
+    const portfolio = portfolios.get(portfolioId);
+
+    if (!portfolio) {
+      return res.status(404).json({
+        success: false,
+        error: 'Portfolio not found',
+        portfolioId
+      });
+    }
+
+    // Get all unique symbols from trades
+    const symbols = [...new Set((portfolio.trades || []).map(t => t.symbol))];
+
+    if (symbols.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Portfolio has no trades'
+      });
+    }
+
+    console.log(`📊 Aggregating daily P&L for ${symbols.length} symbols`);
+
+    // Collect P&L data for all symbols that have it
+    const symbolsWithData = [];
+    const symbolsWithoutData = [];
+
+    for (const symbol of symbols) {
+      const pnlData = pnlCache.get(symbol);
+      if (pnlData && pnlData.dailyRecords && pnlData.dailyRecords.length > 0) {
+        symbolsWithData.push({
+          symbol,
+          dailyRecords: pnlData.dailyRecords,
+          assetInfo: pnlData.assetInfo
+        });
+      } else {
+        symbolsWithoutData.push(symbol);
+      }
+    }
+
+    if (symbolsWithData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No P&L data available for any assets in portfolio',
+        message: 'Calculate P&L for individual assets first',
+        symbolsWithoutData
+      });
+    }
+
+    console.log(`Found P&L data for ${symbolsWithData.length}/${symbols.length} symbols`);
+
+    // Build a map of date -> aggregated values
+    const dailyAggregates = new Map();
+
+    for (const symbolData of symbolsWithData) {
+      for (const record of symbolData.dailyRecords) {
+        const dateKey = record.date;
+
+        if (!dailyAggregates.has(dateKey)) {
+          dailyAggregates.set(dateKey, {
+            date: dateKey,
+            totalValue: 0,
+            totalCostBasis: 0,
+            totalUnrealizedPnL: 0,
+            totalRealizedPnL: 0,
+            totalPnL: 0,
+            assetsCount: 0
+          });
+        }
+
+        const aggregate = dailyAggregates.get(dateKey);
+        aggregate.totalValue += record.marketValue || 0;
+        aggregate.totalCostBasis += record.costBasis || 0;
+        aggregate.totalUnrealizedPnL += record.unrealizedPnL || 0;
+        aggregate.totalRealizedPnL += record.realizedPnL || 0;
+        aggregate.totalPnL += record.totalPnL || 0;
+        aggregate.assetsCount++;
+      }
+    }
+
+    // Convert map to sorted array
+    const dailyRecords = Array.from(dailyAggregates.values())
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(record => ({
+        ...record,
+        totalPnLPercent: record.totalCostBasis > 0
+          ? (record.totalPnL / record.totalCostBasis) * 100
+          : 0
+      }));
+
+    const startDate = dailyRecords.length > 0 ? dailyRecords[0].date : null;
+    const endDate = dailyRecords.length > 0 ? dailyRecords[dailyRecords.length - 1].date : null;
+
+    console.log(`📈 Aggregated ${dailyRecords.length} daily records from ${startDate} to ${endDate}`);
+
+    res.json({
+      success: true,
+      portfolioId,
+      dailyRecords,
+      totalRecords: dailyRecords.length,
+      startDate,
+      endDate,
+      symbolsWithData: symbolsWithData.map(s => s.symbol),
+      symbolsWithoutData
+    });
+
+  } catch (error) {
+    console.error('Portfolio daily P&L error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get portfolio daily P&L',
+      message: error.message
+    });
+  }
+});
+
 // Clear entire PnL cache
 router.delete('/clear-all', (req, res) => {
   try {
