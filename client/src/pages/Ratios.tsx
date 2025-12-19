@@ -690,11 +690,20 @@ const Ratios: React.FC = () => {
 
                               // Start the range from whichever is lower (risk or avg buy)
                               const rangeStart = Math.min(holding.riskPrice, avgBuyPrice);
-                              const totalRange = holding.rewardPrice - rangeStart;
+
+                              // If current price exceeds reward, extend the range to 2x avg price
+                              // Otherwise, range ends at reward
+                              const maxGreenZone = avgBuyPrice * 2.0; // 2x avg price for green zone
+                              const rangeEnd = holding.currentPrice > holding.rewardPrice
+                                ? Math.max(maxGreenZone, holding.currentPrice)
+                                : holding.rewardPrice;
+                              const totalRange = rangeEnd - rangeStart;
 
                               // Calculate positions relative to range start
                               const avgBuyPosition = ((avgBuyPrice - rangeStart) / totalRange) * 100;
                               const riskPosition = ((holding.riskPrice - rangeStart) / totalRange) * 100;
+                              const rewardPosition = ((holding.rewardPrice - rangeStart) / totalRange) * 100;
+                              const maxGreenPosition = ((maxGreenZone - rangeStart) / totalRange) * 100;
                               const currentPosition = ((holding.currentPrice - rangeStart) / totalRange) * 100;
 
                               return (
@@ -821,7 +830,7 @@ const Ratios: React.FC = () => {
                                     overflow: 'hidden',
                                     border: '1px solid #e5e7eb'
                                   }}>
-                                    {/* Zones depend on whether current price is above or below risk price */}
+                                    {/* Zones depend on current price position */}
                                     {holding.currentPrice < holding.riskPrice ? (
                                       <>
                                         {/* Red zone: from start to avg buy (when current < risk) */}
@@ -833,7 +842,7 @@ const Ratios: React.FC = () => {
                                           width: `${Math.max(0, Math.min(100, avgBuyPosition))}%`,
                                           background: 'linear-gradient(to right, #fee2e2, #fecaca)',
                                         }}></div>
-                                        {/* Yellow zone: from avg buy to reward */}
+                                        {/* Yellow zone: from avg buy to end */}
                                         <div style={{
                                           position: 'absolute',
                                           left: `${avgBuyPosition}%`,
@@ -843,9 +852,39 @@ const Ratios: React.FC = () => {
                                           background: 'linear-gradient(to right, #fef3c7, #fde68a)',
                                         }}></div>
                                       </>
+                                    ) : holding.currentPrice > holding.rewardPrice ? (
+                                      <>
+                                        {/* Gray zone: from start to risk (when current > reward) */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: 0,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${Math.max(0, Math.min(100, riskPosition))}%`,
+                                          background: 'linear-gradient(to right, #e5e7eb, #d1d5db)',
+                                        }}></div>
+                                        {/* Yellow zone: from risk to reward */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: `${riskPosition}%`,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${rewardPosition - riskPosition}%`,
+                                          background: 'linear-gradient(to right, #fef3c7, #fde68a)',
+                                        }}></div>
+                                        {/* Green zone: from reward to max green zone (2x avg price) */}
+                                        <div style={{
+                                          position: 'absolute',
+                                          left: `${rewardPosition}%`,
+                                          top: 0,
+                                          bottom: 0,
+                                          width: `${Math.min(100, maxGreenPosition) - rewardPosition}%`,
+                                          background: 'linear-gradient(to right, #dcfce7, #bbf7d0)',
+                                        }}></div>
+                                      </>
                                     ) : (
                                       <>
-                                        {/* Gray zone: from start to risk (when current >= risk) */}
+                                        {/* Gray zone: from start to risk (when risk <= current <= reward) */}
                                         <div style={{
                                           position: 'absolute',
                                           left: 0,
@@ -885,16 +924,29 @@ const Ratios: React.FC = () => {
                                       backgroundColor: '#dc2626',
                                       zIndex: 5
                                     }}></div>
-                                    {/* Reward price marker (right edge) */}
+                                    {/* Reward price marker */}
                                     <div style={{
                                       position: 'absolute',
-                                      right: 0,
+                                      left: `${Math.max(0, Math.min(100, rewardPosition))}%`,
                                       top: 0,
                                       bottom: 0,
                                       width: '2px',
                                       backgroundColor: '#166534',
                                       zIndex: 5
                                     }}></div>
+                                    {/* Max green zone marker (2x avg price) - only show if current > reward */}
+                                    {holding.currentPrice > holding.rewardPrice && (
+                                      <div style={{
+                                        position: 'absolute',
+                                        left: `${Math.max(0, Math.min(100, maxGreenPosition))}%`,
+                                        top: 0,
+                                        bottom: 0,
+                                        width: '2px',
+                                        backgroundColor: '#059669',
+                                        zIndex: 5,
+                                        opacity: 0.6
+                                      }}></div>
+                                    )}
                                     {/* Current price indicator (blue line) */}
                                     <div style={{
                                       position: 'absolute',
