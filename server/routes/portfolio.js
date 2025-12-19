@@ -1164,7 +1164,7 @@ router.post('/watchlist/refresh', (req, res) => {
 });
 
 // Add symbol to custom watchlist
-router.post('/watchlist/custom/add', (req, res) => {
+router.post('/watchlist/custom/add', async (req, res) => {
   try {
     const { symbol } = req.body;
 
@@ -1174,6 +1174,20 @@ router.post('/watchlist/custom/add', (req, res) => {
 
     const added = watchlistCache.addCustomSymbol(symbol);
     const watchlist = watchlistCache.getWatchlist();
+
+    // If symbol was successfully added, trigger historical cache update in background
+    if (added) {
+      setTimeout(async () => {
+        try {
+          console.log(`📈 Fetching historical data for newly added custom symbol ${symbol}...`);
+          const historicalDataPreloader = require('../historical-data-preloader');
+          await historicalDataPreloader.quickUpdateSymbols([symbol.toUpperCase()]);
+          console.log(`✅ Historical cache updated for ${symbol}`);
+        } catch (error) {
+          console.error(`❌ Error updating historical cache for ${symbol}:`, error.message);
+        }
+      }, 500); // Start 500ms after response to avoid delaying user response
+    }
 
     res.json({
       success: true,
@@ -3378,6 +3392,72 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
   }
 });
 
+// Update custom risk/reward targets for a symbol
+router.put('/targets/:symbol', (req, res) => {
+  const { symbol } = req.params;
+  const { customRiskPrice, customRewardPrice } = req.body;
+
+  try {
+    console.log(`🎯 Updating custom targets for ${symbol}:`, { customRiskPrice, customRewardPrice });
+
+    // Validate inputs
+    if (customRiskPrice !== null && customRiskPrice !== undefined && (typeof customRiskPrice !== 'number' || customRiskPrice < 0)) {
+      return res.status(400).json({ error: 'customRiskPrice must be a positive number or null' });
+    }
+
+    if (customRewardPrice !== null && customRewardPrice !== undefined && (typeof customRewardPrice !== 'number' || customRewardPrice < 0)) {
+      return res.status(400).json({ error: 'customRewardPrice must be a positive number or null' });
+    }
+
+    // Build update object
+    const targets = {};
+    if (customRiskPrice !== undefined) targets.customRiskPrice = customRiskPrice;
+    if (customRewardPrice !== undefined) targets.customRewardPrice = customRewardPrice;
+
+    // Update in cache
+    const success = holdingsCache.updateTargets(symbol, targets);
+
+    if (!success) {
+      return res.status(404).json({ error: `Symbol ${symbol} not found in cache` });
+    }
+
+    // Get updated targets
+    const updatedTargets = holdingsCache.getTargets(symbol);
+
+    res.json({
+      success: true,
+      symbol: symbol,
+      targets: updatedTargets
+    });
+
+  } catch (error) {
+    console.error(`Error updating targets for ${symbol}:`, error);
+    res.status(500).json({ error: 'Failed to update targets' });
+  }
+});
+
+// Get targets for a specific symbol
+router.get('/targets/:symbol', (req, res) => {
+  const { symbol } = req.params;
+
+  try {
+    const targets = holdingsCache.getTargets(symbol);
+
+    if (!targets) {
+      return res.status(404).json({ error: `No targets found for ${symbol}` });
+    }
+
+    res.json({
+      symbol: symbol,
+      targets: targets
+    });
+
+  } catch (error) {
+    console.error(`Error getting targets for ${symbol}:`, error);
+    res.status(500).json({ error: 'Failed to get targets' });
+  }
+});
+
 // Helper function to calculate risk/reward metrics for a holding
 async function calculateRiskMetrics(symbol, holding, historicalData, currentMarketPrice = null) {
   const metrics = {
@@ -3510,34 +3590,36 @@ async function calculateRiskMetrics(symbol, holding, historicalData, currentMark
     // 9. Calculate average buy price (total invested / quantity)
     const averageBuyPrice = holding.quantity > 0 ? holding.totalInvested / holding.quantity : currentPrice;
 
-    // 10. Risk Price: ATR-based stop-loss with floor protection
-    // Tighter stop: 1.5 × ATR below current price (reduces risk exposure)
-    // This creates better risk:reward ratios by risking less per trade
-    const atrBasedStop = currentPrice - (1.5 * atr);
+    // 10. Calculate profit percentage
+    const profitPercent = averageBuyPrice > 0 ? ((currentPrice - averageBuyPrice) / averageBuyPrice) * 100 : 0;
 
-    // Hard floor: Never go below avg buy price - 10%
-    const riskFloor = averageBuyPrice * 0.90; // avg buy price - 10%
-
-    // Risk price should be the HIGHER of the two (protects against catastrophic loss)
-    // This ensures we never set a stop-loss below avg buy price - 10%
-    metrics.riskPrice = Math.max(atrBasedStop, riskFloor);
-
-    // 11. Reward Price: Use the higher of (ATR-based target, nearest resistance, or average buy price)
-    // Aggressive target: current price + (3 * ATR) - aim for minimum 2:1 ratio
-    // This creates asymmetric risk:reward (risk 1.5×ATR to make 3×ATR = 2:1 ratio)
-    const atrTarget = currentPrice + (3 * atr);
-
-    let rewardCandidate;
-    if (nearestResistance !== null) {
-      // Use the higher of ATR target or nearest resistance
-      rewardCandidate = Math.max(atrTarget, nearestResistance);
+    // 11. Calculate default targets based on average buy price
+    // If profit > 50%, set risk to lock in 50% profit (avg price * 1.5)
+    // Otherwise, set risk to avg price - 10%
+    let defaultRiskPrice;
+    if (profitPercent > 50) {
+      defaultRiskPrice = averageBuyPrice * 1.50; // Lock in 50% profit
     } else {
-      // No resistance found, use ATR-based target
-      rewardCandidate = atrTarget;
+      defaultRiskPrice = averageBuyPrice * 0.90; // avg price - 10%
     }
 
-    // Ensure reward price is at least the average buy price (breakeven minimum)
-    metrics.rewardPrice = Math.max(rewardCandidate, averageBuyPrice);
+    const defaultRewardPrice = averageBuyPrice * 2.0; // avg price × 2
+
+    // 12. Check for custom targets in cache, otherwise use defaults
+    const cachedTargets = holdingsCache.getTargets(symbol);
+
+    // Always update default targets (they change based on current price/profit)
+    holdingsCache.updateTargets(symbol, {
+      defaultRiskPrice: defaultRiskPrice,
+      defaultRewardPrice: defaultRewardPrice,
+      // Preserve existing custom values
+      customRiskPrice: cachedTargets?.customRiskPrice || null,
+      customRewardPrice: cachedTargets?.customRewardPrice || null
+    });
+
+    // Use custom targets if defined, otherwise fall back to newly calculated defaults
+    metrics.riskPrice = cachedTargets?.customRiskPrice || defaultRiskPrice;
+    metrics.rewardPrice = cachedTargets?.customRewardPrice || defaultRewardPrice;
 
     // 12. Risk:Reward Ratio
     const risk = currentPrice - metrics.riskPrice;
