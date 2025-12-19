@@ -57,6 +57,7 @@ class HoldingsCache {
 
   // Set holding data in cache
   set(symbol, data) {
+    const existing = this.cache.get(symbol);
     const cacheEntry = {
       symbol: symbol,
       price: data.price,
@@ -67,7 +68,15 @@ class HoldingsCache {
       exchangeRate: data.exchangeRate,
       lastUpdated: new Date().toISOString(),
       priceDate: data.priceDate || new Date().toISOString(), // Store when the price data refers to
-      fetchedAt: data.fetchedAt || new Date().toISOString() // Store when we fetched this data
+      fetchedAt: data.fetchedAt || new Date().toISOString(), // Store when we fetched this data
+      targets: existing?.targets || data.targets || {
+        // Default targets calculated from average buy price
+        defaultRiskPrice: null,
+        defaultRewardPrice: null,
+        // Custom user-defined targets (override defaults if set)
+        customRiskPrice: null,
+        customRewardPrice: null
+      }
     };
 
     this.cache.set(symbol, cacheEntry);
@@ -115,6 +124,32 @@ class HoldingsCache {
     this.saveCache();
     console.log(`🧹 Manually cleared ${count} cache entries`);
     return count;
+  }
+
+  // Update target prices for a symbol
+  updateTargets(symbol, targets) {
+    const cached = this.cache.get(symbol);
+    if (!cached) {
+      console.warn(`⚠️ Cannot update targets for ${symbol}: symbol not in cache`);
+      return false;
+    }
+
+    // Merge with existing targets
+    cached.targets = {
+      ...cached.targets,
+      ...targets
+    };
+
+    this.cache.set(symbol, cached);
+    this.saveCache();
+    console.log(`🎯 Updated targets for ${symbol}:`, targets);
+    return true;
+  }
+
+  // Get targets for a symbol
+  getTargets(symbol) {
+    const cached = this.cache.get(symbol);
+    return cached?.targets || null;
   }
 
   // Get cache statistics
