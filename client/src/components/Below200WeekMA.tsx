@@ -82,6 +82,7 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
       }
 
       console.log(`🔍 Below200WeekMA: Starting calculation for ${holdings.length} holdings`);
+      console.log(`📋 Symbols to process: ${holdings.map(h => h.symbol).join(', ')}`);
       setIsCalculating(true);
       const results: MAStatus[] = [];
 
