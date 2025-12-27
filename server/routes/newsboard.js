@@ -102,30 +102,22 @@ function getWeeklyChanges(historicalData, weeks = 3) {
 async function checkMomentumSignal(symbol, assetName, currentPrice) {
   try {
     // Get historical data (max available daily data)
-    const dailyData = historicalCache.get(symbol, 'max');
-
-    console.log(`[${symbol}] Daily data points: ${dailyData ? dailyData.length : 0}`);
+    const result = historicalCache.get(symbol, 'max');
+    const dailyData = result?.data;
 
     if (!dailyData || dailyData.length < 1400) {
-      // Need at least ~1400 days (200 weeks * 7 days/week)
-      console.log(`[${symbol}] Not enough daily data (need 1400+, have ${dailyData ? dailyData.length : 0})`);
-      return null; // Not enough data
+      return null; // Not enough data for 200 WMA
     }
 
     // Convert daily data to weekly data
     const weeklyData = convertToWeeklyData(dailyData);
 
-    console.log(`[${symbol}] Weekly data points: ${weeklyData.length}`);
-
     if (weeklyData.length < 200) {
-      console.log(`[${symbol}] Not enough weekly data (need 200+, have ${weeklyData.length})`);
       return null; // Not enough weekly data points
     }
 
     // Calculate 200 WMA
     const wma200 = calculate200WMA(weeklyData);
-
-    console.log(`[${symbol}] 200 WMA: ${wma200}, Current Price: ${currentPrice}`);
 
     if (!wma200) {
       return null;
@@ -134,16 +126,12 @@ async function checkMomentumSignal(symbol, assetName, currentPrice) {
     // Check if current price is below 200 WMA
     const isBelow200WMA = currentPrice < wma200;
 
-    console.log(`[${symbol}] Below 200 WMA: ${isBelow200WMA}`);
-
     if (!isBelow200WMA) {
       return null; // Not below 200 WMA, no signal
     }
 
     // Get last week's change
     const weeklyChanges = getWeeklyChanges(weeklyData, 1);
-
-    console.log(`[${symbol}] Weekly change: ${weeklyChanges[0]}%`);
 
     if (weeklyChanges.length < 1) {
       return null;
@@ -152,8 +140,6 @@ async function checkMomentumSignal(symbol, assetName, currentPrice) {
     // Check if current week is positive
     const currentWeekChange = weeklyChanges[0];
     const isPositiveWeek = currentWeekChange > 0;
-
-    console.log(`[${symbol}] Positive week: ${isPositiveWeek}`);
 
     if (!isPositiveWeek) {
       return null; // Current week not positive
@@ -180,6 +166,214 @@ async function checkMomentumSignal(symbol, assetName, currentPrice) {
     };
   } catch (error) {
     console.error(`Error checking momentum signal for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check for significant daily price movements
+ */
+function checkDailyMovement(symbol, assetName, currentPrice) {
+  try {
+    const result = historicalCache.get(symbol, '1m'); // Use '1m' instead of '30d'
+    const dailyData = result?.data;
+
+    if (!dailyData || dailyData.length < 2) {
+      return null;
+    }
+
+    // Get yesterday's close
+    const sorted = [...dailyData].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const yesterdayClose = sorted[1]?.close;
+
+    if (!yesterdayClose) {
+      return null;
+    }
+
+    const dailyChange = ((currentPrice - yesterdayClose) / yesterdayClose) * 100;
+
+    // Check for significant movement (>5% in either direction)
+    if (Math.abs(dailyChange) >= 5) {
+      const isPositive = dailyChange > 0;
+      return {
+        id: `daily_${symbol}_${Date.now()}`,
+        symbol,
+        assetName,
+        type: isPositive ? 'achievement' : 'warning',
+        title: isPositive ? 'Strong Daily Gain' : 'Significant Daily Drop',
+        message: `${symbol} has ${isPositive ? 'surged' : 'dropped'} ${Math.abs(dailyChange).toFixed(2)}% today. ${isPositive ? 'Strong upward momentum detected.' : 'Consider reviewing your position.'}`,
+        timestamp: new Date(),
+        metadata: {
+          currentPrice,
+          dailyChange,
+          previousClose: yesterdayClose,
+        },
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error checking daily movement for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check for weekly trends (3 consecutive weeks in same direction)
+ */
+function checkWeeklyTrend(symbol, assetName, currentPrice) {
+  try {
+    const result = historicalCache.get(symbol, '6m');
+    const dailyData = result?.data;
+
+    if (!dailyData || dailyData.length < 30) {
+      return null;
+    }
+
+    const weeklyData = convertToWeeklyData(dailyData);
+    const weeklyChanges = getWeeklyChanges(weeklyData, 3);
+
+    if (weeklyChanges.length < 3) {
+      return null;
+    }
+
+    // Check for 3 consecutive positive weeks
+    const allPositive = weeklyChanges.every(change => change > 0);
+    const allNegative = weeklyChanges.every(change => change < 0);
+
+    if (allPositive || allNegative) {
+      const totalChange = weeklyChanges.reduce((sum, change) => sum + change, 0);
+      const avgChange = totalChange / 3;
+
+      return {
+        id: `trend_${symbol}_${Date.now()}`,
+        symbol,
+        assetName,
+        type: allPositive ? 'achievement' : 'warning',
+        title: allPositive ? '3-Week Upward Trend' : '3-Week Downward Trend',
+        message: `${symbol} has been trending ${allPositive ? 'upward' : 'downward'} for 3 consecutive weeks with an average weekly ${allPositive ? 'gain' : 'loss'} of ${Math.abs(avgChange).toFixed(2)}%. ${allPositive ? 'Positive momentum building.' : 'Sustained weakness detected.'}`,
+        timestamp: new Date(),
+        metadata: {
+          currentPrice,
+          weeklyChanges,
+          averageChange: avgChange,
+        },
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error checking weekly trend for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check for 52-week high or low
+ */
+function check52WeekHighLow(symbol, assetName, currentPrice) {
+  try {
+    const result = historicalCache.get(symbol, '1y');
+    const dailyData = result?.data;
+
+    if (!dailyData || dailyData.length < 200) {
+      return null;
+    }
+
+    const prices = dailyData.map(d => d.close);
+    const high52Week = Math.max(...prices);
+    const low52Week = Math.min(...prices);
+
+    const percentFromHigh = ((currentPrice - high52Week) / high52Week) * 100;
+    const percentFromLow = ((currentPrice - low52Week) / low52Week) * 100;
+
+    // Check if within 2% of 52-week high
+    if (percentFromHigh >= -2 && percentFromHigh <= 0) {
+      return {
+        id: `high52_${symbol}_${Date.now()}`,
+        symbol,
+        assetName,
+        type: 'achievement',
+        title: 'Approaching 52-Week High',
+        message: `${symbol} is trading at $${currentPrice.toFixed(2)}, just ${Math.abs(percentFromHigh).toFixed(2)}% below its 52-week high of $${high52Week.toFixed(2)}. Strong performance indicator.`,
+        timestamp: new Date(),
+        metadata: {
+          currentPrice,
+          high52Week,
+          percentFromHigh,
+        },
+      };
+    }
+
+    // Check if within 2% of 52-week low
+    if (percentFromLow >= 0 && percentFromLow <= 2) {
+      return {
+        id: `low52_${symbol}_${Date.now()}`,
+        symbol,
+        assetName,
+        type: 'warning',
+        title: 'Near 52-Week Low',
+        message: `${symbol} is trading at $${currentPrice.toFixed(2)}, only ${percentFromLow.toFixed(2)}% above its 52-week low of $${low52Week.toFixed(2)}. Potential value opportunity or continued weakness.`,
+        timestamp: new Date(),
+        metadata: {
+          currentPrice,
+          low52Week,
+          percentFromLow,
+        },
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error checking 52-week high/low for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check for recovery signals (down significantly but showing recent strength)
+ */
+function checkRecoverySignal(symbol, assetName, currentPrice) {
+  try {
+    const result = historicalCache.get(symbol, '6m');
+    const dailyData = result?.data;
+
+    if (!dailyData || dailyData.length < 60) {
+      return null;
+    }
+
+    const sorted = [...dailyData].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Get price 3 months ago
+    const threeMonthsAgo = sorted[sorted.length - 90]?.close || sorted[0].close;
+    const threeMonthChange = ((currentPrice - threeMonthsAgo) / threeMonthsAgo) * 100;
+
+    // Get last 2 weeks of data
+    const lastTwoWeeks = sorted.slice(-10);
+    const twoWeeksAgo = lastTwoWeeks[0]?.close;
+    const twoWeekChange = ((currentPrice - twoWeeksAgo) / twoWeeksAgo) * 100;
+
+    // Recovery signal: down >15% over 3 months but up >5% in last 2 weeks
+    if (threeMonthChange < -15 && twoWeekChange > 5) {
+      return {
+        id: `recovery_${symbol}_${Date.now()}`,
+        symbol,
+        assetName,
+        type: 'momentum_signal',
+        title: 'Potential Recovery Signal',
+        message: `${symbol} is down ${Math.abs(threeMonthChange).toFixed(2)}% over 3 months but has gained ${twoWeekChange.toFixed(2)}% in the last 2 weeks. Early signs of recovery emerging.`,
+        timestamp: new Date(),
+        metadata: {
+          currentPrice,
+          threeMonthChange,
+          twoWeekChange,
+        },
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error checking recovery signal for ${symbol}:`, error);
     return null;
   }
 }
@@ -266,19 +460,28 @@ router.get('/events', async (req, res) => {
       };
     }));
 
-    // Check each holding for momentum signals
-    const checks = holdingsWithPrices.map(holding =>
-      checkMomentumSignal(holding.symbol, holding.assetName, holding.currentPrice)
-    );
+    // Check each holding for all types of signals
+    for (const holding of holdingsWithPrices) {
+      const { symbol, assetName, currentPrice } = holding;
 
-    const results = await Promise.all(checks);
+      // Run all checks
+      const checks = [
+        checkMomentumSignal(symbol, assetName, currentPrice),
+        checkDailyMovement(symbol, assetName, currentPrice),
+        checkWeeklyTrend(symbol, assetName, currentPrice),
+        check52WeekHighLow(symbol, assetName, currentPrice),
+        checkRecoverySignal(symbol, assetName, currentPrice),
+      ];
 
-    // Filter out null results and add to news items
-    results.forEach(result => {
-      if (result) {
-        newsItems.push(result);
-      }
-    });
+      const results = await Promise.all(checks);
+
+      // Add all non-null results to news items
+      results.forEach(result => {
+        if (result) {
+          newsItems.push(result);
+        }
+      });
+    }
 
     // Sort by timestamp (newest first)
     newsItems.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
