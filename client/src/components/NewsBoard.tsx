@@ -103,7 +103,7 @@ const NewsBoard: React.FC = () => {
     }
   );
 
-  // Group news items by symbol and summarize
+  // Group news items by symbol and summarize (excluding recovery signals for gains/losses view)
   const symbolSummaries = useMemo(() => {
     if (!data?.items) return [];
 
@@ -112,6 +112,11 @@ const NewsBoard: React.FC = () => {
     const grouped = new Map<string, SymbolSummary>();
 
     data.items.forEach((item: NewsItem) => {
+      // Skip recovery signals - they'll be shown in Notable Change section
+      if (item.title === 'Potential Recovery Signal') {
+        return;
+      }
+
       if (!grouped.has(item.symbol)) {
         // Determine if this symbol is positive or negative overall
         const isPositive = item.metadata.dailyChange !== undefined
@@ -142,6 +147,81 @@ const NewsBoard: React.FC = () => {
 
     return Array.from(grouped.values());
   }, [data?.items, holdingsData]);
+
+  // Extract recovery signals from news items
+  const recoverySignals = useMemo(() => {
+    if (!data?.items) return [];
+
+    return data.items
+      .filter(item => item.title === 'Potential Recovery Signal')
+      .map(item => {
+        const holding = holdingsData?.[item.symbol];
+        const isActive = holding && holding.shares > 0;
+
+        return {
+          symbol: item.symbol,
+          assetName: item.assetName,
+          currentPrice: item.metadata.currentPrice,
+          threeMonthChange: item.metadata.threeMonthChange,
+          twoWeekChange: item.metadata.twoWeekChange,
+          isActive: isActive || false,
+        };
+      });
+  }, [data?.items, holdingsData]);
+
+  // Fetch historical data for recovery signals
+  const { data: recoveryChartsData, isLoading: recoveryChartsLoading } = useQuery(
+    'recovery-charts',
+    async () => {
+      try {
+        const charts: { [key: string]: any } = {};
+
+        for (const signal of recoverySignals) {
+          try {
+            const response = await axios.get(`/api/portfolio/cache/historical/${signal.symbol}?period=6m`);
+            const historicalData = response.data?.data;
+
+            if (historicalData && historicalData.length > 0) {
+              const sorted = [...historicalData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              const prices = sorted.map(d => d.close);
+
+              // Find the 3-month low point
+              const threeMonthAgo = Math.max(0, sorted.length - 90);
+              const threeMonthPrices = prices.slice(threeMonthAgo);
+              const minPrice = Math.min(...threeMonthPrices);
+              const minIndex = threeMonthAgo + threeMonthPrices.indexOf(minPrice);
+
+              // Create chart data
+              const chartData = sorted.map((d, idx) => ({
+                date: d.date,
+                price: d.close,
+                index: idx,
+                isLow: idx === minIndex,
+              }));
+
+              charts[signal.symbol] = {
+                chartData,
+                minPrice,
+                minIndex,
+                lowDate: sorted[minIndex].date,
+              };
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch historical data for ${signal.symbol}`);
+          }
+        }
+
+        return charts;
+      } catch (error) {
+        console.error('Error fetching recovery charts:', error);
+        return {};
+      }
+    },
+    {
+      enabled: selectedView === 'notable-change' && recoverySignals.length > 0,
+      staleTime: 10 * 60 * 1000,
+    }
+  );
 
   // Fetch 1-year historical data for inflection point analysis
   const { data: inflectionData, isLoading: inflectionLoading } = useQuery(
@@ -266,23 +346,165 @@ const NewsBoard: React.FC = () => {
     };
   };
 
+  // Group symbols by trend patterns
+  const groupedSymbols = useMemo(() => {
+    const gains = symbolSummaries.filter(s => s.isPositive);
+    const losses = symbolSummaries.filter(s => !s.isPositive);
+
+    // Check if a symbol has a trend (3+ weekly changes available)
+    const hasTrend = (summary: SymbolSummary) =>
+      summary.weeklyChanges && summary.weeklyChanges.length >= 3;
+
+    const isUpwardTrend = (summary: SymbolSummary) => {
+      if (!summary.weeklyChanges || summary.weeklyChanges.length < 3) return false;
+      const avgChange = summary.weeklyChanges.reduce((sum, val) => sum + val, 0) / summary.weeklyChanges.length;
+      return avgChange > 0;
+    };
+
+    const isDownwardTrend = (summary: SymbolSummary) => {
+      if (!summary.weeklyChanges || summary.weeklyChanges.length < 3) return false;
+      const avgChange = summary.weeklyChanges.reduce((sum, val) => sum + val, 0) / summary.weeklyChanges.length;
+      return avgChange < 0;
+    };
+
+    return {
+      gainsWithTrend: gains.filter(s => hasTrend(s) && isUpwardTrend(s)),
+      gainsWithoutTrend: gains.filter(s => !hasTrend(s) || !isUpwardTrend(s)),
+      lossesWithTrend: losses.filter(s => hasTrend(s) && isDownwardTrend(s)),
+      lossesWithoutTrend: losses.filter(s => !hasTrend(s) || !isDownwardTrend(s)),
+    };
+  }, [symbolSummaries]);
+
   // Create sparkline data
   const createSparklineData = (weeklyChanges?: number[]) => {
     if (!weeklyChanges || weeklyChanges.length === 0) return null;
     return weeklyChanges.map((value, index) => ({ index, value }));
   };
 
-  // Render card component
-  const renderCard = (summary: SymbolSummary, index: number, isGain: boolean) => (
-    <div
-      key={summary.symbol}
-      className={`bg-gradient-to-br from-slate-800/90 via-${isGain ? 'green' : 'red'}-900/20 to-slate-900/90 backdrop-blur-xl rounded-2xl border-2 ${
-        summary.isActive
-          ? `border-${isGain ? 'green' : 'red'}-500/80 hover:border-${isGain ? 'green' : 'red'}-400/90 shadow-2xl shadow-${isGain ? 'green' : 'red'}-500/20 hover:shadow-${isGain ? 'green' : 'red'}-500/40`
-          : `border-slate-600/40 hover:border-slate-500/60 shadow-lg opacity-50 grayscale-[0.3]`
-      } transition-all duration-300 transform hover:scale-105 hover:-translate-y-1 animate-fadeIn overflow-hidden group`}
-      style={{ animationDelay: `${index * 30}ms` }}
-    >
+  // Calculate trend summary
+  const getTrendSummary = (weeklyChanges: number[]) => {
+    const avgChange = weeklyChanges.reduce((sum, val) => sum + val, 0) / weeklyChanges.length;
+    const totalChange = weeklyChanges.reduce((sum, val) => sum + val, 0);
+    return { avgChange, totalChange };
+  };
+
+  // Render row component for trend panels
+  const renderTrendRow = (summary: SymbolSummary, isGain: boolean) => {
+    const trendSummary = summary.weeklyChanges ? getTrendSummary(summary.weeklyChanges) : null;
+    const hasBelow200WMASignal = summary.signals.includes('Below 200 WMA with Positive Weekly Gain');
+
+    // Debug logging
+    if (summary.symbol === 'LULU') {
+      console.log('LULU signals:', summary.signals);
+      console.log('Has 200 WMA signal:', hasBelow200WMASignal);
+    }
+
+    return (
+      <div
+        key={summary.symbol}
+        className={`flex items-center p-2.5 rounded-lg ${
+          hasBelow200WMASignal
+            ? 'bg-gradient-to-r from-amber-900/30 via-slate-800/30 to-slate-800/30 border-2 border-amber-500/60 hover:border-amber-400/80 shadow-lg shadow-amber-500/20'
+            : 'bg-slate-800/30 border'
+        } ${
+          summary.isActive && !hasBelow200WMASignal
+            ? `border-${isGain ? 'green' : 'red'}-500/30 hover:border-${isGain ? 'green' : 'red'}-500/50`
+            : !hasBelow200WMASignal ? 'border-slate-600/20 hover:border-slate-500/40 opacity-60' : ''
+        } transition-all hover:bg-slate-800/50`}
+      >
+        {/* Symbol and Name */}
+        <div className="flex-shrink-0 w-28">
+          <div className="flex items-center gap-1">
+            <div className="font-bold text-white text-xs">{summary.symbol}</div>
+            {hasBelow200WMASignal && (
+              <span className="text-[10px] bg-amber-500/30 border border-amber-400/50 px-1 py-0.5 rounded text-amber-200 font-bold">
+                200W
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-slate-400 truncate">{summary.assetName}</div>
+        </div>
+
+        {/* Current Price */}
+        {summary.currentPrice && (
+          <div className="flex-shrink-0 w-16 text-right ml-4">
+            <div className="text-[10px] text-slate-400">Price</div>
+            <div className="text-xs font-bold text-white">${summary.currentPrice.toFixed(2)}</div>
+          </div>
+        )}
+
+        {/* Daily Change */}
+        {summary.dailyChange !== undefined && (
+          <div className="flex-shrink-0 w-14 text-right ml-4">
+            <div className="text-[10px] text-slate-400">Today</div>
+            <div className={`text-xs font-bold ${isGain ? 'text-green-400' : 'text-red-400'}`}>
+              {isGain && '+'}{summary.dailyChange.toFixed(1)}%
+            </div>
+          </div>
+        )}
+
+        {/* Weekly Trend Chart */}
+        {summary.weeklyChanges && summary.weeklyChanges.length > 0 && (
+          <div className="flex-1 min-w-0 max-w-[140px] ml-8">
+            <ResponsiveContainer width="100%" height={28}>
+              <BarChart data={createSparklineData(summary.weeklyChanges) || []} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                <Bar
+                  dataKey="value"
+                  fill={isGain ? '#10b981' : '#ef4444'}
+                  radius={[1, 1, 0, 0]}
+                  opacity={0.8}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Trend Summary */}
+        {trendSummary && (
+          <div className="flex-shrink-0 w-24 text-right ml-4">
+            <div className="text-[10px] text-slate-400">Avg/Week</div>
+            <div className={`text-xs font-bold ${isGain ? 'text-green-400' : 'text-red-400'}`}>
+              {isGain && '+'}{trendSummary.avgChange.toFixed(1)}%
+            </div>
+          </div>
+        )}
+
+        {/* Active/Watchlist Badge */}
+        {!summary.isActive && (
+          <div className="flex-shrink-0 ml-4">
+            <span className="text-[10px] bg-slate-700/50 border border-slate-600/50 px-1.5 py-0.5 rounded text-slate-400">
+              Watch
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render card component for non-trend items
+  const renderCard = (summary: SymbolSummary, index: number, isGain: boolean) => {
+    const hasBelow200WMASignal = summary.signals.includes('Below 200 WMA with Positive Weekly Gain');
+
+    // Debug logging
+    if (summary.symbol === 'LULU') {
+      console.log('LULU card signals:', summary.signals);
+      console.log('LULU has 200 WMA signal:', hasBelow200WMASignal);
+    }
+
+    return (
+      <div
+        key={summary.symbol}
+        className={`bg-gradient-to-br ${
+          hasBelow200WMASignal
+            ? 'from-amber-900/40 via-slate-800/90 to-slate-900/90 border-2 border-amber-500/80 hover:border-amber-400/90 shadow-2xl shadow-amber-500/30'
+            : `from-slate-800/90 via-${isGain ? 'green' : 'red'}-900/20 to-slate-900/90 border-2 ${
+                summary.isActive
+                  ? `border-${isGain ? 'green' : 'red'}-500/80 hover:border-${isGain ? 'green' : 'red'}-400/90 shadow-2xl shadow-${isGain ? 'green' : 'red'}-500/20 hover:shadow-${isGain ? 'green' : 'red'}-500/40`
+                  : `border-slate-600/40 hover:border-slate-500/60 shadow-lg opacity-50 grayscale-[0.3]`
+              }`
+        } backdrop-blur-xl rounded-2xl transition-all duration-300 transform hover:scale-105 hover:-translate-y-1 animate-fadeIn overflow-hidden group`}
+        style={{ animationDelay: `${index * 30}ms` }}
+      >
       {/* Card Header with Gradient Accent */}
       <div className={`bg-gradient-to-r from-${isGain ? 'green' : 'red'}-600/30 to-${isGain ? 'emerald' : 'rose'}-600/30 border-b border-${isGain ? 'green' : 'red'}-500/40 p-4 ${!summary.isActive ? 'relative' : ''}`}>
         {!summary.isActive && (
@@ -296,7 +518,14 @@ const NewsBoard: React.FC = () => {
               <span className="text-2xl">{isGain ? '📈' : '📉'}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-2xl font-black text-white truncate tracking-tight">{summary.symbol}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-2xl font-black text-white truncate tracking-tight">{summary.symbol}</h3>
+                {hasBelow200WMASignal && (
+                  <span className="text-xs bg-amber-500/30 border border-amber-400/50 px-2 py-0.5 rounded text-amber-200 font-bold">
+                    200W
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-300/80 truncate font-medium">{summary.assetName}</p>
             </div>
           </div>
@@ -356,6 +585,7 @@ const NewsBoard: React.FC = () => {
       </div>
     </div>
   );
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 md:p-6">
@@ -441,20 +671,196 @@ const NewsBoard: React.FC = () => {
           </div>
         ) : selectedView === 'notable-change' ? (
           // Notable Change View
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm rounded-2xl border border-blue-500/30 p-5 shadow-xl">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-500/20 p-2.5 rounded-xl border border-blue-500/40">
-                  <span className="text-2xl">🔍</span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Recovery Signals Section */}
+            {recoverySignals.length > 0 && (
+              <div className="space-y-4">
+                <div className="bg-gradient-to-r from-green-600/20 to-emerald-600/20 backdrop-blur-sm rounded-2xl border border-green-500/30 p-5 shadow-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-green-500/20 p-2.5 rounded-xl border border-green-500/40">
+                      <span className="text-2xl">🌱</span>
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-black text-white">Recovery Signals</h2>
+                      <p className="text-green-300/70 text-xs">Assets showing early signs of recovery</p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-black text-white">Inflection Points Detected</h2>
-                  <p className="text-blue-300/70 text-xs">Assets showing bottom reversal patterns</p>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                  {recoverySignals.map((signal, index) => (
+                    <div
+                      key={signal.symbol}
+                      className={`bg-gradient-to-br from-slate-800/90 via-green-900/20 to-slate-900/90 backdrop-blur-xl rounded-2xl border-2 ${
+                        signal.isActive
+                          ? 'border-green-500/80 hover:border-green-400/90 shadow-2xl shadow-green-500/20 hover:shadow-green-500/40'
+                          : 'border-slate-600/40 hover:border-slate-500/60 shadow-lg opacity-50 grayscale-[0.3]'
+                      } transition-all duration-300 transform hover:scale-105 hover:-translate-y-1 animate-fadeIn overflow-hidden`}
+                      style={{ animationDelay: `${index * 30}ms` }}
+                    >
+                      {/* Card Header */}
+                      <div className={`bg-gradient-to-r from-green-600/30 to-emerald-600/30 border-b border-green-500/40 p-4 ${!signal.isActive ? 'relative' : ''}`}>
+                        {!signal.isActive && (
+                          <div className="absolute top-3 right-3 bg-slate-700/90 border border-slate-500/50 px-3 py-1 rounded-full text-xs font-bold text-slate-300 uppercase tracking-wider shadow-lg">
+                            Watchlist
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="bg-green-500/30 p-2 rounded-lg border border-green-500/50">
+                              <span className="text-2xl">🌱</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-2xl font-black text-white truncate tracking-tight">{signal.symbol}</h3>
+                              <p className="text-xs text-slate-300/80 truncate font-medium">{signal.assetName}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Recovery Highlight */}
+                        <div className="bg-green-500/40 border border-green-400/60 rounded-xl px-4 py-3 backdrop-blur-sm">
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-xs text-green-100/80 font-semibold">2-Week Recovery</span>
+                            <span className="text-3xl font-black text-green-50">
+                              +{signal.twoWeekChange?.toFixed(2)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Body */}
+                      <div className="p-4 space-y-4">
+                        {/* 6-Month Chart with Low Point */}
+                        {!recoveryChartsLoading && recoveryChartsData?.[signal.symbol]?.chartData && (
+                          <div className="bg-slate-800/50 rounded-xl p-3 border border-green-500/20">
+                            <div className="text-xs text-slate-400 font-semibold mb-2">6-Month Price Chart</div>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <AreaChart data={recoveryChartsData[signal.symbol].chartData}>
+                                <defs>
+                                  <linearGradient id={`recoveryGradient-${signal.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
+                                <XAxis
+                                  dataKey="index"
+                                  hide
+                                />
+                                <YAxis
+                                  domain={['auto', 'auto']}
+                                  hide
+                                />
+                                <Tooltip
+                                  content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                      const data = payload[0].payload;
+                                      return (
+                                        <div className="bg-slate-900/95 border border-green-500/50 rounded-lg px-3 py-2 shadow-xl">
+                                          <p className="text-xs text-slate-400">
+                                            {new Date(data.date).toLocaleDateString()}
+                                          </p>
+                                          <p className="text-sm font-bold text-white">
+                                            ${data.price.toFixed(2)}
+                                          </p>
+                                          {data.isLow && (
+                                            <p className="text-xs text-red-400 font-bold mt-1">
+                                              📍 Low Point
+                                            </p>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  }}
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey="price"
+                                  stroke="#10b981"
+                                  strokeWidth={2}
+                                  fill={`url(#recoveryGradient-${signal.symbol})`}
+                                />
+                                {/* Mark the low point */}
+                                {recoveryChartsData[signal.symbol].minIndex >= 0 && recoveryChartsData[signal.symbol].chartData[recoveryChartsData[signal.symbol].minIndex] && (
+                                  <ReferenceDot
+                                    x={recoveryChartsData[signal.symbol].minIndex}
+                                    y={recoveryChartsData[signal.symbol].minPrice}
+                                    r={6}
+                                    fill="#ef4444"
+                                    stroke="#fff"
+                                    strokeWidth={2}
+                                  />
+                                )}
+                              </AreaChart>
+                            </ResponsiveContainer>
+                            <div className="flex items-center justify-center mt-2 gap-4 text-xs">
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 rounded-full bg-red-500 border-2 border-white"></div>
+                                <span className="text-slate-400">Low: {new Date(recoveryChartsData[signal.symbol].lowDate).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Current Price */}
+                        {signal.currentPrice && (
+                          <div className="flex items-baseline justify-between bg-slate-800/50 rounded-xl px-4 py-3 border border-green-500/20">
+                            <span className="text-sm text-slate-300 font-semibold">Current Price</span>
+                            <span className="text-xl font-black text-white">${signal.currentPrice.toFixed(2)}</span>
+                          </div>
+                        )}
+
+                        {/* 3-Month Performance */}
+                        {signal.threeMonthChange !== undefined && recoveryChartsData?.[signal.symbol] && (
+                          <div className="bg-slate-800/50 rounded-xl px-4 py-3 border border-green-500/20 space-y-2">
+                            <div className="flex items-baseline justify-between text-xs">
+                              <span className="text-slate-400">Low Price</span>
+                              <span className="text-white font-bold">${recoveryChartsData[signal.symbol].minPrice.toFixed(2)}</span>
+                            </div>
+                            <div className="flex items-baseline justify-between text-xs">
+                              <span className="text-slate-400">3-Month Change</span>
+                              <span className="text-red-400 font-bold">{signal.threeMonthChange.toFixed(2)}%</span>
+                            </div>
+                            <div className="flex items-baseline justify-between text-xs">
+                              <span className="text-slate-400">2-Week Recovery</span>
+                              <span className="text-green-400 font-bold">+{signal.twoWeekChange?.toFixed(2)}%</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Recovery Analysis */}
+                        <div className="bg-green-900/20 border border-green-500/30 rounded-xl p-3">
+                          <div className="text-xs text-green-300/90 font-bold uppercase tracking-wide mb-2">
+                            Recovery Analysis
+                          </div>
+                          <div className="space-y-1.5 text-sm text-slate-200">
+                            <div>✓ Down {Math.abs(signal.threeMonthChange || 0).toFixed(0)}% over 3 months</div>
+                            <div>✓ Gained {signal.twoWeekChange?.toFixed(1)}% in 2 weeks</div>
+                            <div>✓ Early recovery signs emerging</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
-            {inflectionLoading ? (
+            {/* Inflection Points Section */}
+            <div className="space-y-4">
+              <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm rounded-2xl border border-blue-500/30 p-5 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-500/20 p-2.5 rounded-xl border border-blue-500/40">
+                    <span className="text-2xl">🔍</span>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white">Inflection Points Detected</h2>
+                    <p className="text-blue-300/70 text-xs">Assets showing bottom reversal patterns</p>
+                  </div>
+                </div>
+              </div>
+
+              {inflectionLoading ? (
               <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
@@ -467,7 +873,7 @@ const NewsBoard: React.FC = () => {
                 <p className="text-slate-500">No assets are currently showing clear bottom reversal patterns</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 {Object.values(inflectionData).map((analysis: any, index: number) => {
                   const summary = symbolSummaries.find(s => s.symbol === analysis.symbol);
                   if (!summary) return null;
@@ -609,7 +1015,8 @@ const NewsBoard: React.FC = () => {
                   );
                 })}
               </div>
-            )}
+              )}
+            </div>
           </div>
         ) : (
           // Gains/Losses View
@@ -636,34 +1043,32 @@ const NewsBoard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Active Gains */}
-              {symbolSummaries.filter(s => s.isPositive && s.isActive).length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 bg-green-500/20 border border-green-500/40 rounded-xl px-4 py-3">
-                    <span className="text-lg">✅</span>
+              {/* Upward Trend Panel */}
+              {groupedSymbols.gainsWithTrend.length > 0 && (
+                <div className="bg-gradient-to-br from-green-900/20 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-green-500/30 p-4 shadow-lg">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">📊</span>
                     <span className="text-sm font-black text-green-200 uppercase tracking-wide">
-                      Active Holdings ({symbolSummaries.filter(s => s.isPositive && s.isActive).length})
+                      Upward Trend ({groupedSymbols.gainsWithTrend.length})
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                    {symbolSummaries.filter(s => s.isPositive && s.isActive).map((summary, index) =>
-                      renderCard(summary, index, true)
-                    )}
+                  <div className="space-y-2">
+                    {groupedSymbols.gainsWithTrend.map(summary => renderTrendRow(summary, true))}
                   </div>
-                </>
+                </div>
               )}
 
-              {/* Inactive Gains (Watchlist) */}
-              {symbolSummaries.filter(s => s.isPositive && !s.isActive).length > 0 && (
+              {/* Other Gains Cards */}
+              {groupedSymbols.gainsWithoutTrend.length > 0 && (
                 <>
-                  <div className="flex items-center gap-2 bg-slate-700/40 border border-slate-600/50 rounded-xl px-4 py-3 mt-6">
-                    <span className="text-lg">👁️</span>
-                    <span className="text-sm font-black text-slate-300 uppercase tracking-wide">
-                      Watchlist ({symbolSummaries.filter(s => s.isPositive && !s.isActive).length})
+                  <div className="flex items-center gap-2 bg-green-500/20 border border-green-500/40 rounded-xl px-4 py-3">
+                    <span className="text-lg">📈</span>
+                    <span className="text-sm font-black text-green-200 uppercase tracking-wide">
+                      Other Gains ({groupedSymbols.gainsWithoutTrend.length})
                     </span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                    {symbolSummaries.filter(s => s.isPositive && !s.isActive).map((summary, index) =>
+                    {groupedSymbols.gainsWithoutTrend.map((summary, index) =>
                       renderCard(summary, index, true)
                     )}
                   </div>
@@ -693,34 +1098,32 @@ const NewsBoard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Active Losses */}
-              {symbolSummaries.filter(s => !s.isPositive && s.isActive).length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/40 rounded-xl px-4 py-3">
-                    <span className="text-lg">✅</span>
+              {/* Downward Trend Panel */}
+              {groupedSymbols.lossesWithTrend.length > 0 && (
+                <div className="bg-gradient-to-br from-red-900/20 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-red-500/30 p-4 shadow-lg">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">📊</span>
                     <span className="text-sm font-black text-red-200 uppercase tracking-wide">
-                      Active Holdings ({symbolSummaries.filter(s => !s.isPositive && s.isActive).length})
+                      Downward Trend ({groupedSymbols.lossesWithTrend.length})
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                    {symbolSummaries.filter(s => !s.isPositive && s.isActive).map((summary, index) =>
-                      renderCard(summary, index, false)
-                    )}
+                  <div className="space-y-2">
+                    {groupedSymbols.lossesWithTrend.map(summary => renderTrendRow(summary, false))}
                   </div>
-                </>
+                </div>
               )}
 
-              {/* Inactive Losses (Watchlist) */}
-              {symbolSummaries.filter(s => !s.isPositive && !s.isActive).length > 0 && (
+              {/* Other Losses Cards */}
+              {groupedSymbols.lossesWithoutTrend.length > 0 && (
                 <>
-                  <div className="flex items-center gap-2 bg-slate-700/40 border border-slate-600/50 rounded-xl px-4 py-3 mt-6">
-                    <span className="text-lg">👁️</span>
-                    <span className="text-sm font-black text-slate-300 uppercase tracking-wide">
-                      Watchlist ({symbolSummaries.filter(s => !s.isPositive && !s.isActive).length})
+                  <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/40 rounded-xl px-4 py-3">
+                    <span className="text-lg">📉</span>
+                    <span className="text-sm font-black text-red-200 uppercase tracking-wide">
+                      Other Losses ({groupedSymbols.lossesWithoutTrend.length})
                     </span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                    {symbolSummaries.filter(s => !s.isPositive && !s.isActive).map((summary, index) =>
+                    {groupedSymbols.lossesWithoutTrend.map((summary, index) =>
                       renderCard(summary, index, false)
                     )}
                   </div>
