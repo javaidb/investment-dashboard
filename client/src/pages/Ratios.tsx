@@ -302,10 +302,8 @@ const Ratios: React.FC = () => {
           </div>
         </div>
         <div className="dashboard-content">
-          <div className="max-w-7xl mx-auto">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-800">Error: {error}</p>
-            </div>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800">Error: {error}</p>
           </div>
         </div>
       </div>
@@ -322,10 +320,8 @@ const Ratios: React.FC = () => {
           </div>
         </div>
         <div className="dashboard-content">
-          <div className="max-w-7xl mx-auto">
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <p className="text-yellow-800">No holdings data available. Please upload your portfolio CSV files.</p>
-            </div>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-yellow-800">No holdings data available. Please upload your portfolio CSV files.</p>
           </div>
         </div>
       </div>
@@ -344,8 +340,7 @@ const Ratios: React.FC = () => {
 
       {/* Main Content */}
       <div className="dashboard-content">
-        <div className="max-w-5xl mx-auto">
-          <div className="dashboard-section">
+        <div className="dashboard-section">
             {/* Info Box */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
               <h3 className="text-sm font-semibold text-blue-900 mb-2">Understanding the Metrics</h3>
@@ -1626,7 +1621,6 @@ const Ratios: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
       </div>
     </div>
   );

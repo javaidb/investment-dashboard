@@ -14,11 +14,9 @@ const Analysis: React.FC = () => {
 
       {/* Main Content */}
       <div className="dashboard-content">
-        <div className="max-w-7xl mx-auto">
-          <div className="dashboard-section">
-            {/* Trend Analysis Component */}
-            <TrendAnalysis />
-          </div>
+        <div className="dashboard-section">
+          {/* Trend Analysis Component */}
+          <TrendAnalysis />
         </div>
       </div>
     </div>
