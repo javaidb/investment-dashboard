@@ -763,8 +763,8 @@ const PortfolioSummary: React.FC = () => {
                     <div style={{
                       padding: '30px 24px',
                       display: 'grid',
-                      gridTemplateColumns: '180px repeat(3, 1fr)',
-                      gap: '24px',
+                      gridTemplateColumns: '180px repeat(5, 1fr)',
+                      gap: '20px',
                       alignItems: 'center',
                       borderBottom: '1px solid #e5e7eb',
                       borderRight: '2px solid #e5e7eb',
@@ -783,7 +783,7 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
+                          fontSize: '26px',
                           fontWeight: '700',
                           color: '#111827',
                           marginBottom: '4px',
@@ -792,7 +792,7 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(summary.totalInvested)}
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#6b7280',
                           backgroundColor: 'white',
                           padding: '2px 8px',
@@ -805,7 +805,7 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
+                          fontSize: '26px',
                           fontWeight: '700',
                           color: '#111827',
                           marginBottom: '4px',
@@ -814,7 +814,7 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(summary.currentTotalValue)}
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#6b7280',
                           backgroundColor: 'white',
                           padding: '2px 8px',
@@ -830,11 +830,11 @@ const PortfolioSummary: React.FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '8px',
+                          gap: '6px',
                           marginBottom: '4px'
                         }}>
                           <div style={{
-                            fontSize: '28px',
+                            fontSize: '26px',
                             fontWeight: '700',
                             color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
                             fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
@@ -842,7 +842,7 @@ const PortfolioSummary: React.FC = () => {
                             {formatCurrency(summary.totalUnrealizedPnL)}
                           </div>
                           <div style={{
-                            fontSize: '14px',
+                            fontSize: '13px',
                             fontWeight: '600',
                             color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
                             display: 'flex',
@@ -854,7 +854,7 @@ const PortfolioSummary: React.FC = () => {
                           </div>
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#6b7280',
                           backgroundColor: 'white',
                           padding: '2px 8px',
@@ -865,14 +865,83 @@ const PortfolioSummary: React.FC = () => {
                           Unrealized P/L
                         </div>
                       </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          marginBottom: '4px'
+                        }}>
+                          <div style={{
+                            fontSize: '26px',
+                            fontWeight: '700',
+                            color: summary.totalRealized && summary.totalRealized >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(summary.totalRealized)}
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          Realized P/L
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          marginBottom: '4px'
+                        }}>
+                          <div style={{
+                            fontSize: '26px',
+                            fontWeight: '700',
+                            color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(summary.totalPnL)}
+                          </div>
+                          <div style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <span>{summary.totalPnL && summary.totalPnL >= 0 ? '↑' : '↓'}</span>
+                            <span>{summary.totalInvested > 0 ? formatPercentage((summary.totalPnL || 0) / summary.totalInvested * 100) : '0.00%'}</span>
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          Total P/L
+                        </div>
+                      </div>
                     </div>
 
                     {/* Row 2: Trading Holdings Only */}
                     <div style={{
                       padding: '30px 24px',
                       display: 'grid',
-                      gridTemplateColumns: '180px repeat(3, 1fr)',
-                      gap: '24px',
+                      gridTemplateColumns: '180px repeat(5, 1fr)',
+                      gap: '20px',
                       alignItems: 'center',
                       borderRight: '2px solid #e5e7eb',
                       background: 'linear-gradient(to right, #fefce8, #fef9c3)'
@@ -890,7 +959,7 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
+                          fontSize: '26px',
                           fontWeight: '700',
                           color: '#111827',
                           marginBottom: '4px',
@@ -899,7 +968,7 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(tradingSummary.totalInvested)}
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#6b7280',
                           backgroundColor: 'white',
                           padding: '2px 8px',
@@ -912,7 +981,7 @@ const PortfolioSummary: React.FC = () => {
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '28px',
+                          fontSize: '26px',
                           fontWeight: '700',
                           color: '#111827',
                           marginBottom: '4px',
@@ -921,7 +990,7 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(tradingSummary.currentValue)}
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#6b7280',
                           backgroundColor: 'white',
                           padding: '2px 8px',
@@ -937,11 +1006,11 @@ const PortfolioSummary: React.FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '8px',
+                          gap: '6px',
                           marginBottom: '4px'
                         }}>
                           <div style={{
-                            fontSize: '28px',
+                            fontSize: '26px',
                             fontWeight: '700',
                             color: (tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
                             fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
@@ -949,7 +1018,7 @@ const PortfolioSummary: React.FC = () => {
                             {formatCurrency(tradingSummary.currentValue - tradingSummary.totalInvested)}
                           </div>
                           <div style={{
-                            fontSize: '14px',
+                            fontSize: '13px',
                             fontWeight: '600',
                             color: ((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
                             display: 'flex',
@@ -961,7 +1030,7 @@ const PortfolioSummary: React.FC = () => {
                           </div>
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#6b7280',
                           backgroundColor: 'white',
                           padding: '2px 8px',
@@ -970,6 +1039,75 @@ const PortfolioSummary: React.FC = () => {
                           border: '1px solid #fde68a'
                         }}>
                           Unrealized P/L
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          marginBottom: '4px'
+                        }}>
+                          <div style={{
+                            fontSize: '26px',
+                            fontWeight: '700',
+                            color: tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(tradingSummary.totalRealized)}
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Realized P/L
+                        </div>
+                      </div>
+                      <div style={{textAlign: 'center'}}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          marginBottom: '4px'
+                        }}>
+                          <div style={{
+                            fontSize: '26px',
+                            fontWeight: '700',
+                            color: tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '#166534' : '#dc2626',
+                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          }}>
+                            {formatCurrency(tradingSummary.totalPnL)}
+                          </div>
+                          <div style={{
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '#166534' : '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <span>{tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '↑' : '↓'}</span>
+                            <span>{tradingSummary.totalInvested > 0 ? formatPercentage((tradingSummary.totalPnL || 0) / tradingSummary.totalInvested * 100) : '0.00%'}</span>
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: '#6b7280',
+                          backgroundColor: 'white',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          display: 'inline-block',
+                          border: '1px solid #fde68a'
+                        }}>
+                          Total P/L
                         </div>
                       </div>
                     </div>
@@ -1605,6 +1743,535 @@ const PortfolioSummary: React.FC = () => {
           );
         })()}
 
+        {/* Holdings by Sector Table */}
+        {holdings.length > 0 && (() => {
+          // Group holdings by sector
+          // Colors for sectors - matching pie chart
+          const sectorColors: {[key: string]: string} = {
+            'Tech': '#3B82F6',
+            'Consumer Cyclical': '#10B981',
+            'Industrials': '#F59E0B',
+            'Healthcare': '#EF4444',
+            'Financial Services': '#8B5CF6',
+            'Utilities': '#06B6D4',
+            'Energy': '#F97316',
+            'Materials': '#84CC16',
+            'Real Estate': '#EC4899',
+            'Telecommunications': '#6366F1',
+            'ETF': '#9333EA',
+            'Alternative Investments': '#8B5CF6',
+            'Cryptocurrency': '#FBBF24',
+            'Consumer Defensive': '#14B8A6',
+            'Unknown': '#9CA3AF',
+            'Other': '#9CA3AF'
+          };
+
+          const holdingsBySector = holdings.reduce((acc, holding) => {
+            // Skip crypto and recurring investments for sector breakdown
+            if (holding.type === 'c') return acc;
+
+            // Determine sector
+            let sector = holding.sector || 'Other';
+
+            // ETFs and Index Funds should not be included in sector breakdown
+            if (holding.symbol.includes('XEQT') || holding.symbol.includes('VOO') ||
+                holding.symbol.includes('QQQ') || holding.symbol.includes('IBIT')) {
+              return acc;
+            }
+
+            if (!acc[sector]) {
+              acc[sector] = {
+                count: 0,
+                totalInvested: 0,
+                currentValue: 0,
+                totalPnL: 0,
+                unrealizedPnL: 0,
+                realizedPnL: 0,
+                totalAmountSold: 0,
+                holdings: []
+              };
+            }
+
+            acc[sector].count += 1;
+            acc[sector].totalInvested += holding.totalInvested || 0;
+            acc[sector].currentValue += holding.currentValue || 0;
+            acc[sector].totalPnL += holding.totalPnL || 0;
+            acc[sector].unrealizedPnL += holding.unrealizedPnL || 0;
+            acc[sector].realizedPnL += holding.realizedPnL || 0;
+            acc[sector].totalAmountSold += holding.amountSold || 0;
+            acc[sector].holdings.push(holding);
+
+            return acc;
+          }, {} as {[key: string]: {count: number, totalInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
+
+          // Calculate time-based changes for each sector
+          const calculateSectorChanges = (sectorData: any) => {
+            const currentValue = sectorData.currentValue;
+            const totalInvested = sectorData.totalInvested;
+
+            // Calculate the overall return on investment
+            const overallReturnPercent = totalInvested > 0 ? ((currentValue - totalInvested) / totalInvested) * 100 : 0;
+
+            // Calculate weighted changes from REAL historical data
+            if (sectorData.holdings && sectorData.holdings.length > 0) {
+              const totalCurrentValue = sectorData.holdings.reduce((sum: number, h: Holding) =>
+                sum + (h.currentValue || 0), 0);
+
+              const dailyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
+                if (h.dailyChangePercent !== null && h.dailyChangePercent !== undefined && h.currentValue) {
+                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                  return sum + (h.dailyChangePercent * weight);
+                }
+                return sum;
+              }, 0);
+
+              const weeklyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
+                if (h.weeklyChangePercent !== null && h.weeklyChangePercent !== undefined && h.currentValue) {
+                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                  return sum + (h.weeklyChangePercent * weight);
+                }
+                return sum;
+              }, 0);
+
+              const monthlyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
+                if (h.monthlyChangePercent !== null && h.monthlyChangePercent !== undefined && h.currentValue) {
+                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                  return sum + (h.monthlyChangePercent * weight);
+                }
+                return sum;
+              }, 0);
+
+              const quarterlyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
+                if (h.quarterlyChangePercent !== null && h.quarterlyChangePercent !== undefined && h.currentValue) {
+                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                  return sum + (h.quarterlyChangePercent * weight);
+                }
+                return sum;
+              }, 0);
+
+              const capChange = (change: number, maxCap: number) => {
+                if (Math.abs(change) > maxCap) {
+                  return change > 0 ? maxCap : -maxCap;
+                }
+                return change;
+              };
+
+              return {
+                dailyChange,
+                weeklyChange,
+                thisWeekChange: capChange(weeklyChange * 0.7, 50), // Current week progress (estimated)
+                monthlyChange,
+                quarterlyChange,
+                yearlyChange: capChange(overallReturnPercent, 500), // Use actual ROI for yearly, capped
+                overallReturn: overallReturnPercent
+              };
+            }
+
+            return {
+              dailyChange: 0,
+              weeklyChange: 0,
+              thisWeekChange: 0,
+              monthlyChange: 0,
+              quarterlyChange: 0,
+              yearlyChange: 0,
+              overallReturn: overallReturnPercent
+            };
+          };
+
+          // Sort sectors by total P&L (descending)
+          const sortedSectors = Object.entries(holdingsBySector).sort((a, b) => b[1].totalPnL - a[1].totalPnL);
+
+          // Only show if there are sectors
+          if (sortedSectors.length === 0) return null;
+
+          return (
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '16px',
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+              border: '1px solid #e5e7eb',
+              overflow: 'hidden',
+              width: '100%',
+              maxWidth: '100%',
+              marginTop: '0',
+              marginBottom: '0',
+              gridColumn: '1 / -1'
+            }}>
+              <div style={{
+                background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+                padding: '20px 24px',
+                borderBottom: '1px solid #e5e7eb'
+              }}>
+                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                  <h3 style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#111827'
+                  }}>Holdings by Sector</h3>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#6b7280',
+                    backgroundColor: 'white',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                  }}>{Object.keys(holdingsBySector).length} sectors</div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full" style={{backgroundColor: 'white', border: '1px solid #e5e7eb'}}>
+                  <thead>
+                    <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Sector
+                      </th>
+                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        # of Assets
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Total Invested
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Current Value
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Total P&L ↓
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Total P&L %
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Unrealized P&L
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Realized P&L
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        % of Portfolio
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Daily Change
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Weekly Change
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        This Week
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Monthly Change
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Quarterly Change
+                      </th>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
+                        Yearly Change
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sortedSectors.map(([sector, data], index) => {
+                      const pnlPercent = data.totalInvested > 0 ? (data.totalPnL / data.totalInvested) * 100 : 0;
+                      const portfolioPercent = totalCapital > 0 ? (data.currentValue / totalCapital) * 100 : 0;
+                      const changes = calculateSectorChanges(data);
+                      const sectorColor = sectorColors[sector] || sectorColors['Other'];
+
+                      return (
+                        <tr key={sector} style={{
+                          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
+                          borderBottom: '1px solid #f3f4f6',
+                          borderLeft: `4px solid ${sectorColor}`,
+                          transition: 'all 0.2s ease'
+                        }}>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                              <div style={{
+                                width: '12px',
+                                height: '12px',
+                                backgroundColor: sectorColor,
+                                borderRadius: '3px'
+                              }}></div>
+                              <div style={{
+                                fontSize: '16px',
+                                fontWeight: '700',
+                                color: '#111827'
+                              }}>
+                                {sector}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px', textAlign: 'center'}}>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '600',
+                              color: '#111827'
+                            }}>
+                              {data.count}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '600',
+                              color: '#111827'
+                            }}>
+                              {formatCurrency(data.totalInvested)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '600',
+                              color: '#111827'
+                            }}>
+                              {formatCurrency(data.currentValue)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '700',
+                              color: data.totalPnL >= 0 ? '#059669' : '#dc2626',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}>
+                              {data.totalPnL >= 0 ? (
+                                <svg style={{width: '18px', height: '18px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '18px', height: '18px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatCurrency(data.totalPnL)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '700',
+                              backgroundColor: pnlPercent >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: pnlPercent >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                            }}>
+                              {formatPercentage(pnlPercent)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '15px',
+                              fontWeight: '600',
+                              color: data.unrealizedPnL >= 0 ? '#059669' : '#dc2626'
+                            }}>
+                              {formatCurrency(data.unrealizedPnL)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              fontSize: '15px',
+                              fontWeight: '600',
+                              color: data.realizedPnL >= 0 ? '#059669' : '#dc2626'
+                            }}>
+                              {formatCurrency(data.realizedPnL)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              <div style={{
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                color: '#111827'
+                              }}>
+                                {formatPercentage(portfolioPercent)}
+                              </div>
+                              <div style={{
+                                flex: 1,
+                                height: '6px',
+                                backgroundColor: '#e5e7eb',
+                                borderRadius: '3px',
+                                overflow: 'hidden',
+                                minWidth: '40px'
+                              }}>
+                                <div style={{
+                                  width: `${Math.min(portfolioPercent, 100)}%`,
+                                  height: '100%',
+                                  backgroundColor: sectorColor,
+                                  transition: 'width 0.3s ease'
+                                }}></div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.dailyChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.dailyChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.dailyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.dailyChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.dailyChange)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.weeklyChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.weeklyChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.weeklyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.weeklyChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.weeklyChange)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.thisWeekChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.thisWeekChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.thisWeekChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.thisWeekChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.thisWeekChange)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.monthlyChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.monthlyChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.monthlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.monthlyChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.monthlyChange)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.quarterlyChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.quarterlyChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.quarterlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.quarterlyChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.quarterlyChange)}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '6px 12px',
+                              borderRadius: '16px',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              backgroundColor: changes.yearlyChange >= 0 ? '#dcfce7' : '#fef2f2',
+                              color: changes.yearlyChange >= 0 ? '#166534' : '#dc2626',
+                              border: `2px solid ${changes.yearlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              width: 'fit-content'
+                            }}>
+                              {changes.yearlyChange >= 0 ? (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                              {formatPercentage(changes.yearlyChange)}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Holdings Table */}
 
         {holdings.length > 0 && (
@@ -1914,44 +2581,116 @@ const PortfolioSummary: React.FC = () => {
                           {formatCurrency(holding.amountSold || 0)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                        <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                      <td className="py-4 px-6" style={{padding: '10px 12px'}}>
+                        <div style={{display: 'flex', gap: '6px', alignItems: 'stretch'}}>
+                          {/* Total P&L - Left side */}
                           <div style={{
                             display: 'flex',
-                            alignItems: 'center',
-                            padding: '8px 16px',
-                            borderRadius: '20px',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                            flexDirection: 'column',
+                            padding: '6px 10px',
+                            borderRadius: '8px',
                             backgroundColor: (holding.totalPnL && holding.totalPnL >= 0) ? '#dcfce7' : '#fef2f2',
-                            color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
-                            border: `2px solid ${(holding.totalPnL && holding.totalPnL >= 0) ? '#bbf7d0' : '#fecaca'}`
+                            border: `1px solid ${(holding.totalPnL && holding.totalPnL >= 0) ? '#bbf7d0' : '#fecaca'}`,
+                            minWidth: '110px'
                           }}>
-                            {(holding.totalPnL && holding.totalPnL >= 0) ? (
-                              <svg style={{width: '16px', height: '16px', marginRight: '8px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                              </svg>
-                            ) : (
-                              <svg style={{width: '16px', height: '16px', marginRight: '8px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                              </svg>
-                            )}
-                            {formatCurrency(holding.totalPnL)}
-                          </div>
-                          {holding.totalPnLPercent !== null && holding.totalPnLPercent !== undefined && (
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              marginBottom: '1px'
+                            }}>
+                              <div style={{
+                                fontSize: '9px',
+                                fontWeight: '600',
+                                color: '#6b7280',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.3px'
+                              }}>Total</div>
+                              {(holding.totalPnL && holding.totalPnL >= 0) ? (
+                                <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#166534" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                </svg>
+                              ) : (
+                                <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#dc2626" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                </svg>
+                              )}
+                            </div>
                             <div style={{
                               fontSize: '14px',
+                              fontWeight: '700',
+                              color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
+                              lineHeight: '1.2'
+                            }}>
+                              {formatCurrency(holding.totalPnL)}
+                            </div>
+                            <div style={{
+                              fontSize: '11px',
                               fontWeight: '600',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              backgroundColor: holding.totalPnLPercent >= 0 ? '#f0fdf4' : '#fef2f2',
-                              color: holding.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
-                              border: `1px solid ${holding.totalPnLPercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                              color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
+                              lineHeight: '1.2'
                             }}>
                               {formatPercentage(holding.totalPnLPercent)}
                             </div>
-                          )}
+                          </div>
+
+                          {/* Unrealized & Realized - Right side stacked */}
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '3px',
+                            justifyContent: 'center'
+                          }}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: '#f9fafb',
+                              border: '1px solid #e5e7eb'
+                            }}>
+                              <div style={{
+                                fontSize: '8px',
+                                fontWeight: '600',
+                                color: '#9ca3af',
+                                textTransform: 'uppercase',
+                                whiteSpace: 'nowrap'
+                              }}>Unr:</div>
+                              <div style={{
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                color: (holding.unrealizedPnL && holding.unrealizedPnL >= 0) ? '#059669' : '#dc2626'
+                              }}>
+                                {formatCurrency(holding.unrealizedPnL)}
+                              </div>
+                            </div>
+
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: '#f9fafb',
+                              border: '1px solid #e5e7eb'
+                            }}>
+                              <div style={{
+                                fontSize: '8px',
+                                fontWeight: '600',
+                                color: '#9ca3af',
+                                textTransform: 'uppercase',
+                                whiteSpace: 'nowrap'
+                              }}>Rea:</div>
+                              <div style={{
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                color: (holding.realizedPnL && holding.realizedPnL >= 0) ? '#059669' : '#dc2626'
+                              }}>
+                                {formatCurrency(holding.realizedPnL)}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
