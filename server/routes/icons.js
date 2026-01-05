@@ -408,13 +408,56 @@ router.post('/batch', async (req, res) => {
   }
 });
 
-// Get icons cache
+// Get icons cache (filtered by actual portfolio holdings)
 router.get('/cache', async (req, res) => {
   try {
     const cache = await loadIconsCache();
+
+    // Load portfolio holdings to filter icons
+    const portfoliosPath = path.join(__dirname, '..', 'data', 'cache', 'portfolios.json');
+    let actualHoldings = new Set();
+
+    try {
+      const portfoliosData = await fs.readFile(portfoliosPath, 'utf8');
+      const portfolios = JSON.parse(portfoliosData);
+
+      // Collect all unique symbol+type combinations from all portfolios
+      Object.values(portfolios).forEach(portfolioEntry => {
+        const portfolio = portfolioEntry.portfolio || portfolioEntry;
+        if (portfolio.holdings && Array.isArray(portfolio.holdings)) {
+          portfolio.holdings.forEach(holding => {
+            if (holding.symbol && holding.quantity > 0) {
+              const type = holding.type || 's';
+              const cacheKey = `${holding.symbol}_${type}`.toLowerCase();
+              actualHoldings.add(cacheKey);
+            }
+          });
+        }
+      });
+
+      console.log(`🔍 Found ${actualHoldings.size} unique holdings in portfolio`);
+    } catch (portfolioError) {
+      console.warn('⚠️ Could not load portfolios for filtering, returning all icons:', portfolioError.message);
+      // If we can't load portfolios, return all icons
+      return res.json({
+        success: true,
+        cache: cache
+      });
+    }
+
+    // Filter cache to only include icons for actual holdings
+    const filteredCache = {};
+    Object.entries(cache).forEach(([key, value]) => {
+      if (actualHoldings.has(key.toLowerCase())) {
+        filteredCache[key] = value;
+      }
+    });
+
+    console.log(`📦 Returning ${Object.keys(filteredCache).length} icons (filtered from ${Object.keys(cache).length} total)`);
+
     res.json({
       success: true,
-      cache: cache
+      cache: filteredCache
     });
   } catch (error) {
     console.error('Error getting icons cache:', error);
