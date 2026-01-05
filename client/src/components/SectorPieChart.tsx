@@ -75,22 +75,17 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
   // Colors for sectors (diverse palette)
   const sectorColors: {[key: string]: string} = {
     'Tech': '#3B82F6',
-    'Technology': '#3B82F6',
-    'Automotive': '#10B981',
     'Consumer Cyclical': '#10B981',
     'Industrials': '#F59E0B',
     'Healthcare': '#EF4444',
     'Financial Services': '#8B5CF6',
     'Utilities': '#06B6D4',
     'Energy': '#F97316',
-    'Basic Materials': '#84CC16',
-    'Raw Materials': '#84CC16',
+    'Materials': '#84CC16',
     'Real Estate': '#EC4899',
-    'Communication Services': '#6366F1',
+    'Telecommunications': '#6366F1',
     'ETF': '#9333EA',
-    'ETF - Index Fund': '#9333EA',
     'Alternative Investments': '#8B5CF6',
-    'Smart Contract Platform': '#F59E0B',
     'Cryptocurrency': '#FBBF24',
     'Unknown': '#9CA3AF'
   };
