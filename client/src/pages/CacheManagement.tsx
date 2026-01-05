@@ -25,7 +25,6 @@ interface CacheData {
 // Predefined sector options
 const SECTOR_OPTIONS = [
   'Alternative Investments',
-  'Automotive',
   'Consumer Cyclical',
   'Consumer Defensive',
   'Cryptocurrency',
@@ -34,7 +33,7 @@ const SECTOR_OPTIONS = [
   'Financial Services',
   'Healthcare',
   'Industrials',
-  'Raw Materials',
+  'Materials',
   'Real Estate',
   'Tech',
   'Telecommunications',
