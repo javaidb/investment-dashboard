@@ -42,7 +42,10 @@ const upload = multer({
 // File-based storage for portfolio data
 const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
 
-// Load portfolios from file (new file-based caching structure)
+// Master portfolio ID - single source of truth for all portfolio data
+const MASTER_PORTFOLIO_ID = 'master-portfolio';
+
+// Load portfolios from file (master portfolio structure)
 function loadPortfolios() {
   try {
     // Ensure portfolio directory exists
@@ -51,80 +54,121 @@ function loadPortfolios() {
       fs.mkdirSync(portfolioDir, { recursive: true });
       console.log(`📁 Created portfolio directory: ${portfolioDir}`);
     }
-    
+
     if (fs.existsSync(PORTFOLIO_FILE)) {
       const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
       const portfolioData = JSON.parse(data);
       const portfolios = new Map();
-      
-      // Check if this is the old format (portfolioId -> portfolio) or new format (filename -> fileData)
-      const isOldFormat = Object.keys(portfolioData).some(key => {
+
+      // Check if this is the NEW master portfolio format
+      if (portfolioData.masterPortfolio && portfolioData.masterPortfolio.id === MASTER_PORTFOLIO_ID) {
+        console.log('✅ Loading master portfolio format');
+        portfolios.set(MASTER_PORTFOLIO_ID, portfolioData.masterPortfolio);
+        console.log(`📊 Master portfolio loaded: ${portfolioData.masterPortfolio.holdings?.length || 0} holdings, ${portfolioData.masterPortfolio.trades?.length || 0} trades`);
+        console.log(`📁 File registry: ${Object.keys(portfolioData.fileRegistry || {}).length} files tracked`);
+        return portfolios;
+      }
+
+      // Check if this is the old per-file format
+      const isOldPerFileFormat = Object.keys(portfolioData).some(key => {
         const item = portfolioData[key];
-        return item && item.id && item.trades && item.holdings;
+        return item && item.fileMetadata && item.portfolio;
       });
-      
-      if (isOldFormat) {
-        // Convert old format to new format temporarily for backward compatibility
-        console.log('📁 Converting old portfolio format to new file-based format...');
-        const legacyPortfolios = new Map(Object.entries(portfolioData));
-        
-        // Validate legacy portfolio data structure
-        for (const [id, portfolio] of legacyPortfolios.entries()) {
-          if (!portfolio || typeof portfolio !== 'object') {
-            console.warn(`⚠️ Invalid portfolio data for ID ${id}:`, portfolio);
-            legacyPortfolios.delete(id);
-            continue;
-          }
-          
-          if (!portfolio.holdings || !Array.isArray(portfolio.holdings)) {
-            console.warn(`⚠️ Portfolio ${id} has invalid holdings structure:`, portfolio.holdings);
-            portfolio.holdings = [];
-          }
-          
-          if (!portfolio.summary || typeof portfolio.summary !== 'object') {
-            console.warn(`⚠️ Portfolio ${id} has invalid summary structure:`, portfolio.summary);
-            portfolio.summary = {};
-          }
-        }
-        
-        console.log(`📁 Loaded ${legacyPortfolios.size} legacy portfolios from file`);
-        return legacyPortfolios;
-      } else {
-        // New file-based format: filename -> { fileMetadata, portfolio }
-        // All files with the same portfolio ID should be merged into one portfolio entry
-        // FIX: Use the file with the MOST trades/holdings, not the latest timestamp
-        let totalPortfolios = 0;
-        const portfoliosById = new Map();
+
+      if (isOldPerFileFormat) {
+        console.log('🔄 Migrating from old per-file format to master portfolio...');
+        // Collect all trades from all files
+        const allTrades = [];
+        const fileRegistry = {};
 
         for (const [filename, fileData] of Object.entries(portfolioData)) {
-          if (fileData && fileData.portfolio && typeof fileData.portfolio === 'object') {
-            const portfolioId = fileData.portfolio.id;
-            const tradesCount = fileData.portfolio.trades?.length || 0;
-            const holdingsCount = fileData.portfolio.holdings?.length || 0;
+          if (fileData && fileData.portfolio && fileData.portfolio.trades) {
+            console.log(`  📄 Migrating ${filename}: ${fileData.portfolio.trades.length} trades`);
 
-            // If we don't have this portfolio ID yet, or this one has more data, use it
-            if (!portfoliosById.has(portfolioId)) {
-              portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, tradesCount, holdingsCount, filename });
-              totalPortfolios++;
-            } else {
-              const existing = portfoliosById.get(portfolioId);
-              // Prefer the portfolio with more trades and holdings
-              if (tradesCount > existing.tradesCount || holdingsCount > existing.holdingsCount) {
-                portfoliosById.set(portfolioId, { portfolio: fileData.portfolio, tradesCount, holdingsCount, filename });
-              }
+            // Add source file to each trade for tracking
+            const tradesWithSource = fileData.portfolio.trades.map(trade => ({
+              ...trade,
+              sourceFile: filename,
+              id: trade.id || `${filename}-${trade.date}-${trade.symbol}-${trade.action}`
+            }));
+
+            allTrades.push(...tradesWithSource);
+
+            // Track file in registry
+            if (fileData.fileMetadata) {
+              const crypto = require('crypto');
+              fileRegistry[filename] = {
+                checksum: crypto.createHash('md5').update(filename + fileData.fileMetadata.lastModified).digest('hex'),
+                processedAt: fileData.fileMetadata.processedAt,
+                lastModified: fileData.fileMetadata.lastModified,
+                folder: fileData.fileMetadata.folder,
+                tradeCount: tradesWithSource.length,
+                tradeIds: tradesWithSource.map(t => t.id)
+              };
             }
           }
         }
 
-        // Extract just the portfolios
-        for (const [id, data] of portfoliosById.entries()) {
-          portfolios.set(id, data.portfolio);
-          console.log(`📊 Using portfolio from ${data.filename} (${data.holdingsCount} holdings, ${data.tradesCount} trades)`);
-        }
+        console.log(`  ✅ Migration collected ${allTrades.length} total trades from ${Object.keys(fileRegistry).length} files`);
 
-        console.log(`📁 Loaded ${totalPortfolios} unique portfolios from ${Object.keys(portfolioData).length} files`);
+        // Create master portfolio (will be calculated and saved by next reprocess)
+        const masterPortfolio = {
+          id: MASTER_PORTFOLIO_ID,
+          trades: allTrades,
+          holdings: [], // Will be recalculated
+          summary: {},  // Will be recalculated
+          createdAt: new Date().toISOString(),
+          migrated: true
+        };
+
+        portfolios.set(MASTER_PORTFOLIO_ID, masterPortfolio);
+
+        // Save migrated data immediately
+        saveMasterPortfolio(portfolios, fileRegistry);
+        console.log('✅ Migration complete, master portfolio saved');
+
         return portfolios;
       }
+
+      // Check if this is very old format (portfolioId -> portfolio directly)
+      const isVeryOldFormat = Object.keys(portfolioData).some(key => {
+        const item = portfolioData[key];
+        return item && item.id && item.trades && item.holdings && !item.fileMetadata;
+      });
+
+      if (isVeryOldFormat) {
+        console.log('🔄 Migrating from very old format to master portfolio...');
+        // Merge all portfolios into one
+        const allTrades = [];
+
+        for (const [id, portfolio] of Object.entries(portfolioData)) {
+          if (portfolio && portfolio.trades) {
+            console.log(`  📄 Migrating portfolio ${id}: ${portfolio.trades.length} trades`);
+            const tradesWithIds = portfolio.trades.map(trade => ({
+              ...trade,
+              id: trade.id || `${id}-${trade.date}-${trade.symbol}-${trade.action}`
+            }));
+            allTrades.push(...tradesWithIds);
+          }
+        }
+
+        const masterPortfolio = {
+          id: MASTER_PORTFOLIO_ID,
+          trades: allTrades,
+          holdings: [], // Will be recalculated
+          summary: {},  // Will be recalculated
+          createdAt: new Date().toISOString(),
+          migrated: true
+        };
+
+        portfolios.set(MASTER_PORTFOLIO_ID, masterPortfolio);
+        saveMasterPortfolio(portfolios, {});
+        console.log('✅ Migration complete from very old format');
+
+        return portfolios;
+      }
+
+      console.log('⚠️ Unknown portfolio format, starting fresh');
     } else {
       console.log('📁 No portfolio file found, starting with empty portfolios');
     }
@@ -134,7 +178,56 @@ function loadPortfolios() {
   return new Map();
 }
 
-// Save portfolios to file with file-based caching structure
+// Save master portfolio to file with file registry
+function saveMasterPortfolio(portfolios, fileRegistry = null) {
+  try {
+    const masterPortfolio = portfolios.get(MASTER_PORTFOLIO_ID);
+
+    if (!masterPortfolio) {
+      console.warn('⚠️ No master portfolio found to save');
+      return;
+    }
+
+    // Load existing file registry if not provided
+    let currentFileRegistry = fileRegistry;
+    if (!currentFileRegistry && fs.existsSync(PORTFOLIO_FILE)) {
+      try {
+        const existingData = JSON.parse(fs.readFileSync(PORTFOLIO_FILE, 'utf8'));
+        currentFileRegistry = existingData.fileRegistry || {};
+      } catch (error) {
+        console.warn('⚠️ Could not load existing file registry:', error.message);
+        currentFileRegistry = {};
+      }
+    } else if (!currentFileRegistry) {
+      currentFileRegistry = {};
+    }
+
+    const portfolioData = {
+      masterPortfolio: masterPortfolio,
+      fileRegistry: currentFileRegistry,
+      lastUpdated: new Date().toISOString(),
+      version: '2.0' // Master portfolio version
+    };
+
+    fs.writeFileSync(PORTFOLIO_FILE, JSON.stringify(portfolioData, null, 2));
+    console.log(`💾 Saved master portfolio: ${masterPortfolio.holdings?.length || 0} holdings, ${masterPortfolio.trades?.length || 0} trades`);
+    console.log(`📁 File registry: ${Object.keys(currentFileRegistry).length} files tracked`);
+
+    // Update watchlist cache with master portfolio holdings
+    try {
+      if (masterPortfolio.holdings && Array.isArray(masterPortfolio.holdings)) {
+        watchlistCache.updateFromHoldings(masterPortfolio.holdings);
+        console.log(`📋 Updated watchlist cache from master portfolio`);
+      }
+    } catch (watchlistError) {
+      console.warn('⚠️ Could not update watchlist cache:', watchlistError.message);
+    }
+  } catch (error) {
+    console.error('❌ Could not save master portfolio to file:', error.message);
+  }
+}
+
+// Save portfolios to file with file-based caching structure (LEGACY - kept for compatibility)
 function savePortfolios(portfolios, fileMetadata = null) {
   try {
     let portfolioData = {};
@@ -1498,11 +1591,10 @@ router.get('/:portfolioId/cached', async (req, res) => {
         const exchangeRate = cachedHolding.exchangeRate || 1.35;
 
         // Holdings are already in CAD, no conversion needed
-        const currentValue = currentPrice ? holding.quantity * currentPrice : null;
-        const unrealizedPnL = currentValue && holding.totalInvested ?
-          currentValue - holding.totalInvested : null;
-        const totalPnL = unrealizedPnL !== null ?
-          unrealizedPnL + holding.realizedPnL : holding.realizedPnL;
+        const currentValue = currentPrice ? holding.quantity * currentPrice : 0;
+        // If no price data, unrealized P&L is negative cost basis (total loss)
+        const unrealizedPnL = currentValue - (holding.totalInvested || 0);
+        const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
 
         return {
           ...holding,
@@ -1520,8 +1612,19 @@ router.get('/:portfolioId/cached', async (req, res) => {
         };
       } else {
         // No cached data available - holdings are already in CAD
+        // Set currentValue to 0 and unrealizedPnL to negative cost basis
+        const currentValue = 0;
+        const unrealizedPnL = -(holding.totalInvested || 0);
+        const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+
         return {
           ...holding,
+          currentPrice: null,
+          currentValue: currentValue,
+          unrealizedPnL: unrealizedPnL,
+          totalPnL: totalPnL,
+          totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
+            (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
           cacheUsed: false
         };
       }
@@ -1883,11 +1986,33 @@ async function processTrades(trades) {
   const usdToCadRate = await getUSDtoCADRate();
   console.log(`💱 Using exchange rate: 1 USD = ${usdToCadRate} CAD`);
 
-  // Sort trades by date
-  trades.sort((a, b) => a.date - b.date);
+  // Sort trades by date, then by action (buy before sell for same-day trades)
+  trades.sort((a, b) => {
+    const dateDiff = a.date - b.date;
+    if (dateDiff !== 0) return dateDiff;
+
+    // For same-day trades, process buys before sells
+    if (a.symbol === b.symbol) {
+      if (a.action === 'buy' && b.action === 'sell') return -1;
+      if (a.action === 'sell' && b.action === 'buy') return 1;
+    }
+    return 0;
+  });
 
   for (const trade of trades) {
     const symbol = trade.symbol;
+
+    // Skip trades with invalid data (0 total amount or 0 price for sells)
+    if (trade.action === 'sell' && (trade.total === 0 || trade.price === 0)) {
+      console.warn(`⚠️ Skipping invalid sell trade for ${symbol}: total=${trade.total}, price=${trade.price}, qty=${trade.quantity}, date=${trade.date}, file=${trade.sourceFile || 'unknown'}`);
+      continue;
+    }
+
+    // Skip buy trades with 0 total (free/promotional shares can be kept as they don't affect P&L)
+    if (trade.action === 'buy' && trade.total === 0 && trade.price === 0) {
+      console.warn(`⚠️ Skipping free/promotional buy trade for ${symbol}: qty=${trade.quantity}, date=${trade.date}, file=${trade.sourceFile || 'unknown'}`);
+      continue;
+    }
 
     if (!holdings.has(symbol)) {
       holdings.set(symbol, {
@@ -1898,6 +2023,8 @@ async function processTrades(trades) {
         totalAmountInvested: 0, // Track total amount ever invested (ALWAYS in CAD)
         realizedPnL: 0,
         amountSold: 0, // Track total amount sold (ALWAYS in CAD)
+        totalBuyAmount: 0, // Track total buy amount for accurate average cost (ALWAYS in CAD)
+        totalBuyShares: 0, // Track total buy shares for accurate average cost
         type: trade.type, // 's' for stock, 'c' for crypto
         currency: 'CAD' // All holdings store amounts in CAD
       });
@@ -1910,13 +2037,17 @@ async function processTrades(trades) {
     const tradePriceCAD = trade.currency === 'USD' ? trade.price * usdToCadRate : trade.price;
 
     if (trade.action === 'buy') {
-      const newQuantity = holding.quantity + trade.quantity;
-      const newTotalInvested = holding.totalInvested + tradeTotalCAD;
-
-      holding.quantity = newQuantity;
-      holding.totalInvested = newTotalInvested;
+      // Track total buys for accurate average cost calculation
+      holding.totalBuyAmount += tradeTotalCAD;
+      holding.totalBuyShares += trade.quantity;
+      holding.quantity += trade.quantity;
       holding.totalAmountInvested += tradeTotalCAD; // Accumulate in CAD
-      holding.averagePrice = newTotalInvested / newQuantity;
+
+      // Calculate average price using ALL buys (not affected by sells)
+      holding.averagePrice = holding.totalBuyShares > 0 ? holding.totalBuyAmount / holding.totalBuyShares : 0;
+
+      // Calculate cost basis for remaining shares
+      holding.totalInvested = holding.quantity * holding.averagePrice;
 
       totalInvested += tradeTotalCAD;
     } else if (trade.action === 'sell') {
@@ -1927,45 +2058,46 @@ async function processTrades(trades) {
         const adjustedQuantity = holding.quantity;
         const adjustedTotal = tradeTotalCAD * (adjustedQuantity / trade.quantity);
 
-        const realizedPnL = adjustedTotal - (holding.averagePrice * adjustedQuantity);
-
         holding.quantity = 0;
-        holding.realizedPnL += realizedPnL;
         holding.amountSold += adjustedTotal; // Track adjusted amount sold (in CAD)
-        totalRealizedPnL += realizedPnL;
         totalAmountSold += adjustedTotal;
 
         holding.totalInvested = 0;
-        holding.averagePrice = 0;
+        // Note: We keep averagePrice for reference, even though quantity is 0
+        // realizedPnL will be calculated AFTER all trades are processed
       } else {
-        const realizedPnL = tradeTotalCAD - (holding.averagePrice * trade.quantity);
-
         holding.quantity -= trade.quantity;
-        holding.realizedPnL += realizedPnL;
         holding.amountSold += tradeTotalCAD; // Track amount sold (in CAD)
-        totalRealizedPnL += realizedPnL;
         totalAmountSold += tradeTotalCAD;
 
-        if (holding.quantity === 0) {
-          holding.totalInvested = 0;
-          holding.averagePrice = 0;
-        } else {
-          holding.totalInvested = holding.averagePrice * holding.quantity;
-        }
+        // Recalculate cost basis for remaining shares using the SAME average price
+        holding.totalInvested = holding.quantity * holding.averagePrice;
+
+        // Note: averagePrice stays the same - it's the average of ALL buys
+        // realizedPnL will be calculated AFTER all trades are processed
       }
     }
   }
 
-  // Convert holdings map to array and change zero quantities to 1e-9 to show in assets
+  // Convert holdings map to array and calculate realized P&L for each holding
   const holdingsArray = Array.from(holdings.values())
     .map(holding => {
+      // Calculate realized P&L correctly:
+      // realizedPnL = amountSold - costBasisOfSoldShares
+      // costBasisOfSoldShares = totalAmountInvested - totalInvested (remaining cost basis)
+      const costBasisOfSoldShares = holding.totalAmountInvested - holding.totalInvested;
+      holding.realizedPnL = holding.amountSold - costBasisOfSoldShares;
+
+      // Accumulate to total
+      totalRealizedPnL += holding.realizedPnL;
+
       if (holding.quantity === 0) {
         holding.quantity = 1e-9;
       }
       return holding;
     });
 
-  console.log('📊 Final holdings:', holdingsArray.map(h => ({ symbol: h.symbol, type: h.type, quantity: h.quantity })));
+  console.log('📊 Final holdings:', holdingsArray.map(h => ({ symbol: h.symbol, type: h.type, quantity: h.quantity, realizedPnL: h.realizedPnL })));
 
   return {
     holdings: holdingsArray,
@@ -2909,14 +3041,22 @@ router.post('/auto-process', async (req, res) => {
   try {
     // Check for file modifications against cache
     const modificationCheck = checkFileModifications();
-    
-    if (!modificationCheck.hasOutdatedFiles) {
+
+    // Allow forcing reprocess via query parameter (useful after migration)
+    const forceReprocess = req.query.force === 'true';
+
+    if (!modificationCheck.hasOutdatedFiles && !forceReprocess) {
       return res.json({
         success: true,
         processed: false,
         message: modificationCheck.reason,
-        modificationCheck: modificationCheck
+        modificationCheck: modificationCheck,
+        hint: 'Add ?force=true to force reprocess and calculate holdings'
       });
+    }
+
+    if (forceReprocess && !modificationCheck.hasOutdatedFiles) {
+      console.log('🔄 Force reprocessing all files to recalculate holdings...');
     }
 
     console.log('🔄 Auto-processing due to file modifications...');
@@ -3042,30 +3182,87 @@ async function processUploadedFiles(req, res) {
       });
     }
 
-    let allTrades = [];
-    const portfolioId = Date.now().toString();
-    console.log('🆔 Generated portfolio ID:', portfolioId);
+    // Use master portfolio ID instead of generating new ones
+    const portfolioId = MASTER_PORTFOLIO_ID;
+    console.log('🆔 Using master portfolio ID:', portfolioId);
 
-    // Collect file metadata for new caching structure
-    const fileMetadataList = [];
-    
+    // Load existing master portfolio if it exists
+    const existingMasterPortfolio = portfolios.get(MASTER_PORTFOLIO_ID);
+    let existingTrades = existingMasterPortfolio?.trades || [];
+    let existingFileRegistry = {};
+
+    // Load existing file registry
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      try {
+        const portfolioData = JSON.parse(fs.readFileSync(PORTFOLIO_FILE, 'utf8'));
+        existingFileRegistry = portfolioData.fileRegistry || {};
+        console.log(`📁 Loaded existing file registry with ${Object.keys(existingFileRegistry).length} files`);
+      } catch (error) {
+        console.warn('⚠️ Could not load existing file registry:', error.message);
+      }
+    }
+
+    const crypto = require('crypto');
+    const newFileRegistry = {};
+    const allTradesMap = new Map(); // Use Map to track trades by ID for deduplication
+
+    // Start with existing trades from master portfolio
+    if (existingTrades && existingTrades.length > 0) {
+      console.log(`📦 Loading ${existingTrades.length} existing trades from master portfolio`);
+      existingTrades.forEach(trade => {
+        if (trade.id) {
+          allTradesMap.set(trade.id, trade);
+        }
+      });
+    }
+
+    // Track files we've seen (to detect deletions)
+    const currentFiles = new Set(allFiles.map(f => f.name));
+
     // Process each CSV file
     for (let i = 0; i < allFiles.length; i++) {
       const fileInfo = allFiles[i];
       const { path: filePath, folder: fileType } = fileInfo;
-      const trades = [];
       console.log(`📄 [${i+1}/${allFiles.length}] Processing ${fileType} file:`, fileInfo.name);
 
-      // Get file metadata
+      // Get file metadata and calculate checksum
       let fileStats;
+      let fileChecksum;
       try {
         fileStats = fs.statSync(filePath);
-        console.log(`   ✓ File stats retrieved: ${fileStats.size} bytes`);
+        const fileContent = fs.readFileSync(filePath);
+        fileChecksum = crypto.createHash('md5').update(fileContent).digest('hex');
+        console.log(`   ✓ File stats: ${fileStats.size} bytes, checksum: ${fileChecksum.substring(0, 8)}...`);
       } catch (statError) {
         console.error(`   ✗ Error getting file stats for ${fileInfo.name}:`, statError.message);
         continue;
       }
 
+      // Check if file has changed since last processing
+      const existingFileData = existingFileRegistry[fileInfo.name];
+      const fileChanged = !existingFileData || existingFileData.checksum !== fileChecksum;
+
+      if (!fileChanged) {
+        console.log(`   ⏭️  File unchanged, keeping existing ${existingFileData.tradeCount} trades`);
+        // Keep file registry entry
+        newFileRegistry[fileInfo.name] = existingFileData;
+        continue;
+      }
+
+      if (existingFileData) {
+        console.log(`   🔄 File modified, removing old trades and reprocessing`);
+        // Remove old trades from this file
+        if (existingFileData.tradeIds && Array.isArray(existingFileData.tradeIds)) {
+          existingFileData.tradeIds.forEach(tradeId => {
+            allTradesMap.delete(tradeId);
+          });
+        }
+      } else {
+        console.log(`   ✨ New file detected, processing trades`);
+      }
+
+      // Parse CSV and extract trades
+      const trades = [];
       console.log(`   ⏳ Starting CSV parsing for ${fileInfo.name}...`);
       await new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -3073,40 +3270,47 @@ async function processUploadedFiles(req, res) {
           .on('data', (row) => {
             try {
               let trade = null;
-              
+
               if (fileType === 'crypto') {
-                // Process crypto format
                 trade = processCryptoRow(row, fileInfo.name);
               } else if (fileType === 'wealthsimple') {
-                // Process Wealthsimple format
                 trade = processWealthsimpleRow(row, fileInfo.name);
               } else if (fileType === 'questrade') {
-                // Process Questrade format
                 trade = processQuestradeRow(row, fileInfo.name);
               }
-              
+
               if (trade) {
-                console.log(`Processing trade in ${fileInfo.name}:`, trade);
+                // Generate unique trade ID if not present
+                if (!trade.id) {
+                  trade.id = `${fileInfo.name}-${trade.date}-${trade.symbol}-${trade.action}-${trade.quantity}`;
+                }
+                trade.sourceFile = fileInfo.name; // Track source file
                 trades.push(trade);
               }
             } catch (error) {
               console.warn(`Error processing row in ${fileInfo.name}:`, error.message);
-              // Continue processing other rows instead of rejecting the entire file
             }
           })
           .on('end', () => {
-            allTrades = allTrades.concat(trades);
             console.log(`   ✅ Completed processing ${fileInfo.name}, found ${trades.length} trades`);
 
-            // Add file metadata for this file
-            fileMetadataList.push({
-              folder: fileType, // 'crypto', 'wealthsimple', or 'questrade'
-              filename: fileInfo.name,
-              fileSize: fileStats.size,
-              lastModified: fileStats.mtime.toISOString(),
-              portfolioId: portfolioId, // Will be set after portfolio creation
-              tradesCount: trades.length
+            // Add trades to the map
+            const tradeIds = [];
+            trades.forEach(trade => {
+              allTradesMap.set(trade.id, trade);
+              tradeIds.push(trade.id);
             });
+
+            // Update file registry
+            newFileRegistry[fileInfo.name] = {
+              checksum: fileChecksum,
+              processedAt: new Date().toISOString(),
+              lastModified: fileStats.mtime.toISOString(),
+              folder: fileType,
+              tradeCount: trades.length,
+              tradeIds: tradeIds,
+              fileSize: fileStats.size
+            };
 
             resolve();
           })
@@ -3117,7 +3321,24 @@ async function processUploadedFiles(req, res) {
       });
     }
 
-    console.log(`📊 Total trades found: ${allTrades.length}`);
+    // Handle deleted files - remove their trades from the master portfolio
+    const deletedFiles = Object.keys(existingFileRegistry).filter(filename => !currentFiles.has(filename));
+    if (deletedFiles.length > 0) {
+      console.log(`🗑️  Detected ${deletedFiles.length} deleted files, removing their trades`);
+      deletedFiles.forEach(filename => {
+        const fileData = existingFileRegistry[filename];
+        if (fileData.tradeIds && Array.isArray(fileData.tradeIds)) {
+          console.log(`   Removing ${fileData.tradeIds.length} trades from deleted file: ${filename}`);
+          fileData.tradeIds.forEach(tradeId => {
+            allTradesMap.delete(tradeId);
+          });
+        }
+      });
+    }
+
+    // Convert trades map back to array
+    const allTrades = Array.from(allTradesMap.values());
+    console.log(`📊 Total trades in master portfolio: ${allTrades.length}`);
     
     // Process all trades and calculate portfolio
     console.log('🔄 Processing trades and calculating portfolio...');
@@ -3145,32 +3366,28 @@ async function processUploadedFiles(req, res) {
       console.warn('⚠️ Stock price caching failed for new portfolio:', cacheError.message);
     }
     
-    // Store portfolio data
+    // Store master portfolio data
     const portfolioData = {
       id: portfolioId,
       trades: allTrades,
       holdings: portfolio.holdings,
       summary: portfolio.summary,
-      createdAt: new Date().toISOString()
+      createdAt: existingMasterPortfolio?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
-    
-    console.log('💾 Storing portfolio data...');
+
+    console.log('💾 Storing master portfolio data...');
     portfolios.set(portfolioId, portfolioData);
-    console.log('📊 Current portfolios in memory:', Array.from(portfolios.keys()));
-    
-    // Update file metadata with the actual portfolio ID
-    fileMetadataList.forEach(fileMeta => {
-      fileMeta.portfolioId = portfolioId;
-    });
-    
-    // Save to file with metadata
-    savePortfolios(portfolios, fileMetadataList);
+    console.log('📊 Master portfolio in memory with', portfolio.holdings.length, 'holdings');
+
+    // Save master portfolio with file registry
+    saveMasterPortfolio(portfolios, newFileRegistry);
 
     // Update file tracking to mark all files as processed
     fileTracker.updateTracking();
     fileTracker.markAsProcessed(portfolioId);
 
-    console.log('✅ Portfolio processing completed successfully');
+    console.log('✅ Master portfolio processing completed successfully');
     
     // Pre-populate historical cache for newly discovered symbols
     setTimeout(async () => {
