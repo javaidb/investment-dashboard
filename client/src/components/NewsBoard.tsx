@@ -367,9 +367,46 @@ const NewsBoard: React.FC = () => {
       return avgChange < 0;
     };
 
+    // Helper to check signal types
+    const has200WMASignal = (s: SymbolSummary) =>
+      s.signals.some(sig => sig.includes('Below 200 WMA with Positive Weekly Gain'));
+    const hasStrongDailyGain = (s: SymbolSummary) =>
+      s.signals.some(sig => sig.includes('Strong Daily Gain'));
+
+    // Sort gains by priority:
+    // 1. Both 200 WMA + Strong Daily Gain
+    // 2. 200 WMA only
+    // 3. Strong Daily Gain only
+    // 4. Others
+    const sortGains = (a: SymbolSummary, b: SymbolSummary) => {
+      const aHas200WMA = has200WMASignal(a);
+      const aHasStrong = hasStrongDailyGain(a);
+      const bHas200WMA = has200WMASignal(b);
+      const bHasStrong = hasStrongDailyGain(b);
+
+      // Both signals
+      const aBoth = aHas200WMA && aHasStrong;
+      const bBoth = bHas200WMA && bHasStrong;
+      if (aBoth && !bBoth) return -1;
+      if (!aBoth && bBoth) return 1;
+
+      // 200 WMA only
+      if (aHas200WMA && !bHas200WMA) return -1;
+      if (!aHas200WMA && bHas200WMA) return 1;
+
+      // Strong Daily Gain only
+      if (aHasStrong && !bHasStrong) return -1;
+      if (!aHasStrong && bHasStrong) return 1;
+
+      return 0;
+    };
+
+    const gainsWithTrendList = gains.filter(s => hasTrend(s) && isUpwardTrend(s)).sort(sortGains);
+    const gainsWithoutTrendList = gains.filter(s => !hasTrend(s) || !isUpwardTrend(s)).sort(sortGains);
+
     return {
-      gainsWithTrend: gains.filter(s => hasTrend(s) && isUpwardTrend(s)),
-      gainsWithoutTrend: gains.filter(s => !hasTrend(s) || !isUpwardTrend(s)),
+      gainsWithTrend: gainsWithTrendList,
+      gainsWithoutTrend: gainsWithoutTrendList,
       lossesWithTrend: losses.filter(s => hasTrend(s) && isDownwardTrend(s)),
       lossesWithoutTrend: losses.filter(s => !hasTrend(s) || !isDownwardTrend(s)),
     };
@@ -466,6 +503,26 @@ const NewsBoard: React.FC = () => {
             <div className={`text-xs font-bold ${isGain ? 'text-green-400' : 'text-red-400'}`}>
               {isGain && '+'}{trendSummary.avgChange.toFixed(1)}%
             </div>
+          </div>
+        )}
+
+        {/* Signals - to the right */}
+        {summary.signals.length > 0 && (
+          <div className="flex-1 flex items-center gap-1.5 ml-6 flex-wrap">
+            {summary.signals.map((signal, idx) => (
+              <span
+                key={idx}
+                className={`text-[10px] px-2 py-0.5 rounded whitespace-nowrap ${
+                  signal.includes('200 WMA')
+                    ? 'bg-amber-500/20 border border-amber-400/40 text-amber-200'
+                    : isGain
+                    ? 'bg-green-500/20 border border-green-400/40 text-green-200'
+                    : 'bg-red-500/20 border border-red-400/40 text-red-200'
+                }`}
+              >
+                {signal}
+              </span>
+            ))}
           </div>
         )}
 
@@ -1058,21 +1115,19 @@ const NewsBoard: React.FC = () => {
                 </div>
               )}
 
-              {/* Other Gains Cards */}
+              {/* Other Gains Panel */}
               {groupedSymbols.gainsWithoutTrend.length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 bg-green-500/20 border border-green-500/40 rounded-xl px-4 py-3">
+                <div className="bg-gradient-to-br from-green-900/20 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-green-500/30 p-4 shadow-lg">
+                  <div className="flex items-center gap-2 mb-3">
                     <span className="text-lg">📈</span>
                     <span className="text-sm font-black text-green-200 uppercase tracking-wide">
                       Other Gains ({groupedSymbols.gainsWithoutTrend.length})
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                    {groupedSymbols.gainsWithoutTrend.map((summary, index) =>
-                      renderCard(summary, index, true)
-                    )}
+                  <div className="space-y-2">
+                    {groupedSymbols.gainsWithoutTrend.map(summary => renderTrendRow(summary, true))}
                   </div>
-                </>
+                </div>
               )}
             </div>
 
@@ -1113,21 +1168,19 @@ const NewsBoard: React.FC = () => {
                 </div>
               )}
 
-              {/* Other Losses Cards */}
+              {/* Other Losses Panel */}
               {groupedSymbols.lossesWithoutTrend.length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/40 rounded-xl px-4 py-3">
+                <div className="bg-gradient-to-br from-red-900/20 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-red-500/30 p-4 shadow-lg">
+                  <div className="flex items-center gap-2 mb-3">
                     <span className="text-lg">📉</span>
                     <span className="text-sm font-black text-red-200 uppercase tracking-wide">
                       Other Losses ({groupedSymbols.lossesWithoutTrend.length})
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                    {groupedSymbols.lossesWithoutTrend.map((summary, index) =>
-                      renderCard(summary, index, false)
-                    )}
+                  <div className="space-y-2">
+                    {groupedSymbols.lossesWithoutTrend.map(summary => renderTrendRow(summary, false))}
                   </div>
-                </>
+                </div>
               )}
             </div>
           </div>
