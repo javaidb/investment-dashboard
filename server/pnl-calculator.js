@@ -59,6 +59,7 @@ class PnLCalculator {
       return [];
     }
 
+
     // Sort trades by date (earliest first)
     const sortedTrades = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -81,7 +82,16 @@ class PnLCalculator {
 
     // Determine if we need to convert USD prices to CAD
     // Historical prices for US stocks and crypto are in USD, but trades are stored in CAD
-    const historicalCurrency = historicalData.assetInfo?.currency || 'CAD';
+    // US stocks: symbols without .TO suffix
+    // Canadian stocks: symbols with .TO suffix
+    // Crypto: all in USD
+    const isCanadianStock = symbol.endsWith('.TO');
+    const isCrypto = assetInfo.type === 'c';
+    const isUSStock = assetInfo.type === 's' && !isCanadianStock;
+
+    // Historical prices are in USD for: US stocks and crypto
+    // Historical prices are in CAD for: Canadian stocks (.TO)
+    const historicalCurrency = (isUSStock || isCrypto) ? 'USD' : 'CAD';
     const needsCurrencyConversion = historicalCurrency === 'USD';
 
     // Get current USD to CAD exchange rate
@@ -102,12 +112,31 @@ class PnLCalculator {
     });
 
     // Get all trading days from first purchase to today
-    const tradingDays = this.getTradingDaysBetween(firstPurchaseDate, today);
+    // Pass asset type so crypto can include weekends
+    const tradingDays = this.getTradingDaysBetween(firstPurchaseDate, today, assetInfo.type);
 
     // Create a map of dates to transactions for fast lookup
     const transactionMap = new Map();
     sortedTrades.forEach(trade => {
-      const dateStr = new Date(trade.date).toISOString().split('T')[0];
+      let tradeDate = new Date(trade.date);
+      let dateStr = tradeDate.toISOString().split('T')[0];
+
+      // For stocks, move weekend transactions to next Monday
+      if (assetInfo.type === 's') {
+        const dayOfWeek = tradeDate.getUTCDay();
+        if (dayOfWeek === 0) { // Sunday -> Monday
+          tradeDate.setUTCDate(tradeDate.getUTCDate() + 1);
+          const newDateStr = tradeDate.toISOString().split('T')[0];
+          console.warn(`⚠️ ${symbol}: Moving Sunday transaction from ${dateStr} to Monday ${newDateStr}`);
+          dateStr = newDateStr;
+        } else if (dayOfWeek === 6) { // Saturday -> Monday
+          tradeDate.setUTCDate(tradeDate.getUTCDate() + 2);
+          const newDateStr = tradeDate.toISOString().split('T')[0];
+          console.warn(`⚠️ ${symbol}: Moving Saturday transaction from ${dateStr} to Monday ${newDateStr}`);
+          dateStr = newDateStr;
+        }
+      }
+
       if (!transactionMap.has(dateStr)) {
         transactionMap.set(dateStr, []);
       }
@@ -121,15 +150,40 @@ class PnLCalculator {
       });
     });
 
-    // Calculate daily PnL records using AVERAGE COST BASIS (same as breakdown tab)
+
+    // Get USD to CAD exchange rate for currency conversion
+    const usdToCadRate = await getUSDtoCADRate();
+
+    // Calculate average price from ALL buys (matches breakdown tab method)
+    // This average is fixed and used for all cost basis calculations
+    // IMPORTANT: Convert all USD trades to CAD first (matches breakdown tab logic)
+    let totalBuyAmount = 0;
+    let totalBuyShares = 0;
+    sortedTrades.forEach(trade => {
+      if (trade.action === 'buy') {
+        // Convert USD trades to CAD (same as breakdown tab in portfolio.js:2036)
+        const tradeTotalCAD = trade.currency === 'USD' ? trade.total * usdToCadRate : trade.total;
+        totalBuyAmount += tradeTotalCAD;
+        totalBuyShares += trade.quantity;
+      }
+    });
+    const fixedAveragePrice = totalBuyShares > 0 ? totalBuyAmount / totalBuyShares : 0;
+
+    console.log(`📊 ${symbol} average cost: $${fixedAveragePrice.toFixed(2)} CAD (from all buys: $${totalBuyAmount.toFixed(2)} CAD / ${totalBuyShares.toFixed(8)} shares, exchange rate: ${usdToCadRate})`);
+
+    // Calculate daily PnL records using AVERAGE COST BASIS (equity method per spec)
+    // Using the breakdown tab approach: fixed average from all buys, RIC = Units × Avg
+    // State Variables (per spec):
+    // - Units (totalShares): current units held
+    // - RIC (totalCostBasis): Remaining Invested Capital = Units × FixedAverage
+    // - Realized_PnL (totalRealizedPnL): cumulative realized profit
+    // - Rolling Cost Basis: tracked separately for visualization (changes with each transaction)
     const dailyRecords = [];
-    let totalShares = 0;
-    let totalCostBasis = 0; // Total amount invested in current position (average cost method)
-    let totalRealizedPnL = 0; // Cumulative realized P&L from sells
+    let totalShares = 0; // Units
+    let totalRealizedPnL = 0; // Realized_PnL (cumulative realized profit)
     let totalAmountInvested = 0; // Total ever invested (for accurate P&L %)
     let totalAmountReceived = 0; // Total received from sells
-    let totalBuyAmount = 0; // Total amount spent on all buys (for calculating average price)
-    let totalBuyShares = 0; // Total shares bought (for calculating average price)
+    let rollingCostBasis = 0; // Rolling cost basis for visualization (changes with transactions)
 
     for (const tradingDay of tradingDays) {
       const dateStr = tradingDay.toISOString().split('T')[0];
@@ -168,39 +222,64 @@ class PnLCalculator {
       for (const transaction of dayTransactions) {
         if (transaction.action === 'buy') {
           const quantity = transaction.quantity;
-          const amount = transaction.total;
+          // Convert USD to CAD for consistency (matches breakdown tab)
+          const amount = transaction.total; // Already in the trade's currency
+          // Note: transaction.total in the transactionMap is already the original trade.total
+          // We need to check the original trade's currency
+          // Since we don't have currency in transaction object, we need to look at original trades
+          // For now, assume transactions inherit currency from original trades stored in sortedTrades
+          const originalTrade = sortedTrades.find(t =>
+            t.date === transaction.time &&
+            t.action === transaction.action &&
+            t.quantity === transaction.quantity
+          );
+          const amountCAD = originalTrade && originalTrade.currency === 'USD'
+            ? amount * usdToCadRate
+            : amount;
 
-          // Track total buys for average price calculation
-          totalBuyShares += quantity;
-          totalBuyAmount += amount;
-
-          // Add shares and update cost basis
+          // Per spec & breakdown tab: Buy Transaction Rules
+          // Units += Units_Bought
           totalShares += quantity;
-          totalAmountInvested += amount;
 
-          // Recalculate cost basis using average price
-          const averagePrice = totalBuyAmount / totalBuyShares;
-          totalCostBasis = totalShares * averagePrice;
+          // Track total invested for P&L percentage calculation (in CAD)
+          totalAmountInvested += amountCAD;
+
+          // Update rolling cost basis: add the cost of this purchase
+          rollingCostBasis += amountCAD;
 
         } else if (transaction.action === 'sell') {
           const quantity = transaction.quantity;
+          // Convert USD to CAD for consistency (matches breakdown tab)
           const saleProceeds = transaction.total;
+          const originalTrade = sortedTrades.find(t =>
+            t.date === transaction.time &&
+            t.action === transaction.action &&
+            t.quantity === transaction.quantity
+          );
+          const saleProceedsCAD = originalTrade && originalTrade.currency === 'USD'
+            ? saleProceeds * usdToCadRate
+            : saleProceeds;
 
-          // Calculate average price of all shares bought
-          const averagePrice = totalBuyShares > 0 ? totalBuyAmount / totalBuyShares : 0;
+          // Calculate average price at time of sale for rolling cost basis
+          const avgPriceAtSale = totalShares > 0 ? rollingCostBasis / totalShares : 0;
 
-          // Calculate cost basis of sold shares using average price
-          const costOfSoldShares = quantity * averagePrice;
+          // Per spec & breakdown tab: Use fixed average cost from ALL buys (in CAD)
+          // Cost_Sold = Units_Sold × FixedAvg
+          const costOfSoldShares = quantity * fixedAveragePrice;
 
-          // Decrement shares
+          // Per spec: Sell Transaction Rules
+          // Units -= Units_Sold
           totalShares -= quantity;
 
-          // Recalculate cost basis for remaining shares
-          totalCostBasis = totalShares * averagePrice;
+          // Calculate realized P&L from this sale (in CAD)
+          // Realized_PnL += Sale_Proceeds − Cost_Sold
+          const salePnL = saleProceedsCAD - costOfSoldShares;
+          dayRealizedPnL += salePnL;
+          totalAmountReceived += saleProceedsCAD;
 
-          // Calculate realized P&L from this sale
-          dayRealizedPnL += saleProceeds - costOfSoldShares;
-          totalAmountReceived += saleProceeds;
+          // Update rolling cost basis: subtract the cost of sold shares (using average at sale time)
+          rollingCostBasis -= (quantity * avgPriceAtSale);
+
         }
       }
 
@@ -211,6 +290,10 @@ class PnLCalculator {
         console.warn(`⚠️ No price data for ${symbol} on ${dateStr} but has transactions, using last known price or 0`);
         closePrice = dailyRecords.length > 0 ? dailyRecords[dailyRecords.length - 1].price : 0;
       }
+
+      // Calculate RIC (Remaining Invested Capital) using fixed average
+      // Per breakdown tab: RIC = Units × FixedAvg (matches spec: unrealized = market - RIC)
+      const totalCostBasis = totalShares * fixedAveragePrice;
 
       // Calculate market value and P&L
       const marketValue = totalShares * closePrice;
@@ -227,6 +310,7 @@ class PnLCalculator {
         date: dateStr,
         shares: totalShares,
         costBasis: totalCostBasis,
+        rollingCostBasis, // Dynamic cost basis for breakeven price visualization
         marketValue,
         unrealizedPnL,
         realizedPnL: totalRealizedPnL,
@@ -245,7 +329,14 @@ class PnLCalculator {
       dailyRecords.push(record);
     }
 
-    console.log(`✅ Calculated ${dailyRecords.length} daily PnL records for ${symbol} using average cost basis`);
+    console.log(`✅ Calculated ${dailyRecords.length} daily PnL records for ${symbol} using average cost basis (equity method)`);
+
+    // DEBUG: Log final calculation results
+    if (dailyRecords.length > 0) {
+      const lastRecord = dailyRecords[dailyRecords.length - 1];
+      console.log(`🔍 Final state for ${symbol}: Shares=${lastRecord.shares.toFixed(8)}, RIC=$${lastRecord.costBasis.toFixed(2)}, Realized P&L=$${lastRecord.realizedPnL.toFixed(2)}, Unrealized P&L=$${lastRecord.unrealizedPnL.toFixed(2)}`);
+    }
+
     return dailyRecords;
   }
 
@@ -383,7 +474,7 @@ class PnLCalculator {
   }
 
   // Helper: Get all trading days between two dates
-  getTradingDaysBetween(startDate, endDate) {
+  getTradingDaysBetween(startDate, endDate, assetType = 's') {
     const tradingDays = [];
     const current = new Date(startDate);
     const end = new Date(endDate);
@@ -392,7 +483,7 @@ class PnLCalculator {
     end.setHours(0, 0, 0, 0);
 
     while (current <= end) {
-      if (this.isWorkingDay(current)) {
+      if (this.isWorkingDay(current, assetType)) {
         tradingDays.push(new Date(current));
       }
       current.setDate(current.getDate() + 1);
@@ -402,7 +493,13 @@ class PnLCalculator {
   }
 
   // Helper: Check if date is a working day
-  isWorkingDay(date) {
+  isWorkingDay(date, assetType = 's') {
+    // Crypto trades 24/7, so all days are trading days
+    if (assetType === 'c') {
+      return true;
+    }
+
+    // Stocks only trade on weekdays
     const day = date.getDay();
     return day >= 1 && day <= 5; // Monday = 1, Friday = 5
   }
