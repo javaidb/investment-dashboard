@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LineChart,
   Line,
   Area,
+  AreaChart,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -24,6 +26,7 @@ interface DailyRecord {
   date: string;
   shares: number;
   costBasis: number;
+  rollingCostBasis?: number; // Dynamic cost basis for breakeven price (changes with transactions)
   marketValue: number;
   unrealizedPnL: number;
   realizedPnL: number;
@@ -55,11 +58,14 @@ interface DailyPnLChartProps {
   endDate?: string;
 }
 
+type DateRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'ALL';
+
 const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDate }) => {
   const [pnlData, setPnlData] = useState<PnLData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMetric, setSelectedMetric] = useState<'totalPnL' | 'totalPnLPercent' | 'marketValue' | 'shares'>('totalPnL');
+  const [selectedMetric, setSelectedMetric] = useState<'totalPnL' | 'marketValueAndShares'>('totalPnL');
+  const [dateRange, setDateRange] = useState<DateRange>('ALL');
 
   useEffect(() => {
     fetchPnLData();
@@ -110,7 +116,10 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
     }).format(value);
   };
 
-  const formatPercent = (value: number): string => {
+  const formatPercent = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) {
+      return '0.00%';
+    }
     return `${value.toFixed(2)}%`;
   };
 
@@ -119,9 +128,45 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  // Filter data based on selected date range
+  const getFilteredData = (data: DailyRecord[]): DailyRecord[] => {
+    if (!data || data.length === 0 || dateRange === 'ALL') {
+      return data;
+    }
+
+    const today = new Date();
+    let startDate = new Date();
+
+    switch (dateRange) {
+      case '1D':
+        startDate.setDate(today.getDate() - 1);
+        break;
+      case '1W':
+        startDate.setDate(today.getDate() - 7);
+        break;
+      case '1M':
+        startDate.setMonth(today.getMonth() - 1);
+        break;
+      case '3M':
+        startDate.setMonth(today.getMonth() - 3);
+        break;
+      case '6M':
+        startDate.setMonth(today.getMonth() - 6);
+        break;
+      case '1Y':
+        startDate.setFullYear(today.getFullYear() - 1);
+        break;
+      default:
+        return data;
+    }
+
+    return data.filter(record => new Date(record.date) >= startDate);
+  };
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload as DailyRecord;
+      const breakevenPrice = data.shares > 0 ? (data.costBasis - data.realizedPnL) / data.shares : 0;
 
       return (
         <div className="bg-white p-4 border border-gray-300 rounded-lg shadow-lg">
@@ -133,6 +178,11 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             <p className="text-gray-700">
               <span className="font-medium">Close Price:</span> {formatCurrency(data.closePrice)}
             </p>
+            {breakevenPrice > 0 && (
+              <p className="text-gray-700">
+                <span className="font-medium">Breakeven Price:</span> {formatCurrency(breakevenPrice)}
+              </p>
+            )}
             <p className="text-gray-700">
               <span className="font-medium">Market Value:</span> {formatCurrency(data.marketValue)}
             </p>
@@ -209,16 +259,53 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
   const latestRecord = pnlData.dailyRecords[pnlData.dailyRecords.length - 1];
 
+  // Apply date range filter
+  const filteredRecords = getFilteredData(pnlData.dailyRecords);
+
   // Prepare chart data - add transaction markers and split positive/negative for area fills
   // Use null instead of 0 to avoid drawing flat lines at the x-axis
-  const chartData = pnlData.dailyRecords.map(record => ({
+  const chartData = filteredRecords.map(record => ({
     ...record,
     hasTransaction: record.transactions && record.transactions.length > 0,
     totalPnLPositive: record.totalPnL > 0 ? record.totalPnL : null,
     totalPnLNegative: record.totalPnL < 0 ? record.totalPnL : null,
     totalPnLPercentPositive: record.totalPnLPercent > 0 ? record.totalPnLPercent : null,
-    totalPnLPercentNegative: record.totalPnLPercent < 0 ? record.totalPnLPercent : null
+    totalPnLPercentNegative: record.totalPnLPercent < 0 ? record.totalPnLPercent : null,
+    // Add positive/negative splits for realized and unrealized P&L
+    unrealizedPnLPositive: record.unrealizedPnL > 0 ? record.unrealizedPnL : null,
+    unrealizedPnLNegative: record.unrealizedPnL < 0 ? record.unrealizedPnL : null,
+    realizedPnLPositive: record.realizedPnL > 0 ? record.realizedPnL : null,
+    realizedPnLNegative: record.realizedPnL < 0 ? record.realizedPnL : null,
+    // Calculate breakeven price: what price needed to sell remaining shares to break even overall
+    // Formula: (costBasis - realizedPnL) / shares
+    // This accounts for profit/loss already realized from past sales
+    breakevenPrice: record.shares > 0
+      ? (record.costBasis - record.realizedPnL) / record.shares
+      : 0,
+    // Split unrealized/realized for positive/negative fills
+    unrealizedPnLPos: record.unrealizedPnL > 0 ? record.unrealizedPnL : null,
+    unrealizedPnLNeg: record.unrealizedPnL < 0 ? record.unrealizedPnL : null,
+    realizedPnLPos: record.realizedPnL > 0 ? record.realizedPnL : null,
+    realizedPnLNeg: record.realizedPnL < 0 ? record.realizedPnL : null,
+    // For market value chart: create separate ranges for profit and loss areas
+    // Profit area: when MV > CB, fill from CB to MV (array format)
+    // Loss area: when MV < CB, fill from MV to CB (array format)
+    profitAreaRange: record.marketValue > record.costBasis ? [record.costBasis, record.marketValue] : null,
+    lossAreaRange: record.marketValue < record.costBasis ? [record.marketValue, record.costBasis] : null
   }));
+
+  // Calculate Y-axis domain for price chart (cap at 1.5x max price)
+  const maxPrice = Math.max(...chartData.map(d => d.closePrice));
+  const priceCap = maxPrice * 1.5;
+
+  // Clip breakeven prices to the cap to prevent axis from stretching
+  const clippedChartData = chartData.map(d => ({
+    ...d,
+    breakevenPrice: Math.min(d.breakevenPrice, priceCap)
+  }));
+
+  // Always cap the axis at 1.5x max price
+  const priceAxisDomain: [number, number] = [0, priceCap];
 
   return (
     <div style={{
@@ -239,7 +326,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <img
-            src={`/api/icons/symbol/${symbol}`}
+            src={`/api/icons/symbol/${symbol}/image?type=${pnlData.assetInfo.type}`}
             alt={symbol}
             style={{ width: '40px', height: '40px', borderRadius: '8px' }}
             onError={(e) => {
@@ -279,8 +366,31 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
       </div>
 
       <div style={{ padding: '24px' }}>
+        {/* Date Range Selector */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {(['1D', '1W', '1M', '3M', '6M', '1Y', 'ALL'] as DateRange[]).map((range) => (
+            <button
+              key={range}
+              onClick={() => setDateRange(range)}
+              style={{
+                padding: '8px 14px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '600',
+                border: dateRange === range ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                backgroundColor: dateRange === range ? '#eef2ff' : 'white',
+                color: dateRange === range ? '#4f46e5' : '#6b7280'
+              }}
+            >
+              {range}
+            </button>
+          ))}
+        </div>
+
         {/* Metric Selector */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', justifyContent: 'center' }}>
           <button
             onClick={() => setSelectedMetric('totalPnL')}
             style={{
@@ -295,10 +405,10 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
               color: selectedMetric === 'totalPnL' ? 'white' : '#6b7280'
             }}
           >
-            Total P&L ($)
+            P&L Analysis
           </button>
           <button
-            onClick={() => setSelectedMetric('totalPnLPercent')}
+            onClick={() => setSelectedMetric('marketValueAndShares')}
             style={{
               padding: '10px 18px',
               borderRadius: '8px',
@@ -307,200 +417,469 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'totalPnLPercent' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'totalPnLPercent' ? 'white' : '#6b7280'
+              backgroundColor: selectedMetric === 'marketValueAndShares' ? '#4f46e5' : '#f3f4f6',
+              color: selectedMetric === 'marketValueAndShares' ? 'white' : '#6b7280'
             }}
           >
-            Total P&L (%)
-          </button>
-          <button
-            onClick={() => setSelectedMetric('marketValue')}
-            style={{
-              padding: '10px 18px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: '600',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'marketValue' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'marketValue' ? 'white' : '#6b7280'
-            }}
-          >
-            Market Value
-          </button>
-          <button
-            onClick={() => setSelectedMetric('shares')}
-            style={{
-              padding: '10px 18px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: '600',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'shares' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'shares' ? 'white' : '#6b7280'
-            }}
-          >
-            Shares
+            Market Value & Shares
           </button>
         </div>
 
-        {/* Chart */}
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <defs>
-              {/* Green gradient for positive values */}
-              <linearGradient id="colorPositive" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#10b981" stopOpacity={0.3}/>
-                <stop offset="100%" stopColor="#10b981" stopOpacity={0.05}/>
-              </linearGradient>
-              {/* Red gradient for negative values */}
-              <linearGradient id="colorNegative" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ef4444" stopOpacity={0.05}/>
-                <stop offset="100%" stopColor="#ef4444" stopOpacity={0.3}/>
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-            <XAxis
-              dataKey="date"
-              tickFormatter={(value) => {
-                const date = new Date(value);
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              }}
-              stroke="#6b7280"
-              style={{ fontSize: '12px' }}
-            />
-            <YAxis
-              tickFormatter={(value) =>
-                selectedMetric === 'totalPnLPercent'
-                  ? `${value}%`
-                  : selectedMetric === 'shares'
-                  ? value.toFixed(4)
-                  : formatCurrency(value)
-              }
-              stroke="#6b7280"
-              style={{ fontSize: '12px' }}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend />
+        {/* Charts */}
+        {selectedMetric === 'totalPnL' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            {/* Total P&L Chart */}
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+                Total P&L
+              </h3>
+              <ResponsiveContainer width="100%" height={350}>
+                <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="colorGreenArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
+                    </linearGradient>
+                    <linearGradient id="colorRedArea" x1="0" y1="1" x2="0" y2="0">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value) => {
+                      const date = new Date(value);
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }}
+                    stroke="#6b7280"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(value) => formatCurrency(value)}
+                    stroke="#4b5563"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <ReferenceLine yAxisId="left" y={0} stroke="#9ca3af" strokeDasharray="3 3" />
 
-            {/* Zero line for P&L metrics */}
-            {(selectedMetric === 'totalPnL' || selectedMetric === 'totalPnLPercent') && (
-              <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
-            )}
+                  {/* Total P&L area fills */}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="totalPnLPositive"
+                    stroke="none"
+                    fill="url(#colorGreenArea)"
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="totalPnLNegative"
+                    stroke="none"
+                    fill="url(#colorRedArea)"
+                    isAnimationActive={false}
+                  />
 
-            {/* Render lines for positive and negative P&L separately */}
-            {selectedMetric === 'totalPnL' && (
-              <>
-                <Line
-                  type="monotone"
-                  dataKey="totalPnLPositive"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={false}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="totalPnLNegative"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={false}
-                  isAnimationActive={false}
-                />
-              </>
-            )}
-            {selectedMetric === 'totalPnLPercent' && (
-              <>
-                <Line
-                  type="monotone"
-                  dataKey="totalPnLPercentPositive"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={false}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="totalPnLPercentNegative"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={false}
-                  isAnimationActive={false}
-                />
-              </>
-            )}
+                  {/* Total P&L line - solid dark grey */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="totalPnL"
+                    stroke="#4b5563"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                    name="Total P&L"
+                  />
 
-            {/* Main line for other metrics or to show transaction dots */}
-            <Line
-              type="monotone"
-              dataKey={selectedMetric}
-              stroke={(selectedMetric === 'totalPnL' || selectedMetric === 'totalPnLPercent') ? "transparent" : "#4f46e5"}
-              strokeWidth={2}
-              dot={(props: any) => {
-                const { cx, cy, payload } = props;
-                if (payload.hasTransaction && payload.transactions) {
-                  // Check if there are any buy transactions on this day
-                  const hasBuy = payload.transactions.some((t: Transaction) => t.action === 'buy');
-                  const hasSell = payload.transactions.some((t: Transaction) => t.action === 'sell');
+                  {/* Transaction dots */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="totalPnL"
+                    stroke="transparent"
+                    strokeWidth={0}
+                    dot={(props: any) => {
+                      const { cx, cy, payload } = props;
+                      if (payload.hasTransaction && payload.transactions) {
+                        const hasBuy = payload.transactions.some((t: Transaction) => t.action === 'buy');
+                        const hasSell = payload.transactions.some((t: Transaction) => t.action === 'sell');
 
-                  // If both buy and sell, show a split color dot (green on top, red on bottom)
-                  if (hasBuy && hasSell) {
-                    return (
-                      <g>
-                        <circle cx={cx} cy={cy} r={5} fill="#10b981" stroke="#fff" strokeWidth={2} />
-                        <circle cx={cx} cy={cy + 6} r={3} fill="#ef4444" stroke="#fff" strokeWidth={1} />
-                      </g>
-                    );
-                  }
-                  // Buy = green dot
-                  if (hasBuy) {
-                    return (
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={5}
-                        fill="#10b981"
-                        stroke="#fff"
-                        strokeWidth={2}
-                      />
-                    );
-                  }
-                  // Sell = red dot
-                  if (hasSell) {
-                    return (
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={5}
-                        fill="#ef4444"
-                        stroke="#fff"
-                        strokeWidth={2}
-                      />
-                    );
-                  }
-                }
-                return <></>;
-              }}
-              activeDot={{ r: 6, fill: '#4f46e5' }}
-              name={
-                selectedMetric === 'totalPnL'
-                  ? 'Total P&L'
-                  : selectedMetric === 'totalPnLPercent'
-                  ? 'Total P&L %'
-                  : selectedMetric === 'shares'
-                  ? 'Shares'
-                  : 'Market Value'
-              }
-            />
-          </LineChart>
-        </ResponsiveContainer>
+                        if (hasBuy && hasSell) {
+                          return (
+                            <g>
+                              <circle cx={cx} cy={cy} r={4} fill="#10b981" stroke="#fff" strokeWidth={2} />
+                              <circle cx={cx} cy={cy + 5} r={2} fill="#ef4444" stroke="#fff" strokeWidth={1} />
+                            </g>
+                          );
+                        }
+                        if (hasBuy) {
+                          return <circle cx={cx} cy={cy} r={4} fill="#10b981" stroke="#fff" strokeWidth={2} />;
+                        }
+                        if (hasSell) {
+                          return <circle cx={cx} cy={cy} r={4} fill="#ef4444" stroke="#fff" strokeWidth={2} />;
+                        }
+                      }
+                      return <></>;
+                    }}
+                    activeDot={{ r: 5 }}
+                    name="Transactions"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Realized/Unrealized P&L Chart */}
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+                Realized vs Unrealized P&L
+              </h3>
+              <ResponsiveContainer width="100%" height={350}>
+                <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="colorGreenAreaRealized" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
+                    </linearGradient>
+                    <linearGradient id="colorRedAreaRealized" x1="0" y1="1" x2="0" y2="0">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value) => {
+                      const date = new Date(value);
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }}
+                    stroke="#6b7280"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(value) => formatCurrency(value)}
+                    stroke="#8b5cf6"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <ReferenceLine yAxisId="left" y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+
+                  {/* Unrealized P&L area fills */}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="unrealizedPnLPos"
+                    stroke="none"
+                    fill="url(#colorGreenAreaRealized)"
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="unrealizedPnLNeg"
+                    stroke="none"
+                    fill="url(#colorRedAreaRealized)"
+                    isAnimationActive={false}
+                  />
+
+                  {/* Realized P&L area fills */}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="realizedPnLPos"
+                    stroke="none"
+                    fill="url(#colorGreenAreaRealized)"
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="realizedPnLNeg"
+                    stroke="none"
+                    fill="url(#colorRedAreaRealized)"
+                    isAnimationActive={false}
+                  />
+
+                  {/* Unrealized P&L - light purple solid */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="unrealizedPnL"
+                    stroke="#a78bfa"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Unrealized P&L"
+                  />
+
+                  {/* Realized P&L - purple dashed */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="realizedPnL"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Realized P&L"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            {/* Market Value Chart */}
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+                Market Value
+              </h3>
+              <ResponsiveContainer width="100%" height={350}>
+                <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <defs>
+                    {/* Green gradient for profit (market value > cost basis) */}
+                    <linearGradient id="profitAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
+                    </linearGradient>
+                    {/* Red gradient for loss (market value < cost basis) */}
+                    <linearGradient id="lossAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value) => {
+                      const date = new Date(value);
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }}
+                    stroke="#6b7280"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(value) => formatCurrency(value)}
+                    stroke="#3b82f6"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+
+                  {/* Green area when profitable (fills from CB to MV) */}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="profitAreaRange"
+                    fill="url(#profitAreaGradient)"
+                    stroke="none"
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+
+                  {/* Red area when loss (fills from MV to CB) */}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="lossAreaRange"
+                    fill="url(#lossAreaGradient)"
+                    stroke="none"
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+
+                  {/* Market Value line */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="marketValue"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Market Value"
+                  />
+
+                  {/* Cost Basis line */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="costBasis"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Cost Basis"
+                  />
+
+                  {/* Transaction dots */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="marketValue"
+                    stroke="transparent"
+                    strokeWidth={0}
+                    dot={(props: any) => {
+                      const { cx, cy, payload } = props;
+                      if (payload.hasTransaction && payload.transactions) {
+                        const hasBuy = payload.transactions.some((t: Transaction) => t.action === 'buy');
+                        const hasSell = payload.transactions.some((t: Transaction) => t.action === 'sell');
+
+                        if (hasBuy && hasSell) {
+                          return (
+                            <g>
+                              <circle cx={cx} cy={cy} r={4} fill="#10b981" stroke="#fff" strokeWidth={2} />
+                              <circle cx={cx} cy={cy + 5} r={2} fill="#ef4444" stroke="#fff" strokeWidth={1} />
+                            </g>
+                          );
+                        }
+                        if (hasBuy) {
+                          return <circle cx={cx} cy={cy} r={4} fill="#10b981" stroke="#fff" strokeWidth={2} />;
+                        }
+                        if (hasSell) {
+                          return <circle cx={cx} cy={cy} r={4} fill="#ef4444" stroke="#fff" strokeWidth={2} />;
+                        }
+                      }
+                      return <></>;
+                    }}
+                    activeDot={false}
+                    name="Transactions"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Shares Chart */}
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+                Shares & Price
+              </h3>
+              <ResponsiveContainer width="100%" height={350}>
+                <LineChart data={clippedChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value) => {
+                      const date = new Date(value);
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }}
+                    stroke="#6b7280"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(value) => value.toFixed(4)}
+                    stroke="#84cc16"
+                    style={{ fontSize: '11px' }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickFormatter={(value) => formatCurrency(value)}
+                    stroke="#9ca3af"
+                    style={{ fontSize: '11px' }}
+                    domain={priceAxisDomain}
+                    label={{
+                      value: 'Price',
+                      angle: 90,
+                      position: 'insideRight',
+                      style: { fill: '#9ca3af', fontSize: '11px' }
+                    }}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+
+                  {/* Shares line */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="shares"
+                    stroke="#84cc16"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Shares"
+                  />
+
+                  {/* Current Price line */}
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="closePrice"
+                    stroke="#9ca3af"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Price"
+                  />
+
+                  {/* Breakeven Price line */}
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="breakevenPrice"
+                    stroke="#6b7280"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                    name="Breakeven Price"
+                  />
+
+                  {/* Transaction dots */}
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="shares"
+                    stroke="transparent"
+                    strokeWidth={0}
+                    dot={(props: any) => {
+                      const { cx, cy, payload } = props;
+                      if (payload.hasTransaction && payload.transactions) {
+                        const hasBuy = payload.transactions.some((t: Transaction) => t.action === 'buy');
+                        const hasSell = payload.transactions.some((t: Transaction) => t.action === 'sell');
+
+                        if (hasBuy && hasSell) {
+                          return (
+                            <g>
+                              <circle cx={cx} cy={cy} r={4} fill="#10b981" stroke="#fff" strokeWidth={2} />
+                              <circle cx={cx} cy={cy + 5} r={2} fill="#ef4444" stroke="#fff" strokeWidth={1} />
+                            </g>
+                          );
+                        }
+                        if (hasBuy) {
+                          return <circle cx={cx} cy={cy} r={4} fill="#10b981" stroke="#fff" strokeWidth={2} />;
+                        }
+                        if (hasSell) {
+                          return <circle cx={cx} cy={cy} r={4} fill="#ef4444" stroke="#fff" strokeWidth={2} />;
+                        }
+                      }
+                      return <></>;
+                    }}
+                    activeDot={false}
+                    name="Transactions"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* Summary Stats */}
         <div style={{
