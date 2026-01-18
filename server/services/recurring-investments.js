@@ -33,8 +33,9 @@ async function saveConfig(config) {
 
 /**
  * Calculate the number of contributions between two dates based on frequency
+ * Returns array of contribution objects with date and amount
  */
-function calculateContributions(startDate, endDate, frequency, dayOfWeek) {
+function calculateContributions(startDate, endDate, frequency, dayOfWeek, recurringAmount, symbol) {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const contributions = [];
@@ -69,11 +70,81 @@ function calculateContributions(startDate, endDate, frequency, dayOfWeek) {
       intervalDays = 7;
   }
 
-  // Generate all contribution dates
+  // Transition date for amount changes (January 12, 2026)
+  const transitionDate = new Date('2026-01-12');
+
+  // Special dates - use UTC to avoid timezone issues
+  const specialPurchaseDate = new Date(Date.UTC(2026, 0, 9)); // Jan 9, 2026
+  const skippedRecurringDate = new Date(Date.UTC(2026, 0, 10)); // Jan 10, 2026
+
+  // Define amount changes for specific symbols
+  const amountChanges = {
+    'QQQ': { before: 400, after: 152 },      // NASDAQ Index Fund
+    'XIU.TO': { before: 175, after: 152 },   // Canadian Equity Index Fund
+    'XEF.TO': { before: 25, after: 25 }      // International Equity (unchanged)
+  };
+
+  // Generate all contribution dates with appropriate amounts
   while (currentDate <= end) {
-    contributions.push(new Date(currentDate));
+    // Compare dates by converting to date-only strings to avoid timezone issues
+    const currentDateStr = currentDate.toISOString().split('T')[0];
+    const skippedDateStr = skippedRecurringDate.toISOString().split('T')[0];
+
+    // Skip the regular January 10, 2026 contribution for ALL funds
+    // (QQQ and XIU.TO had manual purchases on Jan 9, XEF.TO was skipped entirely this week)
+    if (currentDateStr === skippedDateStr) {
+      currentDate.setDate(currentDate.getDate() + intervalDays);
+      continue;
+    }
+
+    let contributionAmount = recurringAmount; // Default to original amount
+
+    // Check if this symbol has a defined amount change
+    if (amountChanges[symbol]) {
+      // Use the appropriate amount based on date
+      contributionAmount = currentDate >= transitionDate
+        ? amountChanges[symbol].after
+        : amountChanges[symbol].before;
+    }
+
+    contributions.push({
+      date: new Date(currentDate),
+      amount: contributionAmount
+    });
     currentDate.setDate(currentDate.getDate() + intervalDays);
   }
+
+  // Add special January 9, 2026 manual purchase for NASDAQ and Canadian Equity only
+  if (symbol === 'QQQ' || symbol === 'XIU.TO') {
+    if (specialPurchaseDate >= start && specialPurchaseDate <= end) {
+      // Insert the special purchase in chronological order
+      const specialContribution = {
+        date: new Date(specialPurchaseDate),
+        amount: 154
+      };
+
+      // Find the right position to insert
+      let inserted = false;
+      for (let i = 0; i < contributions.length; i++) {
+        if (contributions[i].date > specialPurchaseDate) {
+          contributions.splice(i, 0, specialContribution);
+          inserted = true;
+          break;
+        }
+      }
+
+      // If not inserted (either empty array or all dates are before), add at the end or beginning
+      if (!inserted) {
+        if (contributions.length === 0 || contributions[contributions.length - 1].date < specialPurchaseDate) {
+          contributions.push(specialContribution);
+        } else {
+          contributions.unshift(specialContribution);
+        }
+      }
+    }
+  }
+  // For XEF.TO (International Equity), the entire week of Jan 9-10 was skipped
+  // It will resume on Jan 17, 2026 at the regular $25/week rate
 
   return contributions;
 }
@@ -101,11 +172,13 @@ async function calculateInvestmentMetrics(investment) {
     investment.initialDate,
     today,
     investment.frequency,
-    investment.dayOfWeek
+    investment.dayOfWeek,
+    investment.recurringAmount,
+    investment.symbol
   );
 
   const contributionCount = contributions.length;
-  const recurringInvested = contributionCount * investment.recurringAmount;
+  const recurringInvested = contributions.reduce((sum, contrib) => sum + contrib.amount, 0);
   const totalInvested = investment.initialAmount + recurringInvested;
 
   // Fetch USD/CAD exchange rate
@@ -124,8 +197,8 @@ async function calculateInvestmentMetrics(investment) {
 
   try {
     // Get initial purchase date and add contributions
-    const purchaseDates = [new Date(investment.initialDate), ...contributions];
-    const purchaseAmounts = [investment.initialAmount, ...contributions.map(() => investment.recurringAmount)];
+    const purchaseDates = [new Date(investment.initialDate), ...contributions.map(c => c.date)];
+    const purchaseAmounts = [investment.initialAmount, ...contributions.map(c => c.amount)];
 
     // Fetch historical prices for the entire date range
     const startDate = new Date(investment.initialDate);
@@ -203,7 +276,10 @@ async function calculateInvestmentMetrics(investment) {
     currentValue,
     profitLoss,
     profitLossPercent,
-    contributions: contributions.map(d => d.toISOString().split('T')[0]),
+    contributions: contributions.map(c => ({
+      date: c.date.toISOString().split('T')[0],
+      amount: c.amount
+    })),
     lastUpdated: new Date().toISOString()
   };
 }
