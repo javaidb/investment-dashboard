@@ -125,6 +125,11 @@ const Insights: React.FC = () => {
   const [recurringInvestments, setRecurringInvestments] = useState<RecurringInvestment[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // State for portfolio rebalancing simulator
+  const [adjustments, setAdjustments] = useState<{[symbol: string]: number}>({});
+  const [showAdjustments, setShowAdjustments] = useState(false);
+  const [searchSymbol, setSearchSymbol] = useState('');
+
   useEffect(() => {
     fetchInsightsData();
   }, []);
@@ -294,12 +299,21 @@ const Insights: React.FC = () => {
               }))
             ];
 
+            // Apply adjustments to create hypothetical portfolio
+            const adjustedAssets = allAssets.map(asset => ({
+              ...asset,
+              totalCost: adjustments[asset.symbol] !== undefined ? adjustments[asset.symbol] : asset.totalCost
+            }));
+
+            // Use adjusted or original assets based on mode
+            const assetsToUse = showAdjustments ? adjustedAssets : allAssets;
+
             // Categorize all assets by invested capital
-            const microTesting = allAssets.filter(a => a.totalCost < 500);
-            const macroTesting = allAssets.filter(a => a.totalCost >= 500 && a.totalCost < 1000);
-            const standardPosition = allAssets.filter(a => a.totalCost >= 1000 && a.totalCost < 5000);
-            const significantPosition = allAssets.filter(a => a.totalCost >= 5000 && a.totalCost < 15000);
-            const majorHolding = allAssets.filter(a => a.totalCost >= 15000);
+            const microTesting = assetsToUse.filter(a => a.totalCost < 500);
+            const macroTesting = assetsToUse.filter(a => a.totalCost >= 500 && a.totalCost < 1000);
+            const standardPosition = assetsToUse.filter(a => a.totalCost >= 1000 && a.totalCost < 5000);
+            const significantPosition = assetsToUse.filter(a => a.totalCost >= 5000 && a.totalCost < 15000);
+            const majorHolding = assetsToUse.filter(a => a.totalCost >= 15000);
 
             const categories = [
               { name: '< $500', subtitle: 'Micro-Testing Waters', data: microTesting, color: '#8B5CF6', range: '< $500', targetCapitalPercent: 5, targetAssetPercent: 12 },
@@ -310,7 +324,7 @@ const Insights: React.FC = () => {
             ];
 
             // Calculate total invested across all assets for percentage calculation
-            const grandTotalInvested = allAssets.reduce((sum, a) => sum + a.totalCost, 0);
+            const grandTotalInvested = assetsToUse.reduce((sum, a) => sum + a.totalCost, 0);
 
             const renderCapitalPieChart = (category: typeof categories[0]) => {
               const chartData = category.data
@@ -471,13 +485,166 @@ const Insights: React.FC = () => {
             };
 
             return (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-                {categories.map((category, index) => (
-                  <div key={index}>
-                    {renderCapitalPieChart(category)}
+              <>
+                {/* Pie Charts Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-8">
+                  {categories.map((category, index) => (
+                    <div key={index}>
+                      {renderCapitalPieChart(category)}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Portfolio Rebalancing Tool */}
+                <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5" />
+                        Portfolio Rebalancing Simulator
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Adjust asset investments to see how targets would change
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowAdjustments(!showAdjustments)}
+                      className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
+                        showAdjustments
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {showAdjustments ? 'Hide Simulator' : 'Show Simulator'}
+                    </button>
                   </div>
-                ))}
-              </div>
+
+                  {showAdjustments && (
+                    <div>
+                      <div className="flex items-center justify-between mb-4 pb-4 border-b">
+                        <div className="text-sm text-gray-600">
+                          <p className="font-semibold">Original Total: <span className="text-gray-900">${allAssets.reduce((sum, a) => sum + a.totalCost, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                          <p className="font-semibold mt-1">Adjusted Total: <span className={`${grandTotalInvested > allAssets.reduce((sum, a) => sum + a.totalCost, 0) ? 'text-green-600' : grandTotalInvested < allAssets.reduce((sum, a) => sum + a.totalCost, 0) ? 'text-red-600' : 'text-gray-900'}`}>${grandTotalInvested.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setAdjustments({});
+                            setSearchSymbol('');
+                          }}
+                          className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200"
+                        >
+                          Reset All
+                        </button>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="mb-4">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Search for asset to adjust
+                        </label>
+                        <input
+                          type="text"
+                          value={searchSymbol}
+                          onChange={(e) => setSearchSymbol(e.target.value.toUpperCase())}
+                          placeholder="Type symbol (e.g., AAPL, BTC)..."
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+
+                      {/* Assets Grid - Only show adjusted assets or search results */}
+                      {(() => {
+                        const filteredAssets = allAssets
+                          .filter(asset => {
+                            // Show if adjusted OR if matches search
+                            const isAdjusted = adjustments[asset.symbol] !== undefined;
+                            const matchesSearch = searchSymbol === '' || asset.symbol.toUpperCase().includes(searchSymbol);
+                            return isAdjusted || matchesSearch;
+                          })
+                          .sort((a, b) => {
+                            // Sort adjusted items first, then by investment size
+                            const aAdjusted = adjustments[a.symbol] !== undefined;
+                            const bAdjusted = adjustments[b.symbol] !== undefined;
+                            if (aAdjusted && !bAdjusted) return -1;
+                            if (!aAdjusted && bAdjusted) return 1;
+                            return b.totalCost - a.totalCost;
+                          });
+
+                        if (filteredAssets.length === 0) {
+                          return (
+                            <div className="col-span-full text-center py-12 text-gray-500">
+                              <p className="text-lg font-semibold mb-2">
+                                {searchSymbol ? 'No matching assets found' : 'Search for an asset to start adjusting'}
+                              </p>
+                              <p className="text-sm">
+                                {searchSymbol
+                                  ? `No assets match "${searchSymbol}". Try a different symbol.`
+                                  : 'Type a symbol in the search box above or adjust an asset to see it here.'}
+                              </p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+                            {filteredAssets.map((asset) => {
+                            const currentValue = adjustments[asset.symbol] !== undefined ? adjustments[asset.symbol] : asset.totalCost;
+                            const difference = currentValue - asset.totalCost;
+
+                            return (
+                              <div key={asset.symbol} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-gray-900">{asset.symbol}</span>
+                                    {asset.isRecurring && (
+                                      <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">DCA</span>
+                                    )}
+                                  </div>
+                                  {difference !== 0 && (
+                                    <button
+                                      onClick={() => {
+                                        const newAdj = {...adjustments};
+                                        delete newAdj[asset.symbol];
+                                        setAdjustments(newAdj);
+                                      }}
+                                      className="text-xs text-red-600 hover:text-red-800"
+                                    >
+                                      Reset
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="mb-2">
+                                  <label className="text-xs text-gray-600 block mb-1">Invested Amount</label>
+                                  <input
+                                    type="number"
+                                    value={currentValue.toFixed(2)}
+                                    onChange={(e) => setAdjustments({
+                                      ...adjustments,
+                                      [asset.symbol]: parseFloat(e.target.value) || 0
+                                    })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    step="100"
+                                  />
+                                </div>
+
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-600">Original: ${asset.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  {difference !== 0 && (
+                                    <span className={`font-semibold ${difference > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {difference > 0 ? '+' : ''}${difference.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </>
             );
           })()
         ) : (
