@@ -16,6 +16,7 @@ interface CacheData {
     cadPrice: number;
     companyName: string;
     sector?: string | null;
+    conviction?: string | null;
     exchangeRate: number;
     lastUpdated: string;
     priceDate: string;
@@ -40,6 +41,14 @@ const SECTOR_OPTIONS = [
   'Utilities'
 ];
 
+// Predefined conviction level options
+const CONVICTION_OPTIONS = [
+  'High',
+  'Medium',
+  'Low',
+  'Legacy'
+];
+
 const CacheManagement: React.FC = () => {
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheData, setCacheData] = useState<CacheData | null>(null);
@@ -48,6 +57,8 @@ const CacheManagement: React.FC = () => {
   const [refreshingPortfolio, setRefreshingPortfolio] = useState(false);
   const [editingSector, setEditingSector] = useState<string | null>(null);
   const [editSectorValue, setEditSectorValue] = useState<string>('');
+  const [editingConviction, setEditingConviction] = useState<string | null>(null);
+  const [editConvictionValue, setEditConvictionValue] = useState<string>('');
 
   const { refreshCache } = useCache();
 
@@ -178,6 +189,48 @@ const CacheManagement: React.FC = () => {
       setEditSectorValue('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update sector');
+    }
+  };
+
+  const startEditingConviction = (symbol: string, currentConviction?: string | null) => {
+    setEditingConviction(symbol);
+    setEditConvictionValue(currentConviction || '');
+  };
+
+  const cancelEditingConviction = () => {
+    setEditingConviction(null);
+    setEditConvictionValue('');
+  };
+
+  const saveConviction = async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/portfolio/cache/${symbol}/conviction`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ conviction: editConvictionValue || null })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update conviction level');
+      }
+
+      // Update local cache data
+      if (cacheData) {
+        setCacheData({
+          ...cacheData,
+          [symbol]: {
+            ...cacheData[symbol],
+            conviction: editConvictionValue || null
+          }
+        });
+      }
+
+      setEditingConviction(null);
+      setEditConvictionValue('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update conviction level');
     }
   };
 
@@ -570,10 +623,13 @@ const CacheManagement: React.FC = () => {
                     <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '18%'}}>
                       Company
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
                       Sector
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '11%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                      Conviction
+                    </th>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
                       USD Price
                     </th>
                     <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '11%'}}>
@@ -706,6 +762,91 @@ const CacheManagement: React.FC = () => {
                               title="Click to edit sector"
                             >
                               {entry?.sector || 'Not set'}
+                            </div>
+                          )}
+                        </td>
+                        {/* Conviction column with edit functionality */}
+                        <td className="py-3 px-6 text-center">
+                          {editingConviction === symbol ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
+                              <select
+                                value={editConvictionValue}
+                                onChange={(e) => setEditConvictionValue(e.target.value)}
+                                style={{
+                                  fontSize: '12px',
+                                  padding: '4px 8px',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'white',
+                                  width: '100%'
+                                }}
+                              >
+                                <option value="">-- Select Conviction --</option>
+                                {CONVICTION_OPTIONS.map(conviction => (
+                                  <option key={conviction} value={conviction}>{conviction}</option>
+                                ))}
+                              </select>
+                              <div style={{ display: 'flex', gap: '4px', width: '100%' }}>
+                                <button
+                                  onClick={() => saveConviction(symbol)}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: 'white',
+                                    backgroundColor: '#10b981',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={cancelEditingConviction}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: '#6b7280',
+                                    backgroundColor: '#f3f4f6',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => startEditingConviction(symbol, entry?.conviction)}
+                              style={{
+                                cursor: 'pointer',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                color: entry?.conviction ? '#374151' : '#9ca3af',
+                                backgroundColor: entry?.conviction ? '#f3f4f6' : '#fafafa',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '6px',
+                                display: 'inline-block',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#e5e7eb';
+                                e.currentTarget.style.borderColor = '#d1d5db';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = entry?.conviction ? '#f3f4f6' : '#fafafa';
+                                e.currentTarget.style.borderColor = '#e5e7eb';
+                              }}
+                              title="Click to edit conviction level"
+                            >
+                              {entry?.conviction || 'Not set'}
                             </div>
                           )}
                         </td>
