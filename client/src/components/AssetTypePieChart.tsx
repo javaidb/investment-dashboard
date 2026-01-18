@@ -26,7 +26,7 @@ interface Holding {
   unrealizedPnL?: number;
   totalPnL?: number;
   totalPnLPercent?: number;
-  weeklyChangePercent?: number | null;
+  weeklyChangePercent?: number | number[] | null;
   usdPrice?: number;
   exchangeRate?: number;
 }
