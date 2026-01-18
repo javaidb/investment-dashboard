@@ -14,7 +14,8 @@ import {
   Calculator,
   Eye,
   LineChart,
-  Newspaper
+  Newspaper,
+  Lightbulb
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -40,16 +41,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const navigation: NavigationElement[] = [
     { name: 'Breakdown', href: '/breakdown', icon: PieChart },
-    { name: 'Watchlist', href: '/watchlist', icon: Eye },
-    { name: 'Risk', href: '/ratios', icon: Calculator },
-    { name: 'Analysis', href: '/analysis', icon: Activity },
-    { name: 'P&L Tracker', href: '/pnl', icon: LineChart },
     { name: 'NewsBoard', href: '/newsboard', icon: Newspaper },
     { type: 'separator' },
+    { name: 'Watchlist', href: '/watchlist', icon: Eye },
+    { name: 'P&L Tracker', href: '/pnl', icon: LineChart },
+    { name: 'Risk', href: '/ratios', icon: Calculator },
+    { name: 'Insights', href: '/insights', icon: Lightbulb },
+    { name: 'Analysis', href: '/analysis', icon: Activity },
+    { type: 'separator' },
+    { name: 'Portfolio', href: '/portfolio', icon: Upload },
     { name: 'Icons', href: '/icons', icon: Image },
     { name: 'Cache', href: '/cache', icon: Database },
     { name: 'Search', href: '/search', icon: Search },
-    { name: 'Portfolio', href: '/portfolio', icon: Upload },
   ];
 
   const isActive = (path: string) => location.pathname === path;
