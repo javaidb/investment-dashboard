@@ -11,6 +11,7 @@ import Portfolio from './pages/Portfolio';
 import Search from './pages/Search';
 import CacheManagement from './pages/CacheManagement';
 import PnLTracker from './pages/PnLTracker';
+import Insights from './pages/Insights';
 import NewsBoard from './components/NewsBoard';
 import Icons from './components/Icons';
 import NotFound from './pages/NotFound';
@@ -27,6 +28,7 @@ function App() {
             <Route path="/watchlist" element={<Watchlist />} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/ratios" element={<Ratios />} />
+            <Route path="/insights" element={<Insights />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/pnl" element={<PnLTracker />} />
             <Route path="/newsboard" element={<NewsBoard />} />
