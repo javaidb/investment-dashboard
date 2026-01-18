@@ -45,6 +45,23 @@ const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
 // Master portfolio ID - single source of truth for all portfolio data
 const MASTER_PORTFOLIO_ID = 'master-portfolio';
 
+// Normalize symbol by removing exchange suffix (e.g., ABC.TO -> ABC)
+// Special case: XEQT should always keep .TO suffix (XEQT -> XEQT.TO, XEQT.TO -> XEQT.TO)
+function normalizeSymbol(symbol) {
+  if (!symbol) return symbol;
+
+  // Get the base symbol (before any dot)
+  const baseSymbol = symbol.split('.')[0].toUpperCase();
+
+  // Special case: XEQT should always have .TO suffix
+  if (baseSymbol === 'XEQT') {
+    return 'XEQT.TO';
+  }
+
+  // For other symbols, remove exchange suffix
+  return baseSymbol;
+}
+
 // Load portfolios from file (master portfolio structure)
 function loadPortfolios() {
   try {
@@ -527,7 +544,7 @@ router.post('/upload', upload.single('trades'), async (req, res) => {
         }
 
         trades.push({
-          symbol: row.symbol.toUpperCase(),
+          symbol: normalizeSymbol(row.symbol.toUpperCase()),
           date: new Date(row.date),
           action: row.action.toLowerCase(),
           quantity: parseFloat(row.quantity),
@@ -907,8 +924,8 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
 
           // If no cache or needs update, fetch from Yahoo Finance
           try {
-            console.log(`🌐 Fetching fresh historical data for ${symbol}`);
-            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+            console.log(`🌐 Fetching fresh historical data for ${rawSymbol}`);
+            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${rawSymbol}`;
             const params = {
               period1: startTimestamp,
               period2: endTimestamp,
@@ -946,17 +963,30 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
                 // Cache the current price data with datetime for future use
                 const currentPrice = meta.regularMarketPrice || lastPrice;
                 if (currentPrice) {
+                  const currency = meta.currency || 'USD';
                   const exchangeRate = await getUSDtoCADRate();
-                  holdingsCache.update(symbol, {
+
+                  let cadPrice, usdPrice;
+                  if (currency === 'CAD') {
+                    // Price is already in CAD (e.g., Canadian stocks like XEQT.TO)
+                    cadPrice = currentPrice;
+                    usdPrice = currentPrice / exchangeRate;
+                  } else {
+                    // Price is in USD, convert to CAD
+                    cadPrice = currentPrice * exchangeRate;
+                    usdPrice = currentPrice;
+                  }
+
+                  holdingsCache.update(rawSymbol, {
                     price: currentPrice,
-                    usdPrice: currentPrice,
-                    cadPrice: currentPrice * exchangeRate,
-                    companyName: meta.longName || meta.shortName || symbol,
+                    usdPrice: usdPrice,
+                    cadPrice: cadPrice,
+                    companyName: meta.longName || meta.shortName || rawSymbol,
                     exchangeRate: exchangeRate,
                     fetchedAt: new Date().toISOString(),
-                    currency: meta.currency || 'USD'
+                    currency: currency
                   });
-                  console.log(`💾 Cached price data for ${symbol}: $${currentPrice} USD at ${new Date().toISOString()}`);
+                  console.log(`💾 Cached price data for ${rawSymbol}: $${currentPrice} ${currency} ($${cadPrice.toFixed(2)} CAD) at ${new Date().toISOString()}`);
                 }
 
                 // Cache the historical data
@@ -1318,6 +1348,94 @@ router.delete('/watchlist/custom/remove/:symbol', (req, res) => {
   }
 });
 
+// ==================== INSIGHTS ENDPOINT ====================
+// GET /api/portfolio/insights - Get win/loss analysis and cost basis insights
+// NOTE: This MUST come before /:portfolioId route to avoid parameter matching
+router.get('/insights', async (req, res) => {
+  try {
+    const portfolios = loadPortfolios();
+    const masterPortfolio = portfolios.get(MASTER_PORTFOLIO_ID);
+
+    if (!masterPortfolio || !masterPortfolio.trades || masterPortfolio.trades.length === 0) {
+      return res.json({
+        positions: [],
+        winLossStats: null,
+        message: 'No portfolio data found. Upload CSV files to see insights.'
+      });
+    }
+
+    // Fetch current prices for holdings
+    let holdingsWithPrices = [];
+    if (masterPortfolio.holdings && masterPortfolio.holdings.length > 0) {
+      console.log('📊 Fetching current prices for insights...');
+      holdingsWithPrices = await getCurrentPrices(masterPortfolio.holdings);
+    }
+
+    // Convert holdings to position format with cost basis
+    const positions = holdingsWithPrices.map(holding => {
+      const currentPrice = holding.currentPrice || 0;
+      const shares = holding.quantity || 0;
+      const marketValue = currentPrice * shares;
+      const totalCost = holding.totalInvested || 0;
+      const unrealizedPnL = marketValue - totalCost;
+      const unrealizedPnLPercent = totalCost > 0 ? (unrealizedPnL / totalCost) * 100 : 0;
+
+      return {
+        symbol: holding.symbol,
+        shares,
+        averageCost: holding.averageCost || (totalCost / shares),
+        totalCost,
+        currentPrice,
+        marketValue,
+        unrealizedPnL,
+        unrealizedPnLPercent,
+        realizedPnL: holding.realizedPnL || 0,
+        totalPnL: unrealizedPnL + (holding.realizedPnL || 0),
+        sector: holding.sector && holding.sector !== 'null' ? holding.sector : 'Unknown',
+        type: holding.type || 's'
+      };
+    });
+
+    // Calculate win/loss stats from realized trades
+    const winLossStats = calculateWinLossStats(masterPortfolio.trades);
+
+    // Calculate sector performance
+    const sectorPerformance = calculateSectorPerformance(holdingsWithPrices, masterPortfolio.trades);
+
+    // Calculate tax loss harvesting candidates
+    const taxLossHarvesting = calculateTaxLossHarvesting(positions);
+
+    // Calculate portfolio health metrics
+    const portfolioHealth = calculatePortfolioHealth(positions, holdingsWithPrices);
+
+    // Calculate time-based insights
+    const timeBasedInsights = calculateTimeBasedInsights(masterPortfolio.trades);
+
+    // Fetch recurring investments data
+    let recurringInvestments = [];
+    try {
+      const recurringService = require('../services/recurring-investments');
+      const recurringData = await recurringService.getAllRecurringInvestments();
+      recurringInvestments = recurringData.investments || [];
+    } catch (error) {
+      console.log('Could not fetch recurring investments:', error.message);
+    }
+
+    res.json({
+      positions,
+      winLossStats,
+      sectorPerformance,
+      taxLossHarvesting,
+      portfolioHealth,
+      timeBasedInsights,
+      recurringInvestments
+    });
+  } catch (error) {
+    console.error('Error fetching insights:', error);
+    res.status(500).json({ error: 'Failed to fetch insights', details: error.message });
+  }
+});
+
 // Get portfolio summary
 router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
   const { portfolioId } = req.params;
@@ -1386,13 +1504,17 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
             const cadPrice = Number(cachedData.cadPrice) || 0;
             const exchangeRate = Number(cachedData.exchangeRate) || 1.35;
 
-            // Holdings are already stored in CAD
+            // Convert USD holdings to CAD for calculations
+            const totalInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalInvested) || 0);
+            const totalAmountInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
+            const realizedPnLCAD = holding.currency === 'USD' ? (Number(holding.realizedPnL) || 0) * exchangeRate : (Number(holding.realizedPnL) || 0);
+
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
-            const unrealizedPnL = currentValue - (Number(holding.totalInvested) || 0);
-            const totalPnL = unrealizedPnL + (Number(holding.realizedPnL) || 0);
+            const unrealizedPnL = currentValue - totalInvestedCAD;
+            const totalPnL = unrealizedPnL + realizedPnLCAD;
             // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-            const totalPnLPercent = (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) > 0 ?
-              (totalPnL / (Number(holding.totalAmountInvested) || Number(holding.totalInvested))) * 100 : 0;
+            const totalPnLPercent = totalAmountInvestedCAD > 0 ?
+              (totalPnL / totalAmountInvestedCAD) * 100 : 0;
 
             console.log(`💰 Using cached data for ${holding.symbol}: $${cadPrice.toFixed(2)} CAD (age: ${cachedData.fetchedAt ? Math.round((Date.now() - new Date(cachedData.fetchedAt).getTime()) / 1000 / 60) : 'unknown'} min)`);
 
@@ -1410,25 +1532,31 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
               cacheUsed: true
             };
           }
-          
+
           // Use fallback prices only for crypto, not for stocks
           let fallbackPrice = null;
           let companyName = holding.symbol;
-          
+
           if (holding.type === 'c') {
             fallbackPrice = getCryptoFallbackPrice(holding.symbol);
             companyName = getCryptoName(holding.symbol);
-            
+
             if (fallbackPrice) {
               const exchangeRate = 1.35; // fallback exchange rate
               const cadPrice = fallbackPrice * exchangeRate;
+
+              // Convert USD holdings to CAD for calculations
+              const totalInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalInvested) || 0);
+              const totalAmountInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
+              const realizedPnLCAD = holding.currency === 'USD' ? (Number(holding.realizedPnL) || 0) * exchangeRate : (Number(holding.realizedPnL) || 0);
+
               const currentValue = cadPrice * (holding.quantity || 0);
-              const unrealizedPnL = currentValue - (holding.totalInvested || 0);
-              const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+              const unrealizedPnL = currentValue - totalInvestedCAD;
+              const totalPnL = unrealizedPnL + realizedPnLCAD;
               // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-              const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-                (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
-              
+              const totalPnLPercent = totalAmountInvestedCAD > 0 ?
+                (totalPnL / totalAmountInvestedCAD) * 100 : 0;
+
               return {
                 ...holding,
                 companyName: companyName,
@@ -1444,7 +1572,7 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
               };
             }
           }
-          
+
           // Return holding with null values if no data available
           return {
             ...holding,
@@ -1590,11 +1718,15 @@ router.get('/:portfolioId/cached', async (req, res) => {
         const currentPrice = cachedHolding.cadPrice || cachedHolding.price || null;
         const exchangeRate = cachedHolding.exchangeRate || 1.35;
 
-        // Holdings are already in CAD, no conversion needed
+        // Convert USD holdings to CAD for calculations
+        const totalInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalInvested) || 0);
+        const totalAmountInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
+        const realizedPnLCAD = holding.currency === 'USD' ? (Number(holding.realizedPnL) || 0) * exchangeRate : (Number(holding.realizedPnL) || 0);
+
         const currentValue = currentPrice ? holding.quantity * currentPrice : 0;
         // If no price data, unrealized P&L is negative cost basis (total loss)
-        const unrealizedPnL = currentValue - (holding.totalInvested || 0);
-        const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+        const unrealizedPnL = currentValue - totalInvestedCAD;
+        const totalPnL = unrealizedPnL + realizedPnLCAD;
 
         return {
           ...holding,
@@ -1603,19 +1735,25 @@ router.get('/:portfolioId/cached', async (req, res) => {
           unrealizedPnL: unrealizedPnL,
           totalPnL: totalPnL,
           // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-          totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-            (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
+          totalPnLPercent: totalAmountInvestedCAD > 0 ?
+            (totalPnL / totalAmountInvestedCAD) * 100 : 0,
           companyName: cachedHolding.companyName || holding.companyName || symbol,
           sector: cachedHolding.sector || holding.sector || null,
           cacheUsed: true,
           cacheTimestamp: cachedHolding.lastUpdated || cachedHolding.fetchedAt
         };
       } else {
-        // No cached data available - holdings are already in CAD
+        // No cached data available
+        // Convert USD holdings to CAD for calculations
+        const exchangeRate = 1.35;
+        const totalInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalInvested) || 0);
+        const realizedPnLCAD = holding.currency === 'USD' ? (Number(holding.realizedPnL) || 0) * exchangeRate : (Number(holding.realizedPnL) || 0);
+
         // Set currentValue to 0 and unrealizedPnL to negative cost basis
         const currentValue = 0;
-        const unrealizedPnL = -(holding.totalInvested || 0);
-        const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
+        const unrealizedPnL = -totalInvestedCAD;
+        const totalPnL = unrealizedPnL + realizedPnLCAD;
+        const totalAmountInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
 
         return {
           ...holding,
@@ -1623,8 +1761,8 @@ router.get('/:portfolioId/cached', async (req, res) => {
           currentValue: currentValue,
           unrealizedPnL: unrealizedPnL,
           totalPnL: totalPnL,
-          totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-            (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
+          totalPnLPercent: totalAmountInvestedCAD > 0 ?
+            (totalPnL / totalAmountInvestedCAD) * 100 : 0,
           cacheUsed: false
         };
       }
@@ -1860,24 +1998,24 @@ async function cacheStockPricesFromHoldings(holdings) {
 
     const batchPromises = batch.map(async (holding) => {
       try {
-        const symbol = holding.symbol;
-        
+        const rawSymbol = holding.symbol;
+
         // Only skip API call if cache is very recent (less than 15 minutes), but always ensure cache exists
-        const cachedData = holdingsCache.get(symbol);
-        if (cachedData && cachedData.fetchedAt && !holdingsCache.isStale(symbol)) {
+        const cachedData = holdingsCache.get(rawSymbol);
+        if (cachedData && cachedData.fetchedAt && !holdingsCache.isStale(rawSymbol)) {
           const cacheAge = Date.now() - new Date(cachedData.fetchedAt).getTime();
           const fifteenMinutes = 15 * 60 * 1000;
           if (cacheAge < fifteenMinutes) {
-            console.log(`⏰ Skipping API call for ${symbol} - cache is very recent (${Math.round(cacheAge / 1000 / 60)} min old)`);
+            console.log(`⏰ Skipping API call for ${rawSymbol} - cache is very recent (${Math.round(cacheAge / 1000 / 60)} min old)`);
             return; // Skip API call but cache data is available for portfolio summary
           }
         }
 
-        console.log(`📈 Fetching fresh price for ${symbol} (${holding.type})...`);
-        
+        console.log(`📈 Fetching fresh price for ${rawSymbol} (${holding.type})...`);
+
         if (holding.type === 's') {
-          // Fetch stock price from Yahoo Finance
-          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+          // Fetch stock price from Yahoo Finance (use rawSymbol which may have .TO suffix)
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${rawSymbol}`;
           const response = await axios.get(yahooUrl, { timeout: 8000 });
           
           if (response.data?.chart?.result?.[0]) {
@@ -1902,58 +2040,69 @@ async function cacheStockPricesFromHoldings(holdings) {
               }
 
               // Update cache with fresh data
-              holdingsCache.update(symbol, {
+              holdingsCache.update(rawSymbol, {
                 price: currentPrice,
                 usdPrice: usdPrice,
                 cadPrice: cadPrice,
-                companyName: meta.longName || meta.shortName || getStockName(symbol),
+                companyName: meta.longName || meta.shortName || getStockName(rawSymbol),
                 exchangeRate: exchangeRate,
                 fetchedAt: new Date().toISOString(),
                 priceDate: new Date().toISOString(), // When this price is from
                 currency: currency
               });
 
-              console.log(`✅ Cached stock ${symbol}: $${currentPrice} ${currency} ($${cadPrice.toFixed(2)} CAD)`);
+              console.log(`✅ Cached stock ${rawSymbol}: $${currentPrice} ${currency} ($${cadPrice.toFixed(2)} CAD)`);
             } else {
-              console.warn(`⚠️ No price data available for stock ${symbol}`);
+              console.warn(`⚠️ No price data available for stock ${rawSymbol}`);
             }
           } else {
-            console.warn(`⚠️ Invalid response format for stock ${symbol}`);
+            console.warn(`⚠️ Invalid response format for stock ${rawSymbol}`);
           }
         } else if (holding.type === 'c') {
           // Fetch crypto price from Yahoo Finance (e.g., BTC-USD, ETH-USD)
-          const cryptoSymbol = `${symbol.toUpperCase()}-USD`;
+          const cryptoSymbol = `${rawSymbol.toUpperCase()}-USD`;
           const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${cryptoSymbol}`;
           const response = await axios.get(yahooUrl, { timeout: 8000 });
-          
+
           if (response.data?.chart?.result?.[0]) {
             const result = response.data.chart.result[0];
             const meta = result.meta;
             const currentPrice = meta.regularMarketPrice || meta.previousClose;
-            
+
             if (currentPrice) {
-              // Get exchange rate and calculate CAD price
+              // Determine currency and calculate prices accordingly
+              const currency = meta.currency || 'USD';
               const exchangeRate = await getUSDtoCADRate();
-              const cadPrice = currentPrice * exchangeRate;
-              
+
+              let cadPrice, usdPrice;
+              if (currency === 'CAD') {
+                // Price is already in CAD (e.g., Canadian stocks)
+                cadPrice = currentPrice;
+                usdPrice = currentPrice / exchangeRate;
+              } else {
+                // Price is in USD (crypto and US stocks), convert to CAD
+                cadPrice = currentPrice * exchangeRate;
+                usdPrice = currentPrice;
+              }
+
               // Update cache with fresh data
-              holdingsCache.update(symbol, {
+              holdingsCache.update(rawSymbol, {
                 price: currentPrice,
-                usdPrice: currentPrice,
+                usdPrice: usdPrice,
                 cadPrice: cadPrice,
-                companyName: meta.longName || meta.shortName || getCryptoName(symbol),
+                companyName: meta.longName || meta.shortName || getCryptoName(rawSymbol),
                 exchangeRate: exchangeRate,
                 fetchedAt: new Date().toISOString(),
                 priceDate: new Date().toISOString(), // When this price is from
-                currency: 'USD'
+                currency: currency
               });
-              
-              console.log(`✅ Cached crypto ${symbol}: $${currentPrice} USD ($${cadPrice.toFixed(2)} CAD)`);
+
+              console.log(`✅ Cached ${rawSymbol}: $${currentPrice} ${currency} ($${cadPrice.toFixed(2)} CAD)`);
             } else {
-              console.warn(`⚠️ No price data available for crypto ${symbol}`);
+              console.warn(`⚠️ No price data available for ${rawSymbol}`);
             }
           } else {
-            console.warn(`⚠️ Invalid response format for crypto ${symbol}`);
+            console.warn(`⚠️ Invalid response format for ${rawSymbol}`);
           }
         }
       } catch (error) {
@@ -2166,13 +2315,15 @@ async function getCurrentPrices(holdings) {
             cadPrice = currentPrice * exchangeRate;
             usdPrice = currentPrice;
             
-            // Update cache with fresh data
+            // Update cache with fresh data (preserve sector if it exists)
+            const existingCache = holdingsCache.get(holding.symbol);
             holdingsCache.update(holding.symbol, {
               price: currentPrice,
               usdPrice: currentPrice,
               cadPrice: cadPrice,
               companyName: companyName,
-              exchangeRate: exchangeRate
+              exchangeRate: exchangeRate,
+              sector: existingCache?.sector || 'Cryptocurrency'
             });
           } else {
             throw new Error('No price data returned from CoinGecko');
@@ -2188,26 +2339,38 @@ async function getCurrentPrices(holdings) {
             const fetchedPrice = meta.regularMarketPrice || meta.previousClose;
             
             if (fetchedPrice) {
-              console.log(`✅ Fetched fresh stock price for ${holding.symbol}: $${fetchedPrice} USD`);
               currentPrice = fetchedPrice;
               companyName = meta.longName || meta.shortName || getStockName(holding.symbol);
-              
-              // Get exchange rate and calculate CAD price
+
+              // Determine currency and calculate prices accordingly
+              const currency = meta.currency || 'USD';
               exchangeRate = await getUSDtoCADRate();
-              cadPrice = currentPrice * exchangeRate;
-              usdPrice = currentPrice;
-              
-              // Update cache with fresh data including datetime
+
+              if (currency === 'CAD') {
+                // Price is already in CAD (e.g., Canadian stocks like XEQT.TO)
+                cadPrice = currentPrice;
+                usdPrice = currentPrice / exchangeRate;
+              } else {
+                // Price is in USD, convert to CAD
+                cadPrice = currentPrice * exchangeRate;
+                usdPrice = currentPrice;
+              }
+
+              console.log(`✅ Fetched fresh stock price for ${holding.symbol}: $${fetchedPrice} ${currency}`);
+
+              // Update cache with fresh data including datetime (preserve sector if it exists)
+              const existingCacheStock = holdingsCache.get(holding.symbol);
               holdingsCache.update(holding.symbol, {
                 price: currentPrice,
-                usdPrice: currentPrice,
+                usdPrice: usdPrice,
                 cadPrice: cadPrice,
                 companyName: companyName,
                 exchangeRate: exchangeRate,
                 fetchedAt: new Date().toISOString(),
-                currency: meta.currency || 'USD'
+                currency: currency,
+                sector: existingCacheStock?.sector || null
               });
-              console.log(`💾 Cached price data for ${holding.symbol}: $${currentPrice} USD at ${new Date().toISOString()}`);
+              console.log(`💾 Cached price data for ${holding.symbol}: $${currentPrice} ${currency} ($${cadPrice.toFixed(2)} CAD) at ${new Date().toISOString()}`);
             } else {
               throw new Error('No price data in Yahoo Finance response');
             }
@@ -2259,9 +2422,14 @@ async function getCurrentPrices(holdings) {
           (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
       }
 
+      // Get sector from cache if available
+      const cachedData = holdingsCache.get(holding.symbol);
+      const sector = cachedData?.sector || holding.sector || null;
+
       holdingsWithPrices.push({
         ...holding,
         companyName: companyName,
+        sector: sector, // Include sector from cache
         currentPrice: cadPrice, // Store CAD price for display
         currentValue: currentValue,
         unrealizedPnL: unrealizedPnL,
@@ -2406,7 +2574,7 @@ function processCryptoRow(row, filename) {
   const pricePerUnit = totalAmount / quantity; // Calculate price per share/coin
 
   return {
-    symbol: row.symbol.trim().toUpperCase(),
+    symbol: normalizeSymbol(row.symbol.trim().toUpperCase()),
     date: parsedDate,
     action: row.action.toLowerCase(),
     quantity: quantity,
@@ -2417,11 +2585,66 @@ function processCryptoRow(row, filename) {
   };
 }
 
-// Helper function to process Wealthsimple format rows
-function processWealthsimpleRow(row, filename) {
+// Helper function to process Wealthsimple activities-export format rows
+// Format: transaction_date, settlement_date, account_id, account_type, activity_type, activity_sub_type, direction, symbol, name, currency, quantity, unit_price, commission, net_cash_amount
+function processWealthsimpleActivitiesRow(row, filename) {
   // Skip completely empty rows or rows with missing essential data
-  if (!row.date || !row.transaction || !row.description || !row.amount || 
-      row.date.trim() === '' || row.transaction.trim() === '' || 
+  if (!row.transaction_date || !row.activity_type || !row.symbol || !row.quantity ||
+      row.transaction_date.trim() === '' || row.activity_type.trim() === '' ||
+      row.symbol.trim() === '' || row.quantity.trim() === '') {
+    console.log(`Skipping empty/invalid row in ${filename}:`, row);
+    return null;
+  }
+
+  // Only process Trade activity type
+  if (row.activity_type.toUpperCase() !== 'TRADE') {
+    return null;
+  }
+
+  // Determine action from activity_sub_type
+  const subType = (row.activity_sub_type || '').toUpperCase();
+  if (subType !== 'BUY' && subType !== 'SELL') {
+    console.log(`Skipping non-buy/sell trade in ${filename}: ${subType}`);
+    return null;
+  }
+
+  const rawSymbol = row.symbol.trim();
+  const symbol = normalizeSymbol(rawSymbol);
+  const quantity = Math.abs(parseFloat(row.quantity)); // Use absolute value
+  const unitPrice = parseFloat(row.unit_price);
+  const netCashAmount = Math.abs(parseFloat(row.net_cash_amount));
+  const action = subType.toLowerCase();
+
+  // Parse transaction date
+  let parsedDate;
+  try {
+    parsedDate = new Date(row.transaction_date);
+    if (isNaN(parsedDate.getTime())) {
+      throw new Error('Invalid date');
+    }
+  } catch (dateError) {
+    console.warn(`Invalid date format for ${symbol}: ${row.transaction_date}`);
+    parsedDate = new Date(); // Use current date as fallback
+  }
+
+  return {
+    symbol: symbol, // Already uppercased by normalizeSymbol
+    date: parsedDate,
+    action: action,
+    quantity: quantity,
+    price: unitPrice, // Price per share in CAD
+    total: netCashAmount, // Total amount in CAD
+    type: 's', // Wealthsimple is for stocks
+    currency: row.currency || 'CAD'
+  };
+}
+
+// Helper function to process Wealthsimple monthly-statement format rows
+// Format: date, transaction, description, amount, balance, currency
+function processWealthsimpleMonthlyRow(row, filename) {
+  // Skip completely empty rows or rows with missing essential data
+  if (!row.date || !row.transaction || !row.description || !row.amount ||
+      row.date.trim() === '' || row.transaction.trim() === '' ||
       row.description.trim() === '' || row.amount.trim() === '') {
     console.log(`Skipping empty/invalid row in ${filename}:`, row);
     return null;
@@ -2448,7 +2671,8 @@ function processWealthsimpleRow(row, filename) {
     return null;
   }
 
-  const symbol = symbolMatch[1];
+  const rawSymbol = symbolMatch[1];
+  const symbol = normalizeSymbol(rawSymbol); // Normalize: XEQT.TO -> XEQT
   const quantity = parseFloat(boughtMatch ? boughtMatch[1] : soldMatch[1]);
   const amount = parseFloat(row.amount);
   
@@ -2472,7 +2696,7 @@ function processWealthsimpleRow(row, filename) {
   }
 
   return {
-    symbol: symbol.trim().toUpperCase(),
+    symbol: symbol.trim(), // Already uppercased by normalizeSymbol
     date: parsedDate,
     action: action,
     quantity: quantity,
@@ -2481,6 +2705,24 @@ function processWealthsimpleRow(row, filename) {
     type: 's', // Wealthsimple is for stocks
     currency: 'CAD' // All amounts are in CAD
   };
+}
+
+// Wrapper function to detect Wealthsimple CSV format and route to appropriate parser
+function processWealthsimpleRow(row, filename) {
+  // Detect format by checking for columns unique to each format
+  // Activities-export format has: transaction_date, activity_type, activity_sub_type, unit_price
+  // Monthly-statement format has: date, transaction, description, balance
+
+  if (row.transaction_date && row.activity_type && row.activity_sub_type) {
+    // New activities-export format
+    return processWealthsimpleActivitiesRow(row, filename);
+  } else if (row.date && row.transaction && row.description) {
+    // Old monthly-statement format
+    return processWealthsimpleMonthlyRow(row, filename);
+  } else {
+    // Unknown format or empty row
+    return null;
+  }
 }
 
 // Helper function to process Questrade format rows
@@ -2539,7 +2781,7 @@ function processQuestradeRow(row, filename) {
   const tradeCurrency = currency.trim().toUpperCase();
 
   return {
-    symbol: symbolUpper,
+    symbol: normalizeSymbol(symbolUpper),
     date: parsedDate,
     action: action.toLowerCase(),
     quantity: Math.abs(quantityNum), // Use absolute value for quantity
@@ -2728,6 +2970,7 @@ router.get('/cache/historical/:symbol', (req, res) => {
 });
 
 // Batch endpoint to get weekly changes for multiple symbols at once
+// Returns array of last 3 weeks of changes [week-2, week-1, this week]
 router.post('/cache/weekly-changes', (req, res) => {
   try {
     const { symbols } = req.body;
@@ -2736,14 +2979,14 @@ router.post('/cache/weekly-changes', (req, res) => {
       return res.status(400).json({ error: 'symbols array is required' });
     }
 
-    console.log(`📊 Calculating weekly changes for ${symbols.length} symbols from cache`);
+    console.log(`📊 Calculating weekly changes (3 periods) for ${symbols.length} symbols from cache`);
     const weeklyChanges = {};
 
     symbols.forEach(symbol => {
       try {
         const cacheEntry = historicalDataCache.cache.get(symbol);
 
-        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 8) {
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 22) {
           console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
           return;
         }
@@ -2751,12 +2994,25 @@ router.post('/cache/weekly-changes', (req, res) => {
         // Sort data from earliest to latest
         const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const currentPrice = sortedData[sortedData.length - 1].close;
-        const oneWeekAgoPrice = sortedData[sortedData.length - 8].close;
+        // Calculate changes for last 3 weeks (7 trading days each)
+        const changes = [];
+        for (let i = 0; i < 3; i++) {
+          const endIdx = sortedData.length - 1 - (i * 7);
+          const startIdx = endIdx - 7;
 
-        if (currentPrice && oneWeekAgoPrice) {
-          const changePercent = ((currentPrice - oneWeekAgoPrice) / oneWeekAgoPrice) * 100;
-          weeklyChanges[symbol] = changePercent;
+          if (startIdx >= 0) {
+            const currentPrice = sortedData[endIdx].close;
+            const previousPrice = sortedData[startIdx].close;
+
+            if (currentPrice && previousPrice) {
+              const changePercent = ((currentPrice - previousPrice) / previousPrice) * 100;
+              changes.unshift(changePercent); // Add to front to maintain chronological order
+            }
+          }
+        }
+
+        if (changes.length === 3) {
+          weeklyChanges[symbol] = changes;
         }
       } catch (err) {
         console.warn(`❌ Error calculating weekly change for ${symbol}:`, err.message);
@@ -2778,6 +3034,7 @@ router.post('/cache/weekly-changes', (req, res) => {
 });
 
 // Batch endpoint to get daily changes for multiple symbols at once
+// Returns array of last 3 days of changes [day-2, day-1, today]
 router.post('/cache/daily-changes', (req, res) => {
   try {
     const { symbols } = req.body;
@@ -2786,14 +3043,14 @@ router.post('/cache/daily-changes', (req, res) => {
       return res.status(400).json({ error: 'symbols array is required' });
     }
 
-    console.log(`📊 Calculating daily changes for ${symbols.length} symbols from cache`);
+    console.log(`📊 Calculating daily changes (3 periods) for ${symbols.length} symbols from cache`);
     const dailyChanges = {};
 
     symbols.forEach(symbol => {
       try {
         const cacheEntry = historicalDataCache.cache.get(symbol);
 
-        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 2) {
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 4) {
           console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
           return;
         }
@@ -2801,12 +3058,25 @@ router.post('/cache/daily-changes', (req, res) => {
         // Sort data from earliest to latest
         const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const currentPrice = sortedData[sortedData.length - 1].close;
-        const previousDayPrice = sortedData[sortedData.length - 2].close;
+        // Calculate changes for last 3 days
+        const changes = [];
+        for (let i = 0; i < 3; i++) {
+          const currentIdx = sortedData.length - 1 - i;
+          const previousIdx = currentIdx - 1;
 
-        if (currentPrice && previousDayPrice) {
-          const changePercent = ((currentPrice - previousDayPrice) / previousDayPrice) * 100;
-          dailyChanges[symbol] = changePercent;
+          if (previousIdx >= 0) {
+            const currentPrice = sortedData[currentIdx].close;
+            const previousPrice = sortedData[previousIdx].close;
+
+            if (currentPrice && previousPrice) {
+              const changePercent = ((currentPrice - previousPrice) / previousPrice) * 100;
+              changes.unshift(changePercent); // Add to front to maintain chronological order
+            }
+          }
+        }
+
+        if (changes.length === 3) {
+          dailyChanges[symbol] = changes;
         }
       } catch (err) {
         console.warn(`❌ Error calculating daily change for ${symbol}:`, err.message);
@@ -2828,6 +3098,7 @@ router.post('/cache/daily-changes', (req, res) => {
 });
 
 // Batch endpoint to get monthly changes for multiple symbols at once
+// Returns array of last 3 months of changes [month-2, month-1, this month]
 router.post('/cache/monthly-changes', (req, res) => {
   try {
     const { symbols } = req.body;
@@ -2836,14 +3107,14 @@ router.post('/cache/monthly-changes', (req, res) => {
       return res.status(400).json({ error: 'symbols array is required' });
     }
 
-    console.log(`📊 Calculating monthly changes for ${symbols.length} symbols from cache`);
+    console.log(`📊 Calculating monthly changes (3 periods) for ${symbols.length} symbols from cache`);
     const monthlyChanges = {};
 
     symbols.forEach(symbol => {
       try {
         const cacheEntry = historicalDataCache.cache.get(symbol);
 
-        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 30) {
+        if (!cacheEntry || !cacheEntry.data || cacheEntry.data.length < 90) {
           console.warn(`⚠️ Insufficient data for ${symbol}: ${cacheEntry?.data?.length || 0} points`);
           return;
         }
@@ -2851,12 +3122,25 @@ router.post('/cache/monthly-changes', (req, res) => {
         // Sort data from earliest to latest
         const sortedData = [...cacheEntry.data].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const currentPrice = sortedData[sortedData.length - 1].close;
-        const oneMonthAgoPrice = sortedData[sortedData.length - 31].close; // ~30 trading days
+        // Calculate changes for last 3 months (~30 trading days each)
+        const changes = [];
+        for (let i = 0; i < 3; i++) {
+          const endIdx = sortedData.length - 1 - (i * 30);
+          const startIdx = endIdx - 30;
 
-        if (currentPrice && oneMonthAgoPrice) {
-          const changePercent = ((currentPrice - oneMonthAgoPrice) / oneMonthAgoPrice) * 100;
-          monthlyChanges[symbol] = changePercent;
+          if (startIdx >= 0) {
+            const currentPrice = sortedData[endIdx].close;
+            const previousPrice = sortedData[startIdx].close;
+
+            if (currentPrice && previousPrice) {
+              const changePercent = ((currentPrice - previousPrice) / previousPrice) * 100;
+              changes.unshift(changePercent); // Add to front to maintain chronological order
+            }
+          }
+        }
+
+        if (changes.length === 3) {
+          monthlyChanges[symbol] = changes;
         }
       } catch (err) {
         console.warn(`❌ Error calculating monthly change for ${symbol}:`, err.message);
@@ -3269,23 +3553,28 @@ async function processUploadedFiles(req, res) {
           .pipe(csv())
           .on('data', (row) => {
             try {
+              // Create defensive copy of row to prevent csv-parser object reuse issues
+              const rowCopy = { ...row };
               let trade = null;
 
               if (fileType === 'crypto') {
-                trade = processCryptoRow(row, fileInfo.name);
+                trade = processCryptoRow(rowCopy, fileInfo.name);
               } else if (fileType === 'wealthsimple') {
-                trade = processWealthsimpleRow(row, fileInfo.name);
+                trade = processWealthsimpleRow(rowCopy, fileInfo.name);
               } else if (fileType === 'questrade') {
-                trade = processQuestradeRow(row, fileInfo.name);
+                trade = processQuestradeRow(rowCopy, fileInfo.name);
               }
 
               if (trade) {
+                // Create a defensive copy to avoid object mutation issues
+                const tradeCopy = { ...trade };
+
                 // Generate unique trade ID if not present
-                if (!trade.id) {
-                  trade.id = `${fileInfo.name}-${trade.date}-${trade.symbol}-${trade.action}-${trade.quantity}`;
+                if (!tradeCopy.id) {
+                  tradeCopy.id = `${fileInfo.name}-${tradeCopy.date}-${tradeCopy.symbol}-${tradeCopy.action}-${tradeCopy.quantity}`;
                 }
-                trade.sourceFile = fileInfo.name; // Track source file
-                trades.push(trade);
+                tradeCopy.sourceFile = fileInfo.name; // Track source file
+                trades.push(tradeCopy);
               }
             } catch (error) {
               console.warn(`Error processing row in ${fileInfo.name}:`, error.message);
@@ -3840,9 +4129,18 @@ async function calculateRiskMetrics(symbol, holding, historicalData, currentMark
     // 9. Calculate average buy price (total invested / quantity)
     const averageBuyPrice = holding.quantity > 0 ? holding.totalInvested / holding.quantity : currentPrice;
 
-    // 10. Calculate default targets based on average buy price
-    const defaultRiskPrice = averageBuyPrice * 0.90; // avg price - 10%
-    const defaultRewardPrice = averageBuyPrice * 1.5; // avg price × 1.5
+    // 10. Calculate breakeven price accounting for realized P&L
+    // Breakeven = (Cost Basis - Realized P&L) / Quantity
+    const realizedPnL = holding.realizedPnL || 0;
+    const breakEvenPrice = holding.quantity > 0
+      ? (holding.totalInvested - realizedPnL) / holding.quantity
+      : averageBuyPrice;
+
+    // 11. Calculate default targets
+    const traditionalRewardPrice = averageBuyPrice * 1.5; // Traditional 1.5x target
+    const defaultRiskPrice = averageBuyPrice * 0.90; // Risk at avg price - 10%
+    // Use whichever is greater: traditional reward target OR breakeven price
+    const defaultRewardPrice = Math.max(traditionalRewardPrice, breakEvenPrice);
 
     // 12. Check for custom targets in cache, otherwise use defaults
     const cachedTargets = holdingsCache.getTargets(symbol);
@@ -3859,6 +4157,8 @@ async function calculateRiskMetrics(symbol, holding, historicalData, currentMark
     // Use custom targets if defined, otherwise fall back to newly calculated defaults
     metrics.riskPrice = cachedTargets?.customRiskPrice || defaultRiskPrice;
     metrics.rewardPrice = cachedTargets?.customRewardPrice || defaultRewardPrice;
+    metrics.breakEvenPrice = breakEvenPrice; // Include breakeven price for UI display
+    metrics.averageBuyPrice = averageBuyPrice; // Include average buy price for UI display
 
     // 12. Risk:Reward Ratio
     const risk = currentPrice - metrics.riskPrice;
@@ -3880,12 +4180,372 @@ async function calculateRiskMetrics(symbol, holding, historicalData, currentMark
     if (metrics.riskPrice !== null) metrics.riskPrice = Number(metrics.riskPrice.toFixed(2));
     if (metrics.rewardPrice !== null) metrics.rewardPrice = Number(metrics.rewardPrice.toFixed(2));
     if (metrics.riskRewardRatio !== null) metrics.riskRewardRatio = Number(metrics.riskRewardRatio.toFixed(2));
+    if (metrics.breakEvenPrice !== null) metrics.breakEvenPrice = Number(metrics.breakEvenPrice.toFixed(2));
+    if (metrics.averageBuyPrice !== null) metrics.averageBuyPrice = Number(metrics.averageBuyPrice.toFixed(2));
 
   } catch (error) {
     console.warn(`Error calculating risk metrics for ${symbol}:`, error.message);
   }
 
   return metrics;
+}
+
+// Helper function to calculate positions with current prices for insights
+async function calculatePositionsWithPrices(trades) {
+  // Group trades by symbol
+  const positionMap = new Map();
+
+  // Sort trades by date
+  const sortedTrades = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  // Calculate positions using FIFO/Average Cost
+  for (const trade of sortedTrades) {
+    const symbol = trade.symbol;
+    let position = positionMap.get(symbol) || {
+      symbol,
+      shares: 0,
+      totalCost: 0,
+      realizedPnL: 0
+    };
+
+    if (trade.action === 'buy') {
+      position.shares += trade.quantity;
+      position.totalCost += trade.total;
+    } else if (trade.action === 'sell') {
+      // Calculate realized P&L for this sale
+      const avgCost = position.shares > 0 ? position.totalCost / position.shares : 0;
+      const saleValue = trade.total;
+      const costBasis = avgCost * trade.quantity;
+      position.realizedPnL += (saleValue - costBasis);
+
+      // Update position
+      position.shares -= trade.quantity;
+      position.totalCost -= costBasis;
+    }
+
+    positionMap.set(symbol, position);
+  }
+
+  // Filter to only open positions
+  const openPositions = Array.from(positionMap.values()).filter(p => p.shares > 0.0001);
+
+  // Fetch current prices for all positions
+  const positionsWithPrices = await Promise.all(
+    openPositions.map(async (position) => {
+      try {
+        const currentPrice = await getCurrentPriceForInsights(position.symbol);
+        const averageCost = position.totalCost / position.shares;
+        const marketValue = currentPrice * position.shares;
+        const unrealizedPnL = marketValue - position.totalCost;
+        const unrealizedPnLPercent = (unrealizedPnL / position.totalCost) * 100;
+        const totalPnL = unrealizedPnL + (position.realizedPnL || 0);
+
+        return {
+          symbol: position.symbol,
+          shares: position.shares,
+          averageCost,
+          totalCost: position.totalCost,
+          currentPrice,
+          marketValue,
+          unrealizedPnL,
+          unrealizedPnLPercent,
+          realizedPnL: position.realizedPnL || 0,
+          totalPnL
+        };
+      } catch (error) {
+        console.error(`Error fetching price for ${position.symbol}:`, error.message);
+        // Return position with null price data
+        return {
+          symbol: position.symbol,
+          shares: position.shares,
+          averageCost: position.totalCost / position.shares,
+          totalCost: position.totalCost,
+          currentPrice: 0,
+          marketValue: 0,
+          unrealizedPnL: 0,
+          unrealizedPnLPercent: 0,
+          realizedPnL: position.realizedPnL || 0,
+          totalPnL: position.realizedPnL || 0
+        };
+      }
+    })
+  );
+
+  return positionsWithPrices;
+}
+
+// Helper function to get current price for a symbol (for insights)
+async function getCurrentPriceForInsights(symbol) {
+  // Try to get price from holdings cache (already populated by other endpoints)
+  const cached = holdingsCache.get(symbol);
+  if (cached) {
+    // Cache might have price directly or in a nested object
+    if (typeof cached === 'number') {
+      return cached;
+    } else if (cached.price) {
+      return cached.price;
+    } else if (cached.currentPrice) {
+      return cached.currentPrice;
+    }
+  }
+
+  // If not in cache, return 0 (prices will be fetched by background processes)
+  return 0;
+}
+
+// Helper function to calculate win/loss statistics
+function calculateWinLossStats(trades) {
+  // Group trades by symbol to track complete positions
+  const symbolTrades = new Map();
+
+  for (const trade of trades) {
+    if (!symbolTrades.has(trade.symbol)) {
+      symbolTrades.set(trade.symbol, []);
+    }
+    symbolTrades.get(trade.symbol).push(trade);
+  }
+
+  const closedPositions = [];
+
+  // Analyze each symbol for closed positions
+  for (const [symbol, symbolTradeList] of symbolTrades) {
+    // Sort by date
+    const sorted = [...symbolTradeList].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    let position = {
+      shares: 0,
+      totalCost: 0,
+      sales: []
+    };
+
+    for (const trade of sorted) {
+      if (trade.action === 'buy') {
+        position.shares += trade.quantity;
+        position.totalCost += trade.total;
+      } else if (trade.action === 'sell') {
+        // Calculate P&L for this sale
+        const avgCost = position.shares > 0 ? position.totalCost / position.shares : 0;
+        const saleValue = trade.total;
+        const costBasis = avgCost * trade.quantity;
+        const pnl = saleValue - costBasis;
+
+        closedPositions.push({
+          symbol,
+          profit: pnl,
+          isWin: pnl > 0
+        });
+
+        // Update position
+        position.shares -= trade.quantity;
+        position.totalCost -= costBasis;
+      }
+    }
+  }
+
+  if (closedPositions.length === 0) {
+    return null; // No realized trades yet
+  }
+
+  const wins = closedPositions.filter(p => p.isWin);
+  const losses = closedPositions.filter(p => !p.isWin);
+
+  const totalRealized = closedPositions.reduce((sum, p) => sum + p.profit, 0);
+  const averageGain = wins.length > 0
+    ? wins.reduce((sum, p) => sum + p.profit, 0) / wins.length
+    : 0;
+  const averageLoss = losses.length > 0
+    ? losses.reduce((sum, p) => sum + p.profit, 0) / losses.length
+    : 0;
+
+  // Find best and worst trades
+  const sortedByProfit = [...closedPositions].sort((a, b) => b.profit - a.profit);
+  const bestTrade = sortedByProfit[0] || null;
+  const worstTrade = sortedByProfit[sortedByProfit.length - 1] || null;
+
+  return {
+    totalTrades: closedPositions.length,
+    winningTrades: wins.length,
+    losingTrades: losses.length,
+    winRate: (wins.length / closedPositions.length) * 100,
+    averageGain,
+    averageLoss,
+    totalRealized,
+    bestTrade: bestTrade ? { symbol: bestTrade.symbol, profit: bestTrade.profit } : null,
+    worstTrade: worstTrade ? { symbol: worstTrade.symbol, profit: worstTrade.profit } : null
+  };
+}
+
+// Calculate sector performance
+function calculateSectorPerformance(holdings, trades) {
+  const sectorData = new Map();
+
+  holdings.forEach(holding => {
+    const sector = holding.sector && holding.sector !== 'null' ? holding.sector : 'Unknown';
+    if (!sectorData.has(sector)) {
+      sectorData.set(sector, {
+        sector,
+        totalValue: 0,
+        totalCost: 0,
+        unrealizedPnL: 0,
+        realizedPnL: 0,
+        positions: 0,
+        winners: 0,
+        losers: 0
+      });
+    }
+
+    const data = sectorData.get(sector);
+    data.totalValue += holding.marketValue || 0;
+    data.totalCost += holding.totalInvested || 0;
+    data.unrealizedPnL += holding.unrealizedPnL || 0;
+    data.realizedPnL += holding.realizedPnL || 0;
+    data.positions++;
+
+    if ((holding.unrealizedPnL || 0) > 10) data.winners++;
+    if ((holding.unrealizedPnL || 0) < -10) data.losers++;
+  });
+
+  const sectors = Array.from(sectorData.values()).map(s => ({
+    ...s,
+    totalPnL: s.unrealizedPnL + s.realizedPnL,
+    winRate: s.positions > 0 ? ((s.winners / s.positions) * 100) : 0,
+    percentOfPortfolio: 0 // Will calculate below
+  }));
+
+  const totalPortfolioValue = sectors.reduce((sum, s) => sum + s.totalValue, 0);
+  sectors.forEach(s => {
+    s.percentOfPortfolio = totalPortfolioValue > 0 ? (s.totalValue / totalPortfolioValue) * 100 : 0;
+  });
+
+  return sectors.sort((a, b) => b.totalValue - a.totalValue);
+}
+
+// Calculate tax loss harvesting candidates
+function calculateTaxLossHarvesting(positions) {
+  const candidates = positions
+    .filter(p => p.shares > 0 && p.unrealizedPnL < -100) // Loss > $100
+    .map(p => ({
+      symbol: p.symbol,
+      shares: p.shares,
+      unrealizedLoss: p.unrealizedPnL,
+      costBasis: p.totalCost,
+      currentValue: p.marketValue,
+      potentialTaxSavings: Math.abs(p.unrealizedPnL) * 0.25 // Assume 25% tax rate
+    }))
+    .sort((a, b) => a.unrealizedLoss - b.unrealizedLoss);
+
+  const totalLosses = candidates.reduce((sum, c) => sum + Math.abs(c.unrealizedLoss), 0);
+  const totalTaxSavings = candidates.reduce((sum, c) => sum + c.potentialTaxSavings, 0);
+
+  return {
+    candidates,
+    totalLosses,
+    totalTaxSavings,
+    count: candidates.length
+  };
+}
+
+// Calculate portfolio health metrics
+function calculatePortfolioHealth(positions, holdings) {
+  const activePositions = positions.filter(p => p.shares > 0);
+  const totalValue = activePositions.reduce((sum, p) => sum + p.marketValue, 0);
+  const totalCost = activePositions.reduce((sum, p) => sum + p.totalCost, 0);
+  const totalUnrealized = activePositions.reduce((sum, p) => sum + p.unrealizedPnL, 0);
+  const totalRealized = activePositions.reduce((sum, p) => sum + (p.realizedPnL || 0), 0);
+
+  // Diversification score (1-100, higher is better)
+  const symbols = activePositions.length;
+  const largestPosition = Math.max(...activePositions.map(p => p.marketValue), 0);
+  const largestPercent = totalValue > 0 ? (largestPosition / totalValue) * 100 : 0;
+  const diversificationScore = Math.max(0, Math.min(100,
+    (symbols * 10) - (largestPercent * 2)
+  ));
+
+  // Dead money (positions stuck near breakeven for a while)
+  const deadMoney = activePositions.filter(p => Math.abs(p.unrealizedPnL) <= 50).length;
+
+  // Concentration risk
+  const top5Value = activePositions
+    .sort((a, b) => b.marketValue - a.marketValue)
+    .slice(0, 5)
+    .reduce((sum, p) => sum + p.marketValue, 0);
+  const concentrationRisk = totalValue > 0 ? (top5Value / totalValue) * 100 : 0;
+
+  return {
+    totalPositions: activePositions.length,
+    totalValue,
+    totalCost,
+    totalUnrealized,
+    totalRealized,
+    overallReturn: totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0,
+    unrealizedToRealizedRatio: totalRealized !== 0 ? totalUnrealized / Math.abs(totalRealized) : 0,
+    diversificationScore: Math.round(diversificationScore),
+    deadMoneyCount: deadMoney,
+    concentrationRisk: Math.round(concentrationRisk),
+    largestPosition: {
+      percent: Math.round(largestPercent),
+      symbol: activePositions.sort((a, b) => b.marketValue - a.marketValue)[0]?.symbol || 'N/A'
+    }
+  };
+}
+
+// Calculate time-based insights
+function calculateTimeBasedInsights(trades) {
+  const now = new Date();
+  const monthlyStats = new Map();
+
+  // Analyze trades by month
+  trades.forEach(trade => {
+    const date = new Date(trade.date);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+    if (!monthlyStats.has(monthKey)) {
+      monthlyStats.set(monthKey, {
+        month: monthKey,
+        buys: 0,
+        sells: 0,
+        buyValue: 0,
+        sellValue: 0,
+        netInvested: 0
+      });
+    }
+
+    const stats = monthlyStats.get(monthKey);
+    if (trade.action === 'buy') {
+      stats.buys++;
+      stats.buyValue += trade.total;
+      stats.netInvested += trade.total;
+    } else if (trade.action === 'sell') {
+      stats.sells++;
+      stats.sellValue += trade.total;
+      stats.netInvested -= trade.total;
+    }
+  });
+
+  const monthlyData = Array.from(monthlyStats.values()).sort((a, b) => b.month.localeCompare(a.month));
+
+  // Find best and worst months by net investment
+  const bestMonth = monthlyData.reduce((best, curr) =>
+    curr.netInvested > best.netInvested ? curr : best, monthlyData[0] || { month: 'N/A', netInvested: 0 });
+
+  const worstMonth = monthlyData.reduce((worst, curr) =>
+    curr.netInvested < worst.netInvested ? curr : worst, monthlyData[0] || { month: 'N/A', netInvested: 0 });
+
+  // Recent activity (last 30 days)
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const recentTrades = trades.filter(t => new Date(t.date) >= thirtyDaysAgo);
+
+  return {
+    monthlyData: monthlyData.slice(0, 12), // Last 12 months
+    bestMonth,
+    worstMonth,
+    recentActivity: {
+      trades: recentTrades.length,
+      buys: recentTrades.filter(t => t.action === 'buy').length,
+      sells: recentTrades.filter(t => t.action === 'sell').length
+    },
+    totalTradingDays: monthlyStats.size
+  };
 }
 
 module.exports = router;
