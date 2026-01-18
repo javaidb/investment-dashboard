@@ -138,12 +138,12 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
 
     // Calculate arrow properties based on weekly change percentage magnitude
     const weeklyChangeMagnitude = hasWeeklyData ? Math.abs(weeklyChange) : 0;
-    const maxArrowLength = 40; // Maximum arrow length in pixels
-    const minArrowLength = 12; // Minimum arrow length in pixels
+    const maxArrowLength = 12; // Maximum arrow length in pixels
+    const minArrowLength = 6; // Minimum arrow length in pixels
     // Scale arrow length based on weekly change percentage (linear scale for percentages)
-    // Arrow grows longer as percentage increases
+    // Arrow grows longer as percentage increases, but capped at maxArrowLength
     const arrowLength = hasWeeklyData
-      ? Math.min(maxArrowLength, Math.max(minArrowLength, weeklyChangeMagnitude * 3))
+      ? Math.min(maxArrowLength, Math.max(minArrowLength, weeklyChangeMagnitude * 0.5))
       : minArrowLength;
 
     // Arrow color and direction based on WEEKLY CHANGE (not P&L)
@@ -154,16 +154,18 @@ const ProfitLossBarChart: React.FC<ProfitLossBarChartProps> = ({ holdings }) => 
     const arrowX = x + width / 2;
     // For vertical bars in Recharts:
     // - Positive values: y is at the bar top (tip), y + height is at x-axis
-    // - Negative values: y is at the bar BOTTOM (tip), y + height is at x-axis
+    // - Negative values: y is at x-axis, y + height is at the bar bottom (tip)
     // Arrow starts just outside the bar tip
     let arrowStartY;
     if (value >= 0) {
       // Positive value: bar top (y) is the tip, arrow extends upward from just above it
       arrowStartY = y - 8;
     } else {
-      // Negative value: y is at the tip (bottom), arrow extends downward from just below it
-      arrowStartY = y + 8;
+      // Negative value: y + height is at the tip (bottom), arrow extends downward from just below it
+      arrowStartY = y + height + 8;
     }
+
+    console.log(`Arrow debug - symbol: ${data.symbol}, weeklyChange: ${weeklyChange}, arrowLength: ${arrowLength}, arrowStartY: ${arrowStartY}, y: ${y}, height: ${height}`);
 
     // Only show arrow if we have weekly data
     const showArrow = hasWeeklyData;
