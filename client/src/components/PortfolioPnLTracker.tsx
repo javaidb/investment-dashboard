@@ -240,8 +240,8 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
-  const getAssetIcon = (symbol: string) => {
-    return `/api/icons/symbol/${symbol}`;
+  const getAssetIcon = (symbol: string, type: 's' | 'c' = 's') => {
+    return `/api/icons/symbol/${symbol}/image?type=${type}`;
   };
 
   if (loading) {
@@ -553,6 +553,8 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                   <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Asset</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Type</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Status</th>
                     <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Shares</th>
                     <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Value</th>
                     <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Total P&L</th>
@@ -573,28 +575,46 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                       <td style={{ padding: '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <img
-                            src={getAssetIcon(asset.symbol)}
+                            src={getAssetIcon(asset.symbol, asset.assetInfo?.type)}
                             alt={asset.symbol}
                             style={{ width: '36px', height: '36px', borderRadius: '8px' }}
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${asset.symbol}&size=36&background=667eea&color=fff&bold=true`;
                             }}
                           />
-                          <div>
-                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#1f2937' }}>{asset.symbol}</div>
-                            <div style={{
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              color: asset.assetInfo?.type === 's' ? '#2563eb' : '#7c3aed',
-                              backgroundColor: asset.assetInfo?.type === 's' ? '#dbeafe' : '#f3e8ff',
-                              padding: '3px 8px',
-                              borderRadius: '6px',
-                              display: 'inline-block',
-                              marginTop: '4px'
-                            }}>
-                              {asset.assetInfo?.type === 's' ? 'Stock' : 'Crypto'}
-                            </div>
+                          <div style={{
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#1f2937'
+                          }}>
+                            {asset.symbol}
                           </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: '16px', textAlign: 'center' }}>
+                        <div style={{
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          color: asset.assetInfo?.type === 's' ? '#2563eb' : '#7c3aed',
+                          backgroundColor: asset.assetInfo?.type === 's' ? '#dbeafe' : '#f3e8ff',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          display: 'inline-block'
+                        }}>
+                          {asset.assetInfo?.type === 's' ? 'Stock' : 'Crypto'}
+                        </div>
+                      </td>
+                      <td style={{ padding: '16px', textAlign: 'center' }}>
+                        <div style={{
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          color: (asset.currentShares || 0) >= 0.0001 ? '#ffffff' : '#1f2937',
+                          backgroundColor: (asset.currentShares || 0) >= 0.0001 ? '#3b82f6' : '#e5e7eb',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          display: 'inline-block'
+                        }}>
+                          {(asset.currentShares || 0) >= 0.0001 ? 'Active' : 'Inactive'}
                         </div>
                       </td>
                       <td style={{ padding: '16px', textAlign: 'right', fontSize: '14px', color: '#374151' }}>
@@ -668,7 +688,7 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                   gap: '12px'
                 }}>
                   <img
-                    src={getAssetIcon(selectedSymbol)}
+                    src={getAssetIcon(selectedSymbol, assetsWithData.find(a => a.symbol === selectedSymbol)?.assetInfo?.type)}
                     alt={selectedSymbol}
                     style={{ width: '40px', height: '40px', borderRadius: '8px' }}
                     onError={(e) => {
