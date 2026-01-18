@@ -293,18 +293,18 @@ async function fetchIcon(symbol, type = 's') {
   return iconData;
 }
 
-// Get icon for symbol
+// Get icon for symbol (JSON response)
 router.get('/symbol/:symbol', async (req, res) => {
   try {
     const { symbol } = req.params;
     const { type = 's' } = req.query; // 's' for stock, 'c' for crypto
-    
+
     if (!symbol) {
       return res.status(400).json({ error: 'Symbol is required' });
     }
 
     const iconData = await fetchIcon(symbol.toUpperCase(), type);
-    
+
     if (iconData && !iconData.failed) {
       res.json({
         success: true,
@@ -318,6 +318,37 @@ router.get('/symbol/:symbol', async (req, res) => {
     }
   } catch (error) {
     console.error('Error fetching icon:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Serve icon image directly for a symbol
+router.get('/symbol/:symbol/image', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { type = 's' } = req.query; // 's' for stock, 'c' for crypto
+
+    if (!symbol) {
+      return res.status(400).json({ error: 'Symbol is required' });
+    }
+
+    const iconData = await fetchIcon(symbol.toUpperCase(), type);
+
+    if (iconData && !iconData.failed && iconData.filename) {
+      // Redirect to the image endpoint
+      return res.redirect(`/api/icons/image/${iconData.filename}`);
+    } else {
+      // Return a placeholder or 404
+      return res.status(404).json({
+        success: false,
+        error: 'Icon not found'
+      });
+    }
+  } catch (error) {
+    console.error('Error serving icon image:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error'
