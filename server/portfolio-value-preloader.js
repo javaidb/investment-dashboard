@@ -270,26 +270,29 @@ class PortfolioValuePreloader {
 
           const holding = holdingsBySymbol.get(symbol);
 
+          // Convert USD trade amounts to CAD (same as breakdown tab logic)
+          const tradeAmountCAD = trade.currency === 'USD' ? total * USD_TO_CAD_RATE : total;
+
           if (action === 'buy') {
             holding.shares += quantity;
-            holding.totalBuyAmount += total;
+            holding.totalBuyAmount += tradeAmountCAD;
             holding.totalBuyShares += quantity;
-            holding.totalAmountInvested += total;
+            holding.totalAmountInvested += tradeAmountCAD;
           } else if (action === 'sell') {
-            // Calculate average price of all shares bought
+            // Calculate average price of all shares bought (in CAD)
             const averagePrice = holding.totalBuyShares > 0 ? holding.totalBuyAmount / holding.totalBuyShares : 0;
 
             // Calculate cost basis of sold shares
             const costOfSoldShares = quantity * averagePrice;
 
-            // Calculate realized P&L
-            const realizedPnL = total - costOfSoldShares;
+            // Calculate realized P&L (in CAD)
+            const realizedPnL = tradeAmountCAD - costOfSoldShares;
             holding.totalRealizedPnL += realizedPnL;
             totalRealizedPnLAllTime += realizedPnL;
 
             // Update shares
             holding.shares -= quantity;
-            holding.totalAmountReceived += total;
+            holding.totalAmountReceived += tradeAmountCAD;
           }
         }
 
@@ -351,7 +354,12 @@ class PortfolioValuePreloader {
                 closePrice = priceData.close;
 
                 // Convert USD to CAD if needed
-                const historicalCurrency = historicalData.assetInfo?.currency || 'CAD';
+                // Determine currency by symbol pattern (same logic as pnl-calculator)
+                const isCanadianStock = symbol.endsWith('.TO');
+                const isCrypto = holding.type === 'c';
+                const isUSStock = holding.type === 's' && !isCanadianStock;
+                const historicalCurrency = (isUSStock || isCrypto) ? 'USD' : 'CAD';
+
                 if (historicalCurrency === 'USD') {
                   closePrice = closePrice * USD_TO_CAD_RATE;
                 }
@@ -367,7 +375,12 @@ class PortfolioValuePreloader {
                   });
                   if (lookbackData) {
                     closePrice = lookbackData.close;
-                    const historicalCurrency = historicalData.assetInfo?.currency || 'CAD';
+                    // Determine currency by symbol pattern (same logic as pnl-calculator)
+                    const isCanadianStock = symbol.endsWith('.TO');
+                    const isCrypto = holding.type === 'c';
+                    const isUSStock = holding.type === 's' && !isCanadianStock;
+                    const historicalCurrency = (isUSStock || isCrypto) ? 'USD' : 'CAD';
+
                     if (historicalCurrency === 'USD') {
                       closePrice = closePrice * USD_TO_CAD_RATE;
                     }
@@ -377,28 +390,42 @@ class PortfolioValuePreloader {
               }
             }
 
-            if (closePrice) {
-              const marketValue = holding.shares * closePrice;
-              const averagePrice = holding.totalBuyShares > 0 ? holding.totalBuyAmount / holding.totalBuyShares : 0;
-              const costBasis = holding.shares * averagePrice;
+            // Calculate cost basis regardless of whether we have a price
+            const averagePrice = holding.totalBuyShares > 0 ? holding.totalBuyAmount / holding.totalBuyShares : 0;
+            const costBasis = holding.shares * averagePrice;
+            totalCostBasis += costBasis;
 
+            if (closePrice) {
+              // We have a price - calculate market value
+              const marketValue = holding.shares * closePrice;
               totalValue += marketValue;
-              totalCostBasis += costBasis;
 
               holdingsSnapshot[symbol] = {
                 shares: holding.shares,
                 costBasis: costBasis,
                 marketValue: marketValue,
-                closePrice: closePrice
+                closePrice: closePrice,
+                realizedPnL: holding.totalRealizedPnL || 0  // Include realized P&L for each holding
               };
             } else {
-              // Symbol has shares but no price data
+              // Symbol has shares but no price data - still include cost basis
               symbolsWithoutPrice.push(symbol);
+
+              // Include in snapshot with null market value
+              holdingsSnapshot[symbol] = {
+                shares: holding.shares,
+                costBasis: costBasis,
+                marketValue: 0, // No price available
+                closePrice: null,
+                realizedPnL: holding.totalRealizedPnL || 0  // Include realized P&L for each holding
+              };
             }
           }
         }
 
-        // Calculate total invested (cumulative cash invested minus cash received)
+        // Calculate total invested (should match breakdown tab)
+        // Use RIC (totalCostBasis) which is the cost basis of current holdings
+        // This matches the breakdown tab's "Total Invested" field
         let totalAmountInvested = 0;
         let totalAmountReceived = 0;
         for (const [symbol, holding] of holdingsBySymbol.entries()) {
@@ -406,16 +433,19 @@ class PortfolioValuePreloader {
           totalAmountReceived += holding.totalAmountReceived;
         }
 
-        const netInvested = totalAmountInvested - totalAmountReceived;
+        // For display: use RIC (cost basis of current holdings) to match breakdown tab
+        const displayTotalInvested = totalCostBasis;
         const unrealizedPnL = totalValue - totalCostBasis;
         const totalPnL = unrealizedPnL + totalRealizedPnLAllTime;
-        const totalPnLPercent = netInvested > 0 ? (totalPnL / netInvested) * 100 : 0;
+
+        // Calculate P&L% using total amount ever invested (more meaningful for performance tracking)
+        const totalPnLPercent = totalAmountInvested > 0 ? (totalPnL / totalAmountInvested) * 100 : 0;
 
         // Create daily record
         const record = {
           date: dateStr,
           totalValue: parseFloat(totalValue.toFixed(2)),
-          totalInvested: parseFloat(netInvested.toFixed(2)),
+          totalInvested: parseFloat(displayTotalInvested.toFixed(2)), // RIC (matches breakdown tab)
           totalPnL: parseFloat(totalPnL.toFixed(2)),
           unrealizedPnL: parseFloat(unrealizedPnL.toFixed(2)),
           realizedPnL: parseFloat(totalRealizedPnLAllTime.toFixed(2)),
