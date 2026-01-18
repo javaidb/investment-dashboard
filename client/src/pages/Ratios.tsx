@@ -41,6 +41,8 @@ interface HoldingWithRisk {
   riskPrice?: number | null;
   rewardPrice?: number | null;
   riskRewardRatio?: number | null;
+  breakEvenPrice?: number | null;
+  averageBuyPrice?: number | null;
   targets?: Targets;
 }
 
@@ -53,6 +55,14 @@ const Ratios: React.FC = () => {
   const [editRiskPrice, setEditRiskPrice] = useState<string>('');
   const [editRewardPrice, setEditRewardPrice] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Helper function to format prices with k notation for thousands
+  const formatPrice = (price: number): string => {
+    if (price >= 1000) {
+      return `${(price / 1000).toFixed(1)}k`;
+    }
+    return price.toFixed(2);
+  };
 
   // Fetch icons for all holdings
   const symbolsForIcons = riskData.length > 0 ? riskData.map(holding => ({
@@ -448,7 +458,7 @@ const Ratios: React.FC = () => {
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
                         Recommendation
                       </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px', borderLeft: '3px solid #d1d5db', minWidth: '300px'}}>
+                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px', borderLeft: '3px solid #d1d5db', minWidth: '450px'}}>
                         Price Range
                       </th>
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 20px'}}>
@@ -683,15 +693,24 @@ const Ratios: React.FC = () => {
                               const avgBuyPrice = holding.totalInvested / holding.quantity;
                               const isEditing = editingSymbol === holding.symbol;
 
-                              // Start the range from whichever is lower (risk or avg buy)
-                              const rangeStart = Math.min(holding.riskPrice, avgBuyPrice);
-
-                              // If current price exceeds reward, extend the range to 2x avg price
-                              // Otherwise, range ends at reward
+                              // Determine slider range based on whether risk/target have been reached
+                              const currentPrice = holding.currentPrice;
+                              const riskPrice = holding.riskPrice;
+                              const targetPrice = holding.rewardPrice;
                               const maxGreenZone = avgBuyPrice * 2.0; // 2x avg price for green zone
-                              const rangeEnd = holding.currentPrice > holding.rewardPrice
-                                ? Math.max(maxGreenZone, holding.currentPrice)
-                                : holding.rewardPrice;
+
+                              // If current price is outside risk-target range, include it in the range
+                              let rangeStart = riskPrice;
+                              let rangeEnd = targetPrice;
+
+                              if (currentPrice < riskPrice) {
+                                // Current below risk - extend range to include current
+                                rangeStart = currentPrice;
+                              } else if (currentPrice > targetPrice) {
+                                // Current above target - extend range to include current (up to 2x avg price)
+                                rangeEnd = Math.max(targetPrice, Math.min(currentPrice, maxGreenZone));
+                              }
+
                               const totalRange = rangeEnd - rangeStart;
 
                               // Calculate positions relative to range start
@@ -700,6 +719,9 @@ const Ratios: React.FC = () => {
                               const rewardPosition = ((holding.rewardPrice - rangeStart) / totalRange) * 100;
                               const maxGreenPosition = ((maxGreenZone - rangeStart) / totalRange) * 100;
                               const currentPosition = ((holding.currentPrice - rangeStart) / totalRange) * 100;
+                              const breakEvenPosition = holding.breakEvenPrice
+                                ? ((holding.breakEvenPrice - rangeStart) / totalRange) * 100
+                                : null;
 
                               return (
                                 <div style={{ width: '100%' }}>
@@ -795,24 +817,69 @@ const Ratios: React.FC = () => {
                                     </div>
                                   ) : (
                                     <>
-                                      {/* Price labels */}
+                                      {/* Price labels - compact single row with grouping */}
                                       <div style={{
                                         display: 'flex',
                                         justifyContent: 'space-between',
+                                        alignItems: 'center',
                                         marginBottom: '8px',
-                                        fontSize: '11px',
-                                        fontWeight: '600'
+                                        gap: '12px',
+                                        fontSize: '10px'
                                       }}>
-                                        <span style={{ color: '#6b7280' }}>Avg: C${avgBuyPrice.toFixed(2)}</span>
-                                        <span style={{ color: '#dc2626' }}>Risk: C${holding.riskPrice.toFixed(2)}</span>
-                                        <span style={{
-                                          color: '#2563eb',
-                                          fontSize: '13px',
-                                          fontWeight: '700'
+                                        {/* Cost Basis Group (AVG + B/E) */}
+                                        <div style={{
+                                          display: 'flex',
+                                          gap: '8px',
+                                          padding: '4px 8px',
+                                          backgroundColor: '#f9fafb',
+                                          borderRadius: '6px',
+                                          border: '1px solid #e5e7eb',
+                                          flex: '0 0 auto'
                                         }}>
-                                          C${holding.currentPrice.toFixed(2)}
-                                        </span>
-                                        <span style={{ color: '#166534' }}>Target: C${holding.rewardPrice.toFixed(2)}</span>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ color: '#9ca3af', fontSize: '9px', marginBottom: '2px' }}>AVG</div>
+                                            <div style={{ color: '#6b7280', fontWeight: '700', fontSize: '11px' }}>${formatPrice(avgBuyPrice)}</div>
+                                          </div>
+                                          {(() => {
+                                            const shouldShowBE = holding.breakEvenPrice &&
+                                              Math.abs(holding.breakEvenPrice - avgBuyPrice) > 0.01 &&
+                                              holding.totalPnL !== null &&
+                                              holding.totalPnL !== undefined &&
+                                              holding.totalPnL < 50;
+
+                                            return shouldShowBE && holding.breakEvenPrice && (
+                                              <>
+                                                <div style={{ borderLeft: '1px solid #d1d5db', height: '100%' }}></div>
+                                                <div style={{ textAlign: 'center' }}>
+                                                  <div style={{ color: '#9ca3af', fontSize: '9px', marginBottom: '2px' }}>B/E</div>
+                                                  <div style={{
+                                                    color: holding.currentPrice && holding.currentPrice >= holding.breakEvenPrice ? '#059669' : '#ea580c',
+                                                    fontWeight: '700',
+                                                    fontSize: '11px'
+                                                  }}>
+                                                    ${formatPrice(holding.breakEvenPrice)}
+                                                  </div>
+                                                </div>
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
+
+                                        {/* Trading Range (RISK - NOW - TARGET) */}
+                                        <div style={{ display: 'flex', gap: '10px', flex: '1 1 auto', justifyContent: 'flex-end' }}>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ color: '#9ca3af', fontSize: '9px', marginBottom: '2px' }}>RISK</div>
+                                            <div style={{ color: '#dc2626', fontWeight: '700', fontSize: '11px' }}>${formatPrice(holding.riskPrice)}</div>
+                                          </div>
+                                          <div style={{ textAlign: 'center', backgroundColor: '#eff6ff', padding: '4px 8px', borderRadius: '4px' }}>
+                                            <div style={{ color: '#60a5fa', fontSize: '9px', marginBottom: '2px' }}>NOW</div>
+                                            <div style={{ color: '#2563eb', fontWeight: '700', fontSize: '12px' }}>${formatPrice(holding.currentPrice)}</div>
+                                          </div>
+                                          <div style={{ textAlign: 'center' }}>
+                                            <div style={{ color: '#9ca3af', fontSize: '9px', marginBottom: '2px' }}>TARGET</div>
+                                            <div style={{ color: '#166534', fontWeight: '700', fontSize: '11px' }}>${formatPrice(holding.rewardPrice)}</div>
+                                          </div>
+                                        </div>
                                       </div>
                                     </>
                                   )}
@@ -822,7 +889,7 @@ const Ratios: React.FC = () => {
                                     height: '20px',
                                     backgroundColor: '#f3f4f6',
                                     borderRadius: '10px',
-                                    overflow: 'hidden',
+                                    overflow: 'visible',
                                     border: '1px solid #e5e7eb'
                                   }}>
                                     {/* Zones depend on current price position */}
@@ -903,31 +970,37 @@ const Ratios: React.FC = () => {
                                     <div style={{
                                       position: 'absolute',
                                       left: `${avgBuyPosition}%`,
-                                      top: 0,
-                                      bottom: 0,
+                                      top: '-8px',
+                                      bottom: '-8px',
                                       width: '2px',
                                       backgroundColor: '#6b7280',
-                                      zIndex: 5
+                                      zIndex: 5,
+                                      boxShadow: '0 0 4px rgba(107, 114, 128, 0.5)'
                                     }}></div>
-                                    {/* Risk price marker */}
+                                    {/* Risk price marker - red edge on left */}
                                     <div style={{
                                       position: 'absolute',
                                       left: `${Math.max(0, Math.min(100, riskPosition))}%`,
-                                      top: 0,
-                                      bottom: 0,
-                                      width: '2px',
+                                      top: '-2px',
+                                      bottom: '-2px',
+                                      width: '5px',
                                       backgroundColor: '#dc2626',
-                                      zIndex: 5
+                                      zIndex: 6,
+                                      boxShadow: '0 0 8px rgba(220, 38, 38, 0.8), inset -1px 0 2px rgba(255, 255, 255, 0.3)',
+                                      borderRadius: '2px'
                                     }}></div>
-                                    {/* Reward price marker */}
+                                    {/* Reward price marker - green edge on right */}
                                     <div style={{
                                       position: 'absolute',
                                       left: `${Math.max(0, Math.min(100, rewardPosition))}%`,
-                                      top: 0,
-                                      bottom: 0,
-                                      width: '2px',
-                                      backgroundColor: '#166534',
-                                      zIndex: 5
+                                      top: '-2px',
+                                      bottom: '-2px',
+                                      width: '5px',
+                                      backgroundColor: '#15803d',
+                                      zIndex: 7,
+                                      boxShadow: '0 0 10px rgba(21, 128, 61, 1), 0 0 3px rgba(21, 128, 61, 1)',
+                                      borderRadius: '2px',
+                                      transform: 'translateX(-50%)'
                                     }}></div>
                                     {/* Max green zone marker (2x avg price) - only show if current > reward */}
                                     {holding.currentPrice > holding.rewardPrice && (
@@ -942,19 +1015,82 @@ const Ratios: React.FC = () => {
                                         opacity: 0.6
                                       }}></div>
                                     )}
-                                    {/* Current price indicator (blue line) */}
+                                    {/* Progress Line from breakeven/avg to current price */}
+                                    {(() => {
+                                      // Check if we should show breakeven marker and line
+                                      const showBreakeven = breakEvenPosition !== null &&
+                                        holding.breakEvenPrice &&
+                                        Math.abs(holding.breakEvenPrice - avgBuyPrice) > 0.01 &&
+                                        holding.totalPnL !== null &&
+                                        holding.totalPnL !== undefined &&
+                                        holding.totalPnL < 50;
+
+                                      // Determine reference point (breakeven or avg buy)
+                                      const refPrice = showBreakeven && holding.breakEvenPrice ? holding.breakEvenPrice : avgBuyPrice;
+                                      const refPosition = showBreakeven && breakEvenPosition !== null ? breakEvenPosition : avgBuyPosition;
+
+                                      // Determine line color based on whether current > reference
+                                      const isProfit = holding.currentPrice && holding.currentPrice >= refPrice;
+                                      const lineColor = isProfit ? '#059669' : '#dc2626';
+
+                                      // Calculate line position and width
+                                      const leftPos = Math.min(refPosition, currentPosition);
+                                      const rightPos = Math.max(refPosition, currentPosition);
+                                      const lineWidth = rightPos - leftPos;
+
+                                      return (
+                                        <>
+                                          {/* Line from reference point to current price */}
+                                          <div style={{
+                                            position: 'absolute',
+                                            left: `${leftPos}%`,
+                                            width: `${lineWidth}%`,
+                                            height: '4px',
+                                            bottom: '8px',
+                                            backgroundColor: lineColor,
+                                            opacity: 0.6,
+                                            zIndex: 8
+                                          }}></div>
+                                          {/* Purple breakeven arrowhead (only if breakeven should show) */}
+                                          {showBreakeven && (
+                                            <div style={{
+                                              position: 'absolute',
+                                              left: `${Math.max(0, Math.min(100, breakEvenPosition))}%`,
+                                              bottom: '0',
+                                              transform: 'translateX(-50%)',
+                                              zIndex: 9
+                                            }}>
+                                              <div style={{
+                                                width: 0,
+                                                height: 0,
+                                                borderLeft: '8px solid transparent',
+                                                borderRight: '8px solid transparent',
+                                                borderBottom: '12px solid #7c3aed',
+                                                filter: 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.5))'
+                                              }}></div>
+                                            </div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+                                    {/* Current price indicator - blue arrowhead pointer */}
                                     <div style={{
                                       position: 'absolute',
                                       left: `${Math.max(0, Math.min(100, currentPosition))}%`,
-                                      top: '50%',
-                                      transform: 'translate(-50%, -50%)',
-                                      width: '4px',
-                                      height: '28px',
-                                      backgroundColor: '#2563eb',
-                                      boxShadow: '0 2px 6px rgba(37, 99, 235, 0.5)',
-                                      zIndex: 10,
-                                      borderRadius: '2px'
-                                    }}></div>
+                                      bottom: '0',
+                                      transform: 'translateX(-50%)',
+                                      zIndex: 10
+                                    }}>
+                                      {/* Blue arrowhead pointing up from bottom of slider */}
+                                      <div style={{
+                                        width: 0,
+                                        height: 0,
+                                        borderLeft: '10px solid transparent',
+                                        borderRight: '10px solid transparent',
+                                        borderBottom: '14px solid #2563eb',
+                                        filter: 'drop-shadow(0 2px 6px rgba(37, 99, 235, 0.6))'
+                                      }}></div>
+                                    </div>
                                   </div>
                                   {/* Edit button - only show when not editing */}
                                   {!isEditing && (
