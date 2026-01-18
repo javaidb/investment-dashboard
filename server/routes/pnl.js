@@ -8,7 +8,10 @@ const path = require('path');
 // File-based storage for portfolio data (same as portfolio.js)
 const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
 
-// Load portfolios from file
+// Master portfolio ID - single source of truth for all portfolio data
+const MASTER_PORTFOLIO_ID = 'master-portfolio';
+
+// Load portfolios from file (master portfolio structure)
 function loadPortfolios() {
   try {
     if (fs.existsSync(PORTFOLIO_FILE)) {
@@ -16,39 +19,26 @@ function loadPortfolios() {
       const portfolioData = JSON.parse(data);
       const portfolios = new Map();
 
-      // Handle both old and new format
+      // Check if this is the NEW master portfolio format
+      if (portfolioData.masterPortfolio && portfolioData.masterPortfolio.id === MASTER_PORTFOLIO_ID) {
+        console.log('✅ PnL: Loading master portfolio format');
+        portfolios.set(MASTER_PORTFOLIO_ID, portfolioData.masterPortfolio);
+        console.log(`📊 PnL: Master portfolio loaded: ${portfolioData.masterPortfolio.holdings?.length || 0} holdings, ${portfolioData.masterPortfolio.trades?.length || 0} trades`);
+        return portfolios;
+      }
+
+      // Fallback: Handle old format if needed (for backwards compatibility)
       const isOldFormat = Object.keys(portfolioData).some(key => {
         const item = portfolioData[key];
         return item && item.id && item.trades && item.holdings;
       });
 
       if (isOldFormat) {
+        console.log('⚠️ PnL: Loading old portfolio format (consider migrating to master portfolio)');
         return new Map(Object.entries(portfolioData));
-      } else {
-        // New file-based format
-        const portfoliosById = new Map();
-
-        for (const [filename, fileData] of Object.entries(portfolioData)) {
-          if (fileData && fileData.portfolio && typeof fileData.portfolio === 'object') {
-            const portfolio = fileData.portfolio;
-            const portfolioId = portfolio.id;
-
-            if (!portfoliosById.has(portfolioId)) {
-              portfoliosById.set(portfolioId, portfolio);
-            } else {
-              const existing = portfoliosById.get(portfolioId);
-              const existingDate = new Date(existing.processedAt || 0);
-              const newDate = new Date(portfolio.processedAt || 0);
-
-              if (newDate > existingDate) {
-                portfoliosById.set(portfolioId, portfolio);
-              }
-            }
-          }
-        }
-
-        return portfoliosById;
       }
+
+      console.warn('⚠️ PnL: Unrecognized portfolio format');
     }
 
     return new Map();
@@ -302,6 +292,41 @@ router.get('/portfolio/:portfolioId/summary', async (req, res) => {
       });
     }
 
+    // Auto-update P&L data to include today's trading day (incremental update)
+    console.log('🔄 Auto-updating P&L data to include today...');
+    const today = new Date().toISOString().split('T')[0];
+
+    // Group trades by symbol
+    const tradesBySymbol = new Map();
+    if (portfolio.trades) {
+      portfolio.trades.forEach(trade => {
+        if (!tradesBySymbol.has(trade.symbol)) {
+          tradesBySymbol.set(trade.symbol, {
+            trades: [],
+            assetInfo: {
+              symbol: trade.symbol,
+              type: trade.type,
+              currency: trade.currency || 'CAD'
+            }
+          });
+        }
+        tradesBySymbol.get(trade.symbol).trades.push(trade);
+      });
+    }
+
+    // Update P&L for each symbol (incremental - only missing days)
+    for (const [symbol, data] of tradesBySymbol.entries()) {
+      try {
+        const updateStatus = pnlCache.needsUpdate(symbol);
+        if (updateStatus.needsUpdate) {
+          console.log(`📊 Auto-updating ${symbol}: ${updateStatus.missingDays} missing days`);
+          await pnlCalculator.updatePnL(symbol, data.trades, data.assetInfo);
+        }
+      } catch (err) {
+        console.warn(`⚠️ Failed to auto-update ${symbol}: ${err.message}`);
+      }
+    }
+
     // Get holdings and enrich with current prices (same logic as portfolio.js)
     const rawHoldings = portfolio.holdings || [];
     const holdingsCache = require('../cache');
@@ -437,8 +462,9 @@ router.get('/portfolio/:portfolioId/summary', async (req, res) => {
       portfolioTotals: {
         totalValue: totalValue,
         totalPnL: totalPnL,
-        totalUnrealizedPnL: totalUnrealizedPnL + recurringPnL,
+        totalUnrealizedPnL: totalUnrealizedPnL, // Unrealized P&L from trading holdings only (matches breakdown tab)
         totalRealizedPnL: totalRealizedPnL,
+        recurringPnL: recurringPnL, // Separate recurring P&L for transparency
         assetsWithData: assets.filter(a => a.hasPnLData).length,
         assetsWithoutData: assets.filter(a => !a.hasPnLData).length
       }
@@ -454,6 +480,254 @@ router.get('/portfolio/:portfolioId/summary', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get PnL summary',
+      message: error.message
+    });
+  }
+});
+
+// Get aggregated portfolio P&L data (sum of all individual assets per day)
+// This is the CORRECT way to calculate total portfolio P&L for the graph
+router.get('/portfolio/:portfolioId/combined', async (req, res) => {
+  console.log('📊 Aggregating individual asset P&L data for portfolio-wide graph');
+  try {
+    const { portfolioId } = req.params;
+
+    // Auto-update P&L data to include today's trading day (incremental update)
+    console.log('🔄 Auto-updating P&L data to include today...');
+    const today = new Date().toISOString().split('T')[0];
+
+    // Load portfolio data to get trades
+    const portfolios = loadPortfolios();
+    const portfolio = portfolios.get(portfolioId);
+
+    if (portfolio && portfolio.trades) {
+      // Group trades by symbol
+      const tradesBySymbol = new Map();
+      portfolio.trades.forEach(trade => {
+        if (!tradesBySymbol.has(trade.symbol)) {
+          tradesBySymbol.set(trade.symbol, {
+            trades: [],
+            assetInfo: {
+              symbol: trade.symbol,
+              type: trade.type,
+              currency: trade.currency || 'CAD'
+            }
+          });
+        }
+        tradesBySymbol.get(trade.symbol).trades.push(trade);
+      });
+
+      // Update P&L for each symbol (incremental - only missing days)
+      for (const [symbol, data] of tradesBySymbol.entries()) {
+        try {
+          const updateStatus = pnlCache.needsUpdate(symbol);
+          if (updateStatus.needsUpdate) {
+            console.log(`📊 Auto-updating ${symbol}: ${updateStatus.missingDays} missing days`);
+            await pnlCalculator.updatePnL(symbol, data.trades, data.assetInfo);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Failed to auto-update ${symbol}: ${err.message}`);
+        }
+      }
+    }
+
+    // Get all symbols from pnl-cache
+    const allPnLData = {};
+    const cacheStats = pnlCache.getStats();
+
+    // symbols is an object, not an array
+    Object.keys(cacheStats.symbols).forEach(symbol => {
+      const symbolData = pnlCache.get(symbol);
+      if (symbolData && symbolData.dailyRecords) {
+        allPnLData[symbol] = symbolData.dailyRecords;
+      }
+    });
+
+    console.log(`Found P&L data for ${Object.keys(allPnLData).length} symbols`);
+
+    // Build a map of date -> aggregated values
+    const dateMap = new Map();
+
+    // First, collect all unique dates across all assets
+    const allDates = new Set();
+    Object.values(allPnLData).forEach(records => {
+      records.forEach(record => allDates.add(record.date));
+    });
+
+    // Sort dates chronologically
+    const sortedDates = Array.from(allDates).sort();
+
+    // Track the most recent data for each symbol (to carry forward when missing)
+    const symbolDataByDate = new Map(); // symbol -> Map(date -> data)
+
+    // Build per-symbol date maps
+    Object.entries(allPnLData).forEach(([symbol, records]) => {
+      const dateToData = new Map();
+      records.forEach(record => {
+        dateToData.set(record.date, {
+          realizedPnL: record.realizedPnL || 0,
+          unrealizedPnL: record.unrealizedPnL || 0,
+          totalPnL: record.totalPnL || 0,
+          marketValue: record.marketValue || 0,
+          costBasis: record.costBasis || 0,
+          shares: record.shares || 0,
+          closePrice: record.closePrice || 0
+        });
+      });
+      symbolDataByDate.set(symbol, dateToData);
+    });
+
+    // Process each date chronologically
+    sortedDates.forEach(date => {
+      const dayData = {
+        date,
+        totalPnL: 0,
+        unrealizedPnL: 0,
+        realizedPnL: 0,
+        totalValue: 0,
+        totalInvested: 0,
+        holdings: {}
+      };
+
+      // For each symbol, get data for this date (or carry forward from previous)
+      symbolDataByDate.forEach((dateToData, symbol) => {
+        let symbolData = dateToData.get(date);
+
+        // If this symbol doesn't have data for this date, carry forward from most recent previous date
+        if (!symbolData) {
+          // Find the most recent date before this one that has data
+          for (let i = sortedDates.indexOf(date) - 1; i >= 0; i--) {
+            const prevDate = sortedDates[i];
+            if (dateToData.has(prevDate)) {
+              symbolData = dateToData.get(prevDate);
+              break;
+            }
+          }
+        }
+
+        // If we found data (either for this date or carried forward), add it
+        if (symbolData) {
+          dayData.totalPnL += symbolData.totalPnL;
+          dayData.unrealizedPnL += symbolData.unrealizedPnL;
+          dayData.realizedPnL += symbolData.realizedPnL;
+          dayData.totalValue += symbolData.marketValue;
+          dayData.totalInvested += symbolData.costBasis;
+
+          dayData.holdings[symbol] = {
+            shares: symbolData.shares,
+            costBasis: symbolData.costBasis,
+            marketValue: symbolData.marketValue,
+            closePrice: symbolData.closePrice,
+            totalPnL: symbolData.totalPnL,
+            unrealizedPnL: symbolData.unrealizedPnL,
+            realizedPnL: symbolData.realizedPnL
+          };
+        }
+      });
+
+      dateMap.set(date, dayData);
+    });
+
+    // Convert map to sorted array
+    const dailyRecords = Array.from(dateMap.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(record => ({
+        ...record,
+        totalPnLPercent: record.totalInvested > 0
+          ? (record.totalPnL / record.totalInvested) * 100
+          : 0
+      }));
+
+    console.log(`Aggregated ${dailyRecords.length} daily records`);
+
+    // Update the latest record with current prices if it's today
+    if (dailyRecords.length > 0 && portfolio && portfolio.holdings) {
+      const latestRecord = dailyRecords[dailyRecords.length - 1];
+      const today = new Date().toISOString().split('T')[0];
+
+      if (latestRecord.date === today) {
+        console.log(`🔄 Updating today's record (${today}) with current prices...`);
+
+        const holdingsCache = require('../cache');
+        let totalPnL = 0;
+        let unrealizedPnL = 0;
+        let realizedPnL = 0;
+        let totalValue = 0;
+        let totalInvested = 0;
+
+        // Update each holding with current price
+        for (const holding of portfolio.holdings) {
+          try {
+            const cachedData = await holdingsCache.get(holding.symbol);
+            if (cachedData && (cachedData.cadPrice || cachedData.price)) {
+              const currentPrice = cachedData.cadPrice || cachedData.price;
+              const exchangeRate = cachedData.exchangeRate || 1.35;
+
+              // Get the holding's data from the latest record
+              const holdingData = latestRecord.holdings[holding.symbol];
+              if (holdingData) {
+                // Recalculate market value with current price
+                const marketValue = currentPrice * holdingData.shares;
+                const unrealizedPnLForHolding = marketValue - holdingData.costBasis;
+                const totalPnLForHolding = unrealizedPnLForHolding + holdingData.realizedPnL;
+
+                // Update holding in the record
+                latestRecord.holdings[holding.symbol] = {
+                  ...holdingData,
+                  closePrice: currentPrice,
+                  marketValue: marketValue,
+                  unrealizedPnL: unrealizedPnLForHolding,
+                  totalPnL: totalPnLForHolding
+                };
+
+                // Add to totals
+                totalValue += marketValue;
+                totalInvested += holdingData.costBasis;
+                unrealizedPnL += unrealizedPnLForHolding;
+                realizedPnL += holdingData.realizedPnL;
+                totalPnL += totalPnLForHolding;
+              }
+            }
+          } catch (err) {
+            console.warn(`Failed to update current price for ${holding.symbol}:`, err.message);
+          }
+        }
+
+        // Update the latest record's totals
+        latestRecord.totalPnL = totalPnL;
+        latestRecord.unrealizedPnL = unrealizedPnL;
+        latestRecord.realizedPnL = realizedPnL;
+        latestRecord.totalValue = totalValue;
+        latestRecord.totalInvested = totalInvested;
+        latestRecord.totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
+
+        console.log(`✅ Updated today's record with current prices`);
+        console.log(`  Total P&L: $${totalPnL.toFixed(2)}`);
+      }
+    }
+
+    if (dailyRecords.length > 0) {
+      const latest = dailyRecords[dailyRecords.length - 1];
+      console.log(`Latest record (${latest.date}):`);
+      console.log(`  Total P&L: $${latest.totalPnL.toFixed(2)}`);
+      console.log(`  Unrealized: $${latest.unrealizedPnL.toFixed(2)}`);
+      console.log(`  Realized: $${latest.realizedPnL.toFixed(2)}`);
+    }
+
+    res.json({
+      success: true,
+      portfolioId,
+      dailyRecords,
+      totalRecords: dailyRecords.length,
+      startDate: dailyRecords[0]?.date || null,
+      endDate: dailyRecords[dailyRecords.length - 1]?.date || null
+    });
+
+  } catch (error) {
+    console.error('Portfolio combined P&L error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get combined portfolio P&L',
       message: error.message
     });
   }
