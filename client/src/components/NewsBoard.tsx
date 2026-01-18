@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from 'react-query';
 import axios from 'axios';
-import { BarChart, Bar, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceDot, Area, AreaChart } from 'recharts';
+import { BarChart, Bar, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceDot, ReferenceLine, Area, AreaChart } from 'recharts';
 
 interface NewsItem {
   id: string;
@@ -25,6 +25,23 @@ interface NewsItem {
     percentFromLow?: number;
     threeMonthChange?: number;
     twoWeekChange?: number;
+    breakEvenPrice?: number;
+    averageBuyPrice?: number;
+    percentBelowBreakeven?: number;
+    dollarAmountToBreakeven?: number;
+    peakPrice?: number;
+    peakDate?: string;
+    declineFromPeak?: number;
+    daysSincePeak?: number;
+    percentFromBreakeven?: number;
+    monthlyData?: Array<{
+      date: string;
+      price: number;
+      index: number;
+      isPeak: boolean;
+      isOneMonthMark?: boolean;
+    }>;
+    oneMonthAgoIndex?: number;
   };
 }
 
@@ -45,7 +62,7 @@ interface SymbolSummary {
 }
 
 const NewsBoard: React.FC = () => {
-  const [selectedView, setSelectedView] = useState<'gains-losses' | 'notable-change'>('gains-losses');
+  const [selectedView, setSelectedView] = useState<'alerts' | 'gains-losses' | 'notable-change' | 'eagle'>('alerts');
 
   const { data, isLoading, error, refetch } = useQuery<NewsResponse>(
     'newsboard',
@@ -103,7 +120,7 @@ const NewsBoard: React.FC = () => {
     }
   );
 
-  // Group news items by symbol and summarize (excluding recovery signals for gains/losses view)
+  // Group news items by symbol and summarize (excluding recovery signals and breakeven signals for gains/losses view)
   const symbolSummaries = useMemo(() => {
     if (!data?.items) return [];
 
@@ -114,6 +131,16 @@ const NewsBoard: React.FC = () => {
     data.items.forEach((item: NewsItem) => {
       // Skip recovery signals - they'll be shown in Notable Change section
       if (item.title === 'Potential Recovery Signal') {
+        return;
+      }
+
+      // Skip below breakeven signals - they'll be shown in Eagle tab
+      if (item.title === 'Below Breakeven Price') {
+        return;
+      }
+
+      // Skip peak decline alerts - they'll be shown in Alerts tab
+      if (item.title === 'Peak & Decline Alert') {
         return;
       }
 
@@ -167,6 +194,63 @@ const NewsBoard: React.FC = () => {
           isActive: isActive || false,
         };
       });
+  }, [data?.items, holdingsData]);
+
+  // Extract below-breakeven signals for Eagle tab (active holdings only)
+  const belowBreakevenSignals = useMemo(() => {
+    if (!data?.items) return [];
+
+    return data.items
+      .filter(item => item.title === 'Below Breakeven Price')
+      .map(item => {
+        const holding = holdingsData?.[item.symbol];
+        // Check for meaningful share count (> 0.01 to handle floating point artifacts)
+        const isActive = holding && holding.shares >= 0.01;
+
+        return {
+          symbol: item.symbol,
+          assetName: item.assetName,
+          currentPrice: item.metadata.currentPrice,
+          breakEvenPrice: item.metadata.breakEvenPrice,
+          averageBuyPrice: item.metadata.averageBuyPrice,
+          percentBelowBreakeven: item.metadata.percentBelowBreakeven,
+          dollarAmountToBreakeven: item.metadata.dollarAmountToBreakeven,
+          isActive: isActive || false,
+        };
+      })
+      .filter(signal => signal.isActive) // Only include active holdings (shares >= 0.01)
+      .sort((a, b) => (b.percentBelowBreakeven || 0) - (a.percentBelowBreakeven || 0)); // Sort by gap descending (worst first)
+  }, [data?.items, holdingsData]);
+
+  // Extract peak decline alerts for Alerts tab (active holdings only)
+  const peakDeclineAlerts = useMemo(() => {
+    if (!data?.items) return [];
+
+    return data.items
+      .filter(item => item.title === 'Peak & Decline Alert')
+      .map(item => {
+        const holding = holdingsData?.[item.symbol];
+        const isActive = holding && holding.shares >= 0.01;
+
+        return {
+          symbol: item.symbol,
+          assetName: item.assetName,
+          currentPrice: item.metadata.currentPrice,
+          peakPrice: item.metadata.peakPrice,
+          peakDate: item.metadata.peakDate,
+          declineFromPeak: item.metadata.declineFromPeak,
+          daysSincePeak: item.metadata.daysSincePeak,
+          breakEvenPrice: item.metadata.breakEvenPrice,
+          percentFromBreakeven: item.metadata.percentFromBreakeven,
+          monthlyData: item.metadata.monthlyData,
+          oneMonthAgoIndex: item.metadata.oneMonthAgoIndex,
+          isActive: isActive || false,
+          shares: holding?.shares || 0,
+          currentValue: holding?.currentValue || 0,
+        };
+      })
+      .filter(signal => signal.isActive) // Only include active holdings (shares >= 0.01)
+      .sort((a, b) => (a.declineFromPeak || 0) - (b.declineFromPeak || 0)); // Sort by decline descending (worst first)
   }, [data?.items, holdingsData]);
 
   // Fetch historical data for recovery signals
@@ -674,6 +758,16 @@ const NewsBoard: React.FC = () => {
               {/* View Toggle */}
               <div className="flex bg-slate-700/50 rounded-xl p-1 border border-slate-600/50">
                 <button
+                  onClick={() => setSelectedView('alerts')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                    selectedView === 'alerts'
+                      ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  🚨 Alerts
+                </button>
+                <button
                   onClick={() => setSelectedView('gains-losses')}
                   className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
                     selectedView === 'gains-losses'
@@ -692,6 +786,16 @@ const NewsBoard: React.FC = () => {
                   }`}
                 >
                   🔍 Notable Change
+                </button>
+                <button
+                  onClick={() => setSelectedView('eagle')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                    selectedView === 'eagle'
+                      ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  🦅 Eagle
                 </button>
               </div>
 
@@ -725,6 +829,203 @@ const NewsBoard: React.FC = () => {
           <div className="bg-slate-800/30 border border-slate-600/30 rounded-xl p-12 text-center backdrop-blur-sm">
             <p className="text-slate-400 text-xl mb-2">📭 No signals to display</p>
             <p className="text-slate-500">Your portfolio is quiet right now. Check back later!</p>
+          </div>
+        ) : selectedView === 'alerts' ? (
+          // Alerts View - Peak & Decline Alerts
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-orange-600/20 to-red-600/20 backdrop-blur-sm rounded-2xl border border-orange-500/30 p-5 shadow-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-orange-500/20 p-2.5 rounded-xl border border-orange-500/40">
+                    <span className="text-2xl">🚨</span>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white">Peak & Decline Alerts</h2>
+                    <p className="text-orange-300/70 text-xs">Assets that peaked in the last month and are now trending downward</p>
+                  </div>
+                </div>
+                <div className="bg-orange-500/20 border border-orange-500/40 px-3 py-1.5 rounded-xl">
+                  <span className="text-orange-300 font-black text-base">
+                    {peakDeclineAlerts.length}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {peakDeclineAlerts.length === 0 ? (
+              <div className="bg-slate-800/30 border border-slate-600/30 rounded-xl p-12 text-center backdrop-blur-sm">
+                <p className="text-slate-400 text-xl mb-2">✅ No peak decline alerts</p>
+                <p className="text-slate-500">All assets are maintaining their recent highs or showing upward trends.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {peakDeclineAlerts.map((alert, index) => (
+                  <div
+                    key={alert.symbol}
+                    className="bg-gradient-to-br from-slate-800/90 via-orange-900/20 to-slate-900/90 backdrop-blur-xl rounded-xl border-2 border-orange-500/80 hover:border-orange-400/90 shadow-xl shadow-orange-500/20 hover:shadow-orange-500/40 transition-all duration-200 hover:scale-102 animate-fadeIn overflow-hidden"
+                    style={{ animationDelay: `${index * 20}ms` }}
+                  >
+                    {/* Card Header - Compact */}
+                    <div className="bg-gradient-to-r from-orange-600/30 to-red-600/30 border-b border-orange-500/40 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="bg-orange-500/30 p-1.5 rounded-lg border border-orange-500/50">
+                          <span className="text-lg">📉</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-black text-white truncate tracking-tight">{alert.symbol}</h3>
+                          <p className="text-[10px] text-slate-300/80 truncate font-medium">{alert.assetName}</p>
+                        </div>
+                      </div>
+
+                      {/* Decline Highlight - Compact */}
+                      <div className="bg-red-500/40 border border-red-400/60 rounded-lg px-3 py-2 backdrop-blur-sm">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-[10px] text-red-100/80 font-semibold">From Peak</span>
+                          <span className="text-xl font-black text-red-50">
+                            {alert.declineFromPeak?.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Body - Compact */}
+                    <div className="p-3 space-y-3">
+                      {/* 1-Month Chart with Peak and Breakeven */}
+                      {alert.monthlyData && alert.monthlyData.length > 0 && (
+                        <div className="bg-slate-800/50 rounded-lg p-2 border border-orange-500/20">
+                          <ResponsiveContainer width="100%" height={80}>
+                            <AreaChart data={alert.monthlyData}>
+                              <defs>
+                                <linearGradient id={`alertGradient-${alert.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
+                                  <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <XAxis dataKey="index" hide />
+                              <YAxis domain={['auto', 'auto']} hide />
+                              <Tooltip
+                                content={({ active, payload }) => {
+                                  if (active && payload && payload.length) {
+                                    const data = payload[0].payload;
+                                    return (
+                                      <div className="bg-slate-900/95 border border-orange-500/50 rounded-lg px-3 py-2 shadow-xl">
+                                        <p className="text-xs text-slate-400">
+                                          {new Date(data.date).toLocaleDateString()}
+                                        </p>
+                                        <p className="text-sm font-bold text-white">
+                                          ${data.price.toFixed(2)}
+                                        </p>
+                                        {data.isPeak && (
+                                          <p className="text-xs text-orange-400 font-bold mt-1">
+                                            📍 Peak
+                                          </p>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                }}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="price"
+                                stroke="#f97316"
+                                strokeWidth={2}
+                                fill={`url(#alertGradient-${alert.symbol})`}
+                              />
+                              {/* Mark the peak point */}
+                              {alert.monthlyData.find(d => d.isPeak) && (
+                                <ReferenceDot
+                                  x={alert.monthlyData.find(d => d.isPeak)!.index}
+                                  y={alert.peakPrice}
+                                  r={6}
+                                  fill="#f97316"
+                                  stroke="#fff"
+                                  strokeWidth={2}
+                                />
+                              )}
+                              {/* Vertical line at 1-month mark */}
+                              {alert.oneMonthAgoIndex !== undefined && (
+                                <ReferenceLine
+                                  x={alert.oneMonthAgoIndex}
+                                  stroke="#64748b"
+                                  strokeWidth={1}
+                                  strokeDasharray="3 3"
+                                  label=""
+                                />
+                              )}
+                              {/* Show breakeven line if available */}
+                              {alert.breakEvenPrice && alert.breakEvenPrice > 0 && (
+                                <Line
+                                  type="monotone"
+                                  dataKey={() => alert.breakEvenPrice}
+                                  stroke="#fbbf24"
+                                  strokeWidth={2}
+                                  strokeDasharray="5 5"
+                                  dot={false}
+                                />
+                              )}
+                            </AreaChart>
+                          </ResponsiveContainer>
+                          <div className="flex items-center justify-center mt-1 gap-2 text-[10px]">
+                            <div className="flex items-center gap-0.5">
+                              <div className="w-2 h-2 rounded-full bg-orange-500 border border-white"></div>
+                              <span className="text-slate-400">Peak</span>
+                            </div>
+                            <div className="flex items-center gap-0.5">
+                              <div className="w-2 h-0.5 bg-slate-500"></div>
+                              <span className="text-slate-400">1mo</span>
+                            </div>
+                            {alert.breakEvenPrice && alert.breakEvenPrice > 0 && (
+                              <div className="flex items-center gap-0.5">
+                                <div className="w-3 h-0.5 bg-amber-400"></div>
+                                <span className="text-slate-400">B/E</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Price Info - Compact Grid */}
+                      <div className="bg-slate-800/50 rounded-lg px-2 py-2 border border-orange-500/20">
+                        <div className="grid grid-cols-3 gap-2 text-[10px]">
+                          <div>
+                            <div className="text-slate-400">Current</div>
+                            <div className="text-white font-bold">${alert.currentPrice?.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400">Peak</div>
+                            <div className="text-white font-bold">${alert.peakPrice?.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400">Days Ago</div>
+                            <div className="text-white font-bold">{alert.daysSincePeak}d</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400">Shares</div>
+                            <div className="text-white font-bold">{alert.shares.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <div className="text-slate-400">Value</div>
+                            <div className="text-white font-bold">${(alert.currentValue || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+                          </div>
+                          {alert.breakEvenPrice && alert.breakEvenPrice > 0 ? (
+                            <div>
+                              <div className="text-slate-400">vs B/E</div>
+                              <div className={`font-bold ${(alert.percentFromBreakeven || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {(alert.percentFromBreakeven || 0) >= 0 ? '+' : ''}{alert.percentFromBreakeven?.toFixed(1)}%
+                              </div>
+                            </div>
+                          ) : (
+                            <div></div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ) : selectedView === 'notable-change' ? (
           // Notable Change View
@@ -1074,6 +1375,150 @@ const NewsBoard: React.FC = () => {
               </div>
               )}
             </div>
+          </div>
+        ) : selectedView === 'eagle' ? (
+          // Eagle View - Below Breakeven Assets
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div className="lg:col-span-4">
+              <div className="bg-gradient-to-r from-amber-600/20 to-orange-600/20 backdrop-blur-sm rounded-2xl border border-amber-500/30 p-5 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-amber-500/20 p-2.5 rounded-xl border border-amber-500/40">
+                      <span className="text-2xl">🦅</span>
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-black text-white">Eagle - Below Breakeven</h2>
+                      <p className="text-amber-300/70 text-xs">Assets trading below their breakeven price</p>
+                    </div>
+                  </div>
+                  <div className="bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-xl">
+                    <span className="text-amber-300 font-black text-base">
+                      {belowBreakevenSignals.length}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {belowBreakevenSignals.length === 0 ? (
+              <div className="lg:col-span-4 bg-slate-800/30 border border-slate-600/30 rounded-xl p-12 text-center backdrop-blur-sm">
+                <p className="text-slate-400 text-xl mb-2">🎉 All assets are above breakeven!</p>
+                <p className="text-slate-500">No assets are currently trading below their breakeven price.</p>
+              </div>
+            ) : (
+              <div className="lg:col-span-4 bg-gradient-to-br from-amber-900/20 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-amber-500/30 p-4 shadow-lg">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" style={{ gridAutoFlow: 'column', gridTemplateRows: `repeat(${Math.ceil(belowBreakevenSignals.length / 4)}, auto)` }}>
+                  {belowBreakevenSignals.map((signal, index) => {
+                    // Calculate slider positions
+                    const currentPrice = signal.currentPrice || 0;
+                    const breakEvenPrice = signal.breakEvenPrice || 0;
+                    const avgBuyPrice = signal.averageBuyPrice || breakEvenPrice;
+
+                    // Create price range for slider (from lowest to 20% above breakeven)
+                    const lowestPrice = Math.min(currentPrice, avgBuyPrice, breakEvenPrice) * 0.95;
+                    const highestPrice = breakEvenPrice * 1.2;
+                    const priceRange = highestPrice - lowestPrice;
+
+                    // Calculate positions as percentages
+                    const currentPosition = ((currentPrice - lowestPrice) / priceRange) * 100;
+                    const breakEvenPosition = ((breakEvenPrice - lowestPrice) / priceRange) * 100;
+                    const avgBuyPosition = avgBuyPrice ? ((avgBuyPrice - lowestPrice) / priceRange) * 100 : null;
+
+                    return (
+                      <div
+                        key={signal.symbol}
+                        className="bg-slate-800/30 border border-amber-500/30 hover:border-amber-500/50 rounded-lg transition-all hover:bg-slate-800/50"
+                      >
+                        <div className="flex flex-col p-2.5 space-y-3">
+                        {/* Header Row - Symbol and Prices */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex-shrink-0">
+                            <div className="font-bold text-white text-sm">{signal.symbol}</div>
+                            <div className="text-[10px] text-slate-400 truncate">{signal.assetName}</div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <div className="text-[10px] text-slate-400">Current</div>
+                              <div className="text-xs font-bold text-red-400">${currentPrice.toFixed(2)}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] text-slate-400">B/E Target</div>
+                              <div className="text-xs font-bold text-amber-400">${breakEvenPrice.toFixed(2)}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] text-slate-400">Gap</div>
+                              <div className="text-xs font-bold text-red-400">
+                                -{signal.percentBelowBreakeven?.toFixed(1)}%
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Price Slider Visualization */}
+                        <div className="w-full">
+                          <div className="relative h-8 flex items-center">
+                            {/* Slider track */}
+                            <div className="absolute inset-0 flex items-center">
+                              <div className="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden">
+                                {/* Red zone (below breakeven) */}
+                                <div
+                                  className="absolute h-full bg-gradient-to-r from-red-600/40 to-red-500/40"
+                                  style={{
+                                    left: '0%',
+                                    width: `${breakEvenPosition}%`
+                                  }}
+                                />
+                                {/* Green zone (above breakeven) */}
+                                <div
+                                  className="absolute h-full bg-gradient-to-r from-green-600/40 to-green-500/40"
+                                  style={{
+                                    left: `${breakEvenPosition}%`,
+                                    width: `${100 - breakEvenPosition}%`
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Price markers */}
+                            <div className="relative w-full h-full flex items-center">
+                              {/* Average Buy Price marker (if different from breakeven) */}
+                              {avgBuyPosition !== null && Math.abs(avgBuyPosition - breakEvenPosition) > 2 && (
+                                <div
+                                  className="absolute flex flex-col items-center"
+                                  style={{ left: `${avgBuyPosition}%`, transform: 'translateX(-50%)' }}
+                                >
+                                  <div className="w-1 h-4 bg-blue-400 rounded-full"></div>
+                                  <div className="text-[9px] text-blue-400 font-bold mt-0.5">AVG</div>
+                                </div>
+                              )}
+
+                              {/* Breakeven Price marker */}
+                              <div
+                                className="absolute flex flex-col items-center z-10"
+                                style={{ left: `${breakEvenPosition}%`, transform: 'translateX(-50%)' }}
+                              >
+                                <div className="w-1.5 h-6 bg-amber-400 rounded-full shadow-lg"></div>
+                                <div className="text-[9px] text-amber-400 font-bold mt-0.5">B/E</div>
+                              </div>
+
+                              {/* Current Price marker */}
+                              <div
+                                className="absolute flex flex-col items-center z-20"
+                                style={{ left: `${currentPosition}%`, transform: 'translateX(-50%)' }}
+                              >
+                                <div className="w-2 h-7 bg-red-500 rounded-full shadow-xl border-2 border-white"></div>
+                                <div className="text-[9px] text-red-300 font-bold mt-0.5">NOW</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           // Gains/Losses View
