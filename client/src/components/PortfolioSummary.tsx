@@ -36,9 +36,9 @@ interface Holding {
   usdPrice?: number; // USD price for reference
   exchangeRate?: number; // Exchange rate used for conversion
   cacheUsed?: boolean; // Flag to indicate if cache was used
-  weeklyChangePercent?: number; // Weekly change percentage
-  dailyChangePercent?: number; // Daily change percentage (24h)
-  monthlyChangePercent?: number; // Monthly change percentage (30 days)
+  weeklyChangePercent?: number | number[]; // Weekly change percentage (can be single value or array of 3)
+  dailyChangePercent?: number | number[]; // Daily change percentage (can be single value or array of 3)
+  monthlyChangePercent?: number | number[]; // Monthly change percentage (can be single value or array of 3)
   quarterlyChangePercent?: number; // Quarterly change percentage (90 days)
   currentPosition?: number; // Current position in sorted order (1-indexed)
   lastWeekPosition?: number; // Position from last week
@@ -57,6 +57,98 @@ interface PortfolioSummaryData {
   totalPnLPercent?: number;
 }
 
+// 3-Segment Pill Component for displaying multiple period changes
+interface ThreeSegmentPillProps {
+  values: number[]; // Array of 3 values [oldest, middle, newest]
+  labels?: string[]; // Optional labels for each segment
+}
+
+const ThreeSegmentPill: React.FC<ThreeSegmentPillProps> = ({ values, labels }) => {
+  if (!values || values.length !== 3) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '4px 8px',
+        borderRadius: '12px',
+        fontSize: '12px',
+        fontWeight: '500',
+        backgroundColor: '#f3f4f6',
+        color: '#6b7280',
+        border: '1px solid #d1d5db'
+      }}>
+        <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Loading...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      display: 'flex',
+      gap: '4px',
+      alignItems: 'center'
+    }}>
+      {[...values].reverse().map((value, index) => {
+        const originalIndex = values.length - 1 - index; // Track original index for labels
+        const isPositive = value >= 0;
+        const isHighPositive = value > 10; // Blue for > 10%
+        const formattedValue = value.toFixed(1) + '%';
+
+        // Determine colors based on value
+        let backgroundColor, color, borderColor;
+        if (isHighPositive) {
+          // Blue for high positive gains (> 10%)
+          backgroundColor = '#dbeafe';
+          color = '#1e40af';
+          borderColor = '#93c5fd';
+        } else if (isPositive) {
+          // Green for moderate positive gains
+          backgroundColor = '#dcfce7';
+          color = '#166534';
+          borderColor = '#bbf7d0';
+        } else if (value > -10) {
+          // Red for small losses (> -10%)
+          backgroundColor = '#fef2f2';
+          color = '#dc2626';
+          borderColor = '#fecaca';
+        } else {
+          // Deep burgundy/maroon for large losses (<= -10%)
+          backgroundColor = '#fdf2f8';
+          color = '#701a75';
+          borderColor = '#e879f9';
+        }
+
+        return (
+          <div
+            key={index}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px 8px',
+              borderRadius: '12px',
+              fontSize: '13px',
+              fontWeight: '600',
+              backgroundColor,
+              color,
+              border: `1.5px solid ${borderColor}`,
+              minWidth: '50px',
+              transition: 'all 0.2s ease',
+              cursor: labels ? 'help' : 'default'
+            }}
+            title={labels ? labels[originalIndex] : undefined}
+          >
+            {isPositive ? '+' : ''}{formattedValue}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const PortfolioSummary: React.FC = () => {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -68,11 +160,12 @@ const PortfolioSummary: React.FC = () => {
     totalPnLPercent: number;
     totalRealized: number;
     totalAmountSold: number;
+    totalUnrealizedPnL: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [weeklyChanges, setWeeklyChanges] = useState<{[symbol: string]: number}>({});
-  const [dailyChanges, setDailyChanges] = useState<{[symbol: string]: number}>({});
-  const [monthlyChanges, setMonthlyChanges] = useState<{[symbol: string]: number}>({});
+  const [weeklyChanges, setWeeklyChanges] = useState<{[symbol: string]: number[]}>({});
+  const [dailyChanges, setDailyChanges] = useState<{[symbol: string]: number[]}>({});
+  const [monthlyChanges, setMonthlyChanges] = useState<{[symbol: string]: number[]}>({});
   const [quarterlyChanges, setQuarterlyChanges] = useState<{[symbol: string]: number}>({});
   const [positionHistory, setPositionHistory] = useState<{[symbol: string]: number}>({});
   // Calculate total capital from portfolio net value
@@ -437,6 +530,7 @@ const PortfolioSummary: React.FC = () => {
   }, [activePortfolio, activeHoldings, persistentPortfolio, weeklyChanges, dailyChanges, monthlyChanges, quarterlyChanges, positionHistory]);
 
   const processPortfolioData = () => {
+    console.log('🔥 processPortfolioData STARTING');
     try {
       console.log('📦 Processing portfolio data from', persistentPortfolio ? 'persistent cache' : 'live cache context');
       console.log('📦 Portfolio structure:', {
@@ -465,17 +559,26 @@ const PortfolioSummary: React.FC = () => {
       setTrades(portfolioTrades);
       
       // Merge portfolio holdings with current cached prices
+      console.log('🔍 First holding from API:', activePortfolio.holdings?.[0]);
       const safeHoldings = (activePortfolio.holdings || []).map((holding: any) => {
         const symbol = holding.symbol;
         const cachedPrice = activeHoldings[symbol];
         
-        // Calculate current values using cached prices
-        const currentPrice = cachedPrice?.cadPrice || cachedPrice?.price || null;
-        const currentValue = currentPrice ? (holding.quantity || 0) * currentPrice : null;
-        const unrealizedPnL = currentValue && holding.totalInvested ?
-          currentValue - holding.totalInvested : null;
-        const totalPnL = unrealizedPnL !== null ?
-          unrealizedPnL + (holding.realizedPnL || 0) : (holding.realizedPnL || 0);
+        // Prefer API-provided current price/value (most accurate), fallback to cached prices
+        // The API provides fresh prices, while cachedPrice might be stale
+        const currentPrice = holding.currentPrice ?? cachedPrice?.cadPrice ?? cachedPrice?.price ?? null;
+        const currentValue = holding.currentValue ?? (currentPrice ? (holding.quantity || 0) * currentPrice : null);
+        // Prefer API's pre-calculated unrealizedPnL (uses fresh prices), fallback to local calculation
+        const unrealizedPnL = holding.unrealizedPnL ?? (currentValue && holding.totalInvested ?
+          currentValue - holding.totalInvested : null);
+        const totalPnL = holding.totalPnL ?? (unrealizedPnL !== null ?
+          unrealizedPnL + (holding.realizedPnL || 0) : (holding.realizedPnL || 0));
+
+        // Debug logging for first few symbols
+        if (['BTC', 'ETH', 'TSLA', 'AAPL'].includes(symbol)) {
+          console.log(`💰 ${symbol}: API unrealizedPnL=${holding.unrealizedPnL}, calculated=${unrealizedPnL}, using=${unrealizedPnL === holding.unrealizedPnL ? 'API' : 'calculated'}`);
+          console.log(`   currentValue=${currentValue}, totalInvested=${holding.totalInvested}, diff=${currentValue && holding.totalInvested ? currentValue - holding.totalInvested : 'N/A'}`);
+        }
         // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
         const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
           (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
@@ -486,7 +589,7 @@ const PortfolioSummary: React.FC = () => {
         const quarterlyChange = quarterlyChanges[symbol];
         console.log(`🔍 Processing holding ${symbol}: weeklyChange=${weeklyChange}, dailyChange=${dailyChange}, monthlyChange=${monthlyChange}, quarterlyChange=${quarterlyChange}`);
 
-        return {
+        const result = {
           symbol: symbol || 'UNKNOWN',
           quantity: holding.quantity || 0,
           averagePrice: holding.averagePrice || 0,
@@ -509,6 +612,13 @@ const PortfolioSummary: React.FC = () => {
           monthlyChangePercent: monthlyChange !== undefined ? monthlyChange : null,
           quarterlyChangePercent: quarterlyChange !== undefined ? quarterlyChange : null
         };
+
+        // Final debug for BTC
+        if (symbol === 'BTC') {
+          console.log(`🔥 BTC final unrealizedPnL in result object:`, result.unrealizedPnL);
+        }
+
+        return result;
       });
       
       // Sort holdings by P&L amount (highest to lowest)
@@ -558,12 +668,18 @@ const PortfolioSummary: React.FC = () => {
       
       // Calculate summary with cached values
       // Calculate holdings totals (trading only)
+      console.log(`🔍 safeHoldings BTC unrealizedPnL before sum:`, safeHoldings.find((h: any) => h.symbol === 'BTC')?.unrealizedPnL);
       const currentTotalValue = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.currentValue || 0), 0);
       const totalUnrealizedPnL = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.unrealizedPnL || 0), 0);
       const totalRealizedPnL = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.realizedPnL || 0), 0);
+
+      console.log('📊 SUMMARY CALCULATION:');
+      console.log(`   Total Unrealized P&L: CA$${totalUnrealizedPnL.toFixed(2)}`);
+      console.log(`   Total Realized P&L: CA$${totalRealizedPnL.toFixed(2)}`);
+      console.log(`   Holdings count: ${safeHoldings.length}`);
       const totalInvested = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.totalInvested || 0), 0);
       // Use totalAmountInvested for accurate total investment tracking
@@ -613,7 +729,8 @@ const PortfolioSummary: React.FC = () => {
         totalPnL: tradingTotalPnL,
         totalPnLPercent: tradingTotalPnLPercent, // This uses totalAmountInvested in calculation
         totalRealized: totalRealizedPnL,
-        totalAmountSold: totalAmountSold
+        totalAmountSold: totalAmountSold,
+        totalUnrealizedPnL: totalUnrealizedPnL // Add unrealized P&L from API calculations
       });
       
       console.log('✅ Portfolio data processing completed successfully');
@@ -1012,21 +1129,21 @@ const PortfolioSummary: React.FC = () => {
                           <div style={{
                             fontSize: '26px',
                             fontWeight: '700',
-                            color: (tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
+                            color: tradingSummary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
                             fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
                           }}>
-                            {formatCurrency(tradingSummary.currentValue - tradingSummary.totalInvested)}
+                            {formatCurrency(tradingSummary.totalUnrealizedPnL)}
                           </div>
                           <div style={{
                             fontSize: '13px',
                             fontWeight: '600',
-                            color: ((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested) >= 0 ? '#166534' : '#dc2626',
+                            color: tradingSummary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '2px'
                           }}>
-                            <span>{(tradingSummary.currentValue - tradingSummary.totalInvested) >= 0 ? '↑' : '↓'}</span>
-                            <span>{tradingSummary.totalInvested > 0 ? formatPercentage((tradingSummary.currentValue - tradingSummary.totalInvested) / tradingSummary.totalInvested * 100) : '0.00%'}</span>
+                            <span>{tradingSummary.totalUnrealizedPnL >= 0 ? '↑' : '↓'}</span>
+                            <span>{tradingSummary.totalInvested > 0 ? formatPercentage(tradingSummary.totalUnrealizedPnL / tradingSummary.totalInvested * 100) : '0.00%'}</span>
                           </div>
                         </div>
                         <div style={{
@@ -1290,32 +1407,29 @@ const PortfolioSummary: React.FC = () => {
               const totalCurrentValue = categoryData.holdings.reduce((sum: number, h: Holding) =>
                 sum + (h.currentValue || 0), 0);
 
-              const dailyChange = categoryData.holdings.reduce((sum: number, h: Holding) => {
-                if (h.dailyChangePercent !== null && h.dailyChangePercent !== undefined && h.currentValue) {
-                  // Weight by current value
-                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
-                  return sum + (h.dailyChangePercent * weight);
-                }
-                return sum;
-              }, 0);
+              // Helper to aggregate array changes
+              const aggregateArrayChanges = (field: 'dailyChangePercent' | 'weeklyChangePercent' | 'monthlyChangePercent'): number[] => {
+                const aggregated: number[] = [0, 0, 0];
+                let hasData = false;
 
-              const weeklyChange = categoryData.holdings.reduce((sum: number, h: Holding) => {
-                if (h.weeklyChangePercent !== null && h.weeklyChangePercent !== undefined && h.currentValue) {
-                  // Weight by current value
-                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
-                  return sum + (h.weeklyChangePercent * weight);
-                }
-                return sum;
-              }, 0);
+                categoryData.holdings.forEach((h: Holding) => {
+                  const changeData = h[field];
+                  if (Array.isArray(changeData) && changeData.length === 3 && h.currentValue) {
+                    const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                    changeData.forEach((val, idx) => {
+                      aggregated[idx] += val * weight;
+                    });
+                    hasData = true;
+                  }
+                });
 
-              const monthlyChange = categoryData.holdings.reduce((sum: number, h: Holding) => {
-                if (h.monthlyChangePercent !== null && h.monthlyChangePercent !== undefined && h.currentValue) {
-                  // Weight by current value
-                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
-                  return sum + (h.monthlyChangePercent * weight);
-                }
-                return sum;
-              }, 0);
+                // Return the full array of 3 values for the ThreeSegmentPill
+                return hasData ? aggregated : [0, 0, 0];
+              };
+
+              const dailyChange = aggregateArrayChanges('dailyChangePercent');
+              const weeklyChange = aggregateArrayChanges('weeklyChangePercent');
+              const monthlyChange = aggregateArrayChanges('monthlyChangePercent');
 
               const quarterlyChange = categoryData.holdings.reduce((sum: number, h: Holding) => {
                 if (h.quarterlyChangePercent !== null && h.quarterlyChangePercent !== undefined && h.currentValue) {
@@ -1336,7 +1450,7 @@ const PortfolioSummary: React.FC = () => {
               return {
                 dailyChange: dailyChange,
                 weeklyChange: weeklyChange,
-                thisWeekChange: capChange(weeklyChange * 0.7, 50), // Current week progress (estimated)
+                thisWeekChange: weeklyChange.map(val => capChange(val * 0.7, 50)), // Current week progress (estimated), as array
                 monthlyChange: monthlyChange, // REAL data from historical cache
                 quarterlyChange: quarterlyChange, // REAL data from historical cache
                 yearlyChange: capChange(overallReturnPercent, 500) // Use actual ROI for yearly, capped
@@ -1357,10 +1471,10 @@ const PortfolioSummary: React.FC = () => {
               const estimatedMonthlyChange = overallReturnPercent / 12;
 
               return {
-                dailyChange: capChange(estimatedDailyChange, 3),
-                weeklyChange: capChange(estimatedWeeklyChange, 10),
-                thisWeekChange: capChange(estimatedWeeklyChange * 0.7, 7),
-                monthlyChange: capChange(estimatedMonthlyChange, 30),
+                dailyChange: [capChange(estimatedDailyChange, 3), capChange(estimatedDailyChange, 3), capChange(estimatedDailyChange, 3)],
+                weeklyChange: [capChange(estimatedWeeklyChange, 10), capChange(estimatedWeeklyChange, 10), capChange(estimatedWeeklyChange, 10)],
+                thisWeekChange: [capChange(estimatedWeeklyChange * 0.7, 7), capChange(estimatedWeeklyChange * 0.7, 7), capChange(estimatedWeeklyChange * 0.7, 7)],
+                monthlyChange: [capChange(estimatedMonthlyChange, 30), capChange(estimatedMonthlyChange, 30), capChange(estimatedMonthlyChange, 30)],
                 quarterlyChange: capChange(overallReturnPercent / 4, 125),
                 yearlyChange: capChange(overallReturnPercent, 500)
               };
@@ -1584,104 +1698,28 @@ const PortfolioSummary: React.FC = () => {
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.dailyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.dailyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.dailyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.dailyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.dailyChange)}
-                            </div>
+                            <ThreeSegmentPill
+                              values={changes.dailyChange}
+                              labels={['2 days ago', 'Yesterday', 'Today']}
+                            />
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.weeklyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.weeklyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.weeklyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.weeklyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.weeklyChange)}
-                            </div>
+                            <ThreeSegmentPill
+                              values={changes.weeklyChange}
+                              labels={['2 weeks ago', 'Last week', 'This week']}
+                            />
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.thisWeekChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.thisWeekChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.thisWeekChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.thisWeekChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.thisWeekChange)}
-                            </div>
+                            <ThreeSegmentPill
+                              values={changes.thisWeekChange}
+                              labels={['2 weeks ago', 'Last week', 'This week']}
+                            />
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.monthlyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.monthlyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.monthlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.monthlyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.monthlyChange)}
-                            </div>
+                            <ThreeSegmentPill
+                              values={changes.monthlyChange}
+                              labels={['2 months ago', 'Last month', 'This month']}
+                            />
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
                             <div style={{
@@ -1779,9 +1817,18 @@ const PortfolioSummary: React.FC = () => {
               return acc;
             }
 
+            // Only include holdings that have meaningful data (currently hold shares OR have historical trading activity)
+            const hasCurrentPosition = (holding.quantity || 0) > 0;
+            const hasHistoricalActivity = (holding.totalInvested || 0) > 0 || (holding.realizedPnL || 0) !== 0;
+
+            if (!hasCurrentPosition && !hasHistoricalActivity) {
+              return acc; // Skip holdings with no meaningful data
+            }
+
             if (!acc[sector]) {
               acc[sector] = {
                 count: 0,
+                activeCount: 0,
                 totalInvested: 0,
                 currentValue: 0,
                 totalPnL: 0,
@@ -1793,6 +1840,17 @@ const PortfolioSummary: React.FC = () => {
             }
 
             acc[sector].count += 1;
+            // Track active assets (quantity > 0.0001 to account for rounding artifacts)
+            // Positions with 1e-9 or similar tiny values are considered fully sold
+            if (holding.quantity > 0.0001) {
+              acc[sector].activeCount += 1;
+            }
+
+            // Debug logging for Tech sector
+            if (sector === 'Tech') {
+              console.log(`🔍 Tech holding: ${holding.symbol}, quantity: ${holding.quantity}, active: ${holding.quantity > 0.0001}, totalInvested: ${holding.totalInvested}, realizedPnL: ${holding.realizedPnL}`);
+            }
+
             acc[sector].totalInvested += holding.totalInvested || 0;
             acc[sector].currentValue += holding.currentValue || 0;
             acc[sector].totalPnL += holding.totalPnL || 0;
@@ -1802,7 +1860,13 @@ const PortfolioSummary: React.FC = () => {
             acc[sector].holdings.push(holding);
 
             return acc;
-          }, {} as {[key: string]: {count: number, totalInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
+          }, {} as {[key: string]: {count: number, activeCount: number, totalInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
+
+          // Debug: Log Tech sector details
+          if (holdingsBySector['Tech']) {
+            console.log(`🔍 Tech Sector Summary - Total: ${holdingsBySector['Tech'].count}, Active: ${holdingsBySector['Tech'].activeCount}`);
+            console.log(`🔍 Tech holdings list:`, holdingsBySector['Tech'].holdings.map(h => `${h.symbol} (qty: ${h.quantity})`));
+          }
 
           // Calculate time-based changes for each sector
           const calculateSectorChanges = (sectorData: any) => {
@@ -1817,29 +1881,29 @@ const PortfolioSummary: React.FC = () => {
               const totalCurrentValue = sectorData.holdings.reduce((sum: number, h: Holding) =>
                 sum + (h.currentValue || 0), 0);
 
-              const dailyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
-                if (h.dailyChangePercent !== null && h.dailyChangePercent !== undefined && h.currentValue) {
-                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
-                  return sum + (h.dailyChangePercent * weight);
-                }
-                return sum;
-              }, 0);
+              // Helper to aggregate array changes
+              const aggregateArrayChanges = (field: 'dailyChangePercent' | 'weeklyChangePercent' | 'monthlyChangePercent'): number => {
+                const aggregated: number[] = [0, 0, 0];
+                let hasData = false;
 
-              const weeklyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
-                if (h.weeklyChangePercent !== null && h.weeklyChangePercent !== undefined && h.currentValue) {
-                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
-                  return sum + (h.weeklyChangePercent * weight);
-                }
-                return sum;
-              }, 0);
+                sectorData.holdings.forEach((h: Holding) => {
+                  const changeData = h[field];
+                  if (Array.isArray(changeData) && changeData.length === 3 && h.currentValue) {
+                    const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
+                    changeData.forEach((val, idx) => {
+                      aggregated[idx] += val * weight;
+                    });
+                    hasData = true;
+                  }
+                });
 
-              const monthlyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
-                if (h.monthlyChangePercent !== null && h.monthlyChangePercent !== undefined && h.currentValue) {
-                  const weight = totalCurrentValue > 0 ? h.currentValue / totalCurrentValue : 0;
-                  return sum + (h.monthlyChangePercent * weight);
-                }
-                return sum;
-              }, 0);
+                // Return the latest value (index 2) as the representative change
+                return hasData ? aggregated[2] : 0;
+              };
+
+              const dailyChange = aggregateArrayChanges('dailyChangePercent');
+              const weeklyChange = aggregateArrayChanges('weeklyChangePercent');
+              const monthlyChange = aggregateArrayChanges('monthlyChangePercent');
 
               const quarterlyChange = sectorData.holdings.reduce((sum: number, h: Holding) => {
                 if (h.quarterlyChangePercent !== null && h.quarterlyChangePercent !== undefined && h.currentValue) {
@@ -1927,7 +1991,7 @@ const PortfolioSummary: React.FC = () => {
                         Sector
                       </th>
                       <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        # of Assets
+                        # Assets (Active/Total)
                       </th>
                       <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
                         Total Invested
@@ -2007,7 +2071,7 @@ const PortfolioSummary: React.FC = () => {
                               fontWeight: '600',
                               color: '#111827'
                             }}>
-                              {data.count}
+                              {data.activeCount} / {data.count}
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
@@ -2694,132 +2758,33 @@ const PortfolioSummary: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                        {holding.dailyChangePercent !== null && holding.dailyChangePercent !== undefined ? (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '6px 12px',
-                            borderRadius: '16px',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            backgroundColor: holding.dailyChangePercent >= 0 ? '#dcfce7' : '#fef2f2',
-                            color: holding.dailyChangePercent >= 0 ? '#166534' : '#dc2626',
-                            border: `2px solid ${holding.dailyChangePercent >= 0 ? '#bbf7d0' : '#fecaca'}`
-                          }}>
-                            {holding.dailyChangePercent >= 0 ? (
-                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                              </svg>
-                            ) : (
-                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                              </svg>
-                            )}
-                            {formatPercentage(holding.dailyChangePercent)}
-                          </div>
+                        {Array.isArray(holding.dailyChangePercent) ? (
+                          <ThreeSegmentPill
+                            values={holding.dailyChangePercent}
+                            labels={['2 days ago', 'Yesterday', 'Today']}
+                          />
                         ) : (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '4px 8px',
-                            borderRadius: '12px',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            backgroundColor: '#f3f4f6',
-                            color: '#6b7280',
-                            border: '1px solid #d1d5db'
-                          }}>
-                            <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Loading...
-                          </div>
+                          <ThreeSegmentPill values={[]} />
                         )}
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                        {holding.weeklyChangePercent !== null && holding.weeklyChangePercent !== undefined ? (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '6px 12px',
-                            borderRadius: '16px',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            backgroundColor: holding.weeklyChangePercent >= 0 ? '#dcfce7' : '#fef2f2',
-                            color: holding.weeklyChangePercent >= 0 ? '#166534' : '#dc2626',
-                            border: `2px solid ${holding.weeklyChangePercent >= 0 ? '#bbf7d0' : '#fecaca'}`
-                          }}>
-                            {holding.weeklyChangePercent >= 0 ? (
-                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                              </svg>
-                            ) : (
-                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                              </svg>
-                            )}
-                            {formatPercentage(holding.weeklyChangePercent)}
-                          </div>
+                        {Array.isArray(holding.weeklyChangePercent) ? (
+                          <ThreeSegmentPill
+                            values={holding.weeklyChangePercent}
+                            labels={['2 weeks ago', 'Last week', 'This week']}
+                          />
                         ) : (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '4px 8px',
-                            borderRadius: '12px',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            backgroundColor: '#f3f4f6',
-                            color: '#6b7280',
-                            border: '1px solid #d1d5db'
-                          }}>
-                            <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Loading...
-                          </div>
+                          <ThreeSegmentPill values={[]} />
                         )}
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                        {holding.monthlyChangePercent !== null && holding.monthlyChangePercent !== undefined ? (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '6px 12px',
-                            borderRadius: '16px',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            backgroundColor: holding.monthlyChangePercent >= 0 ? '#dcfce7' : '#fef2f2',
-                            color: holding.monthlyChangePercent >= 0 ? '#166534' : '#dc2626',
-                            border: `2px solid ${holding.monthlyChangePercent >= 0 ? '#bbf7d0' : '#fecaca'}`
-                          }}>
-                            {holding.monthlyChangePercent >= 0 ? (
-                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                              </svg>
-                            ) : (
-                              <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                              </svg>
-                            )}
-                            {formatPercentage(holding.monthlyChangePercent)}
-                          </div>
+                        {Array.isArray(holding.monthlyChangePercent) ? (
+                          <ThreeSegmentPill
+                            values={holding.monthlyChangePercent}
+                            labels={['2 months ago', 'Last month', 'This month']}
+                          />
                         ) : (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '4px 8px',
-                            borderRadius: '12px',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            backgroundColor: '#f3f4f6',
-                            color: '#6b7280',
-                            border: '1px solid #d1d5db'
-                          }}>
-                            <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Loading...
-                          </div>
+                          <ThreeSegmentPill values={[]} />
                         )}
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
