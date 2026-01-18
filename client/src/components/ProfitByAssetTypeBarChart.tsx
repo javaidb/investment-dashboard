@@ -17,7 +17,7 @@ interface Holding {
   type: string;
   totalPnL?: number;
   totalInvested?: number;
-  weeklyChangePercent?: number;
+  weeklyChangePercent?: number | number[];
   currentValue?: number;
 }
 
@@ -66,7 +66,9 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
       const profit = holding.totalPnL || 0;
       const invested = holding.totalInvested || 0;
       const currentValue = holding.currentValue || 0;
-      const weeklyChange = holding.weeklyChangePercent || null;
+      // Handle both array and single number for weeklyChangePercent
+      const weeklyChangeRaw = holding.weeklyChangePercent;
+      const weeklyChange = Array.isArray(weeklyChangeRaw) ? weeklyChangeRaw[2] : weeklyChangeRaw; // Use latest value if array
 
       let category = 'Stock';
       if (holding.type === 'c') {
