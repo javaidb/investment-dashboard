@@ -10,7 +10,10 @@ import {
   Legend,
   ResponsiveContainer,
   ReferenceLine,
-  ComposedChart
+  ComposedChart,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 
 interface DailyPortfolioRecord {
@@ -37,11 +40,14 @@ interface TotalPortfolioPnLChartProps {
   portfolioId: string;
 }
 
+type DateRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'ALL';
+
 const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfolioId }) => {
   const [portfolioData, setPortfolioData] = useState<TotalPortfolioPnLData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMetric, setSelectedMetric] = useState<'totalPnL' | 'totalPnLPercent' | 'totalValue'>('totalPnL');
+  const [selectedView, setSelectedView] = useState<'timeline' | 'breakdown'>('timeline');
+  const [dateRange, setDateRange] = useState<DateRange>('ALL');
 
   useEffect(() => {
     fetchPortfolioPnLData();
@@ -52,8 +58,9 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
       setLoading(true);
       setError(null);
 
-      // Fetch from portfolio value cache
-      const response = await fetch(`/api/portfolio-value/combined?period=max`, {
+      // Fetch aggregated P&L data from individual asset P&L caches
+      // This is the CORRECT calculation that sums up all individual asset P&L values
+      const response = await fetch(`/api/pnl/portfolio/${portfolioId}/combined`, {
         headers: {
           'Accept': 'application/json',
         },
@@ -62,28 +69,28 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
       if (!response.ok) {
         const text = await response.text();
         console.error('Response error:', text);
-        throw new Error(`Failed to fetch portfolio value data: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch portfolio P&L data: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json();
 
       if (!result.success) {
-        throw new Error(result.error || 'Portfolio value data not available');
+        throw new Error(result.error || 'Portfolio P&L data not available');
       }
 
-      // Transform data to match expected format
+      // Data is already in the correct format
       const transformedData: TotalPortfolioPnLData = {
-        portfolioId: result.data.portfolioId,
-        dailyRecords: result.data.data,
-        totalRecords: result.data.totalDataPoints,
-        startDate: result.data.data[0]?.date || '',
-        endDate: result.data.data[result.data.data.length - 1]?.date || ''
+        portfolioId: result.portfolioId,
+        dailyRecords: result.dailyRecords,
+        totalRecords: result.totalRecords,
+        startDate: result.startDate || '',
+        endDate: result.endDate || ''
       };
 
       setPortfolioData(transformedData);
     } catch (err: any) {
-      console.error('Error fetching portfolio value data:', err);
-      setError(err.message || 'Failed to load portfolio value data');
+      console.error('Error fetching portfolio P&L data:', err);
+      setError(err.message || 'Failed to load portfolio P&L data');
     } finally {
       setLoading(false);
     }
@@ -105,6 +112,41 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // Filter data based on selected date range
+  const getFilteredData = (data: DailyPortfolioRecord[]): DailyPortfolioRecord[] => {
+    if (!data || data.length === 0 || dateRange === 'ALL') {
+      return data;
+    }
+
+    const today = new Date();
+    let startDate = new Date();
+
+    switch (dateRange) {
+      case '1D':
+        startDate.setDate(today.getDate() - 1);
+        break;
+      case '1W':
+        startDate.setDate(today.getDate() - 7);
+        break;
+      case '1M':
+        startDate.setMonth(today.getMonth() - 1);
+        break;
+      case '3M':
+        startDate.setMonth(today.getMonth() - 3);
+        break;
+      case '6M':
+        startDate.setMonth(today.getMonth() - 6);
+        break;
+      case '1Y':
+        startDate.setFullYear(today.getFullYear() - 1);
+        break;
+      default:
+        return data;
+    }
+
+    return data.filter(record => new Date(record.date) >= startDate);
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -185,15 +227,44 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
     );
   }
 
-  const latestRecord = portfolioData.dailyRecords[portfolioData.dailyRecords.length - 1];
+  // Find the latest record that has stock data (not just crypto)
+  // Crypto symbols to exclude when looking for stock data
+  const cryptoSymbols = ['BTC', 'ETH', 'DOGE', 'SOL', 'ZEC', 'XRP', 'ADA', 'TRUMP'];
 
-  // Prepare chart data - split positive/negative for area fills
-  const chartData = portfolioData.dailyRecords.map(record => ({
+  let latestRecord = portfolioData.dailyRecords[portfolioData.dailyRecords.length - 1];
+
+  // Check if the latest record only has crypto
+  if (latestRecord.holdings) {
+    const symbols = Object.keys(latestRecord.holdings);
+    const hasOnlyCrypto = symbols.every(symbol => cryptoSymbols.includes(symbol));
+
+    if (hasOnlyCrypto && symbols.length > 0) {
+      // Find the most recent record that has stocks
+      for (let i = portfolioData.dailyRecords.length - 2; i >= 0; i--) {
+        const record = portfolioData.dailyRecords[i];
+        if (record.holdings) {
+          const recordSymbols = Object.keys(record.holdings);
+          const hasStocks = recordSymbols.some(symbol => !cryptoSymbols.includes(symbol));
+          if (hasStocks) {
+            latestRecord = record;
+            console.log(`Using ${record.date} for breakdown (latest with stock data)`);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Prepare chart data - apply date range filter and split positive/negative for area fills
+  const filteredData = getFilteredData(portfolioData.dailyRecords);
+  const chartData = filteredData.map(record => ({
     ...record,
     totalPnLPositive: record.totalPnL > 0 ? record.totalPnL : null,
     totalPnLNegative: record.totalPnL < 0 ? record.totalPnL : null,
-    totalPnLPercentPositive: record.totalPnLPercent > 0 ? record.totalPnLPercent : null,
-    totalPnLPercentNegative: record.totalPnLPercent < 0 ? record.totalPnLPercent : null
+    unrealizedPnLPos: record.unrealizedPnL > 0 ? record.unrealizedPnL : null,
+    unrealizedPnLNeg: record.unrealizedPnL < 0 ? record.unrealizedPnL : null,
+    realizedPnLPos: record.realizedPnL > 0 ? record.realizedPnL : null,
+    realizedPnLNeg: record.realizedPnL < 0 ? record.realizedPnL : null
   }));
 
   return (
@@ -245,10 +316,33 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
       </div>
 
       <div style={{ padding: '24px' }}>
-        {/* Metric Selector */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        {/* Date Range Selector */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {(['1D', '1W', '1M', '3M', '6M', '1Y', 'ALL'] as DateRange[]).map((range) => (
+            <button
+              key={range}
+              onClick={() => setDateRange(range)}
+              style={{
+                padding: '8px 14px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '600',
+                border: dateRange === range ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                backgroundColor: dateRange === range ? '#eef2ff' : 'white',
+                color: dateRange === range ? '#4f46e5' : '#6b7280'
+              }}
+            >
+              {range}
+            </button>
+          ))}
+        </div>
+
+        {/* View Selector */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', justifyContent: 'center' }}>
           <button
-            onClick={() => setSelectedMetric('totalPnL')}
+            onClick={() => setSelectedView('timeline')}
             style={{
               padding: '10px 18px',
               borderRadius: '8px',
@@ -257,14 +351,14 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'totalPnL' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'totalPnL' ? 'white' : '#6b7280'
+              backgroundColor: selectedView === 'timeline' ? '#4f46e5' : '#f3f4f6',
+              color: selectedView === 'timeline' ? 'white' : '#6b7280'
             }}
           >
-            Total P&L ($)
+            P&L Timeline
           </button>
           <button
-            onClick={() => setSelectedMetric('totalPnLPercent')}
+            onClick={() => setSelectedView('breakdown')}
             style={{
               padding: '10px 18px',
               borderRadius: '8px',
@@ -273,130 +367,204 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'totalPnLPercent' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'totalPnLPercent' ? 'white' : '#6b7280'
+              backgroundColor: selectedView === 'breakdown' ? '#4f46e5' : '#f3f4f6',
+              color: selectedView === 'breakdown' ? 'white' : '#6b7280'
             }}
           >
-            Total P&L (%)
-          </button>
-          <button
-            onClick={() => setSelectedMetric('totalValue')}
-            style={{
-              padding: '10px 18px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: '600',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'totalValue' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'totalValue' ? 'white' : '#6b7280'
-            }}
-          >
-            Total Value
+            Asset Breakdown
           </button>
         </div>
 
-        {/* Chart */}
-        <ResponsiveContainer width="100%" height={400}>
-          <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <defs>
-              {/* Green gradient for positive values */}
-              <linearGradient id="portfolioColorPositive" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#10b981" stopOpacity={0.3}/>
-                <stop offset="100%" stopColor="#10b981" stopOpacity={0.05}/>
-              </linearGradient>
-              {/* Red gradient for negative values */}
-              <linearGradient id="portfolioColorNegative" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ef4444" stopOpacity={0.05}/>
-                <stop offset="100%" stopColor="#ef4444" stopOpacity={0.3}/>
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-            <XAxis
-              dataKey="date"
-              tickFormatter={(value) => {
-                const date = new Date(value);
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              }}
-              stroke="#6b7280"
-              style={{ fontSize: '12px' }}
-            />
-            <YAxis
-              tickFormatter={(value) =>
-                selectedMetric === 'totalPnLPercent'
-                  ? `${value}%`
-                  : formatCurrency(value)
-              }
-              stroke="#6b7280"
-              style={{ fontSize: '12px' }}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend />
+        {selectedView === 'timeline' ? (
+          /* Two Charts Side by Side - matching individual asset layout */
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
 
-            {/* Zero line for P&L metrics */}
-            {(selectedMetric === 'totalPnL' || selectedMetric === 'totalPnLPercent') && (
-              <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
-            )}
+          {/* Total P&L Chart */}
+          <div>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              Total P&L
+            </h3>
+            <ResponsiveContainer width="100%" height={350}>
+              <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="colorGreenArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
+                  </linearGradient>
+                  <linearGradient id="colorRedArea" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(value) => {
+                    const date = new Date(value);
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  }}
+                  stroke="#6b7280"
+                  style={{ fontSize: '11px' }}
+                />
+                <YAxis
+                  tickFormatter={(value) => formatCurrency(value)}
+                  stroke="#4b5563"
+                  style={{ fontSize: '11px' }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend />
+                <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
 
-            {/* Render areas and lines for positive and negative P&L separately */}
-            {selectedMetric === 'totalPnL' && (
-              <>
+                {/* Total P&L area fills */}
                 <Area
                   type="monotone"
                   dataKey="totalPnLPositive"
-                  stroke="#10b981"
-                  fill="url(#portfolioColorPositive)"
-                  strokeWidth={2}
+                  stroke="none"
+                  fill="url(#colorGreenArea)"
                   isAnimationActive={false}
                 />
                 <Area
                   type="monotone"
                   dataKey="totalPnLNegative"
-                  stroke="#ef4444"
-                  fill="url(#portfolioColorNegative)"
-                  strokeWidth={2}
+                  stroke="none"
+                  fill="url(#colorRedArea)"
                   isAnimationActive={false}
                 />
-              </>
-            )}
-            {selectedMetric === 'totalPnLPercent' && (
-              <>
+
+                {/* Total P&L line */}
+                <Line
+                  type="monotone"
+                  dataKey="totalPnL"
+                  stroke="#4b5563"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                  name="Total P&L"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Realized/Unrealized P&L Chart */}
+          <div>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              Realized vs Unrealized P&L
+            </h3>
+            <ResponsiveContainer width="100%" height={350}>
+              <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="colorGreenAreaRealized" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.2}/>
+                  </linearGradient>
+                  <linearGradient id="colorRedAreaRealized" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(value) => {
+                    const date = new Date(value);
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  }}
+                  stroke="#6b7280"
+                  style={{ fontSize: '11px' }}
+                />
+                <YAxis
+                  tickFormatter={(value) => formatCurrency(value)}
+                  stroke="#8b5cf6"
+                  style={{ fontSize: '11px' }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend />
+                <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+
+                {/* Unrealized P&L area fills */}
                 <Area
                   type="monotone"
-                  dataKey="totalPnLPercentPositive"
-                  stroke="#10b981"
-                  fill="url(#portfolioColorPositive)"
-                  strokeWidth={2}
+                  dataKey="unrealizedPnLPos"
+                  stroke="none"
+                  fill="url(#colorGreenAreaRealized)"
                   isAnimationActive={false}
                 />
                 <Area
                   type="monotone"
-                  dataKey="totalPnLPercentNegative"
-                  stroke="#ef4444"
-                  fill="url(#portfolioColorNegative)"
-                  strokeWidth={2}
+                  dataKey="unrealizedPnLNeg"
+                  stroke="none"
+                  fill="url(#colorRedAreaRealized)"
                   isAnimationActive={false}
                 />
-              </>
-            )}
 
-            {/* Line for total value metric */}
-            {selectedMetric === 'totalValue' && (
-              <Line
-                type="monotone"
-                dataKey="totalValue"
-                stroke="#4f46e5"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6, fill: '#4f46e5' }}
-                name="Total Value"
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
+                {/* Realized P&L area fills */}
+                <Area
+                  type="monotone"
+                  dataKey="realizedPnLPos"
+                  stroke="none"
+                  fill="url(#colorGreenAreaRealized)"
+                  isAnimationActive={false}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="realizedPnLNeg"
+                  stroke="none"
+                  fill="url(#colorRedAreaRealized)"
+                  isAnimationActive={false}
+                />
 
-        {/* Summary Stats */}
+                {/* Unrealized P&L - light purple solid */}
+                <Line
+                  type="monotone"
+                  dataKey="unrealizedPnL"
+                  stroke="#a78bfa"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                  name="Unrealized P&L"
+                />
+
+                {/* Realized P&L - purple dashed */}
+                <Line
+                  type="monotone"
+                  dataKey="realizedPnL"
+                  stroke="#8b5cf6"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                  name="Realized P&L"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+        </div>
+        ) : (
+          /* Asset Breakdown View - Pie Charts */
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            {/* Unrealized P&L Breakdown */}
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+                Unrealized P&L by Asset
+              </h3>
+              {renderPieChart('unrealized', latestRecord)}
+            </div>
+
+            {/* Realized P&L Breakdown */}
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+                Realized P&L by Asset
+              </h3>
+              {renderPieChart('realized', latestRecord)}
+            </div>
+          </div>
+        )}
+
+        {/* Summary Stats - shown for both views */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)',
@@ -497,6 +665,209 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
       </div>
     </div>
   );
+
+  // Helper function to render pie charts for positive/negative contributions
+  function renderPieChart(type: 'unrealized' | 'realized', latestRecord: DailyPortfolioRecord) {
+    if (!latestRecord.holdings) {
+      return <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>No holdings data available</div>;
+    }
+
+    // Get holdings data and separate into positive and negative P&L
+    const holdings = latestRecord.holdings;
+    const positiveData: Array<{ name: string; value: number }> = [];
+    const negativeData: Array<{ name: string; value: number }> = [];
+    let totalPnL = 0;
+
+    Object.entries(holdings).forEach(([symbol, holdingData]: [string, any]) => {
+      const value = type === 'unrealized'
+        ? (holdingData.unrealizedPnL || 0)
+        : (holdingData.realizedPnL || 0);
+
+      totalPnL += value;
+
+      if (value > 0.01) {
+        positiveData.push({ name: symbol, value });
+      } else if (value < -0.01) {
+        negativeData.push({ name: symbol, value: Math.abs(value) });
+      }
+    });
+
+    // Sort by value descending
+    positiveData.sort((a, b) => b.value - a.value);
+    negativeData.sort((a, b) => b.value - a.value);
+
+    // Green color shades for positive contributors
+    const GREEN_COLORS = [
+      '#10b981', '#059669', '#047857', '#065f46', '#064e3b',
+      '#34d399', '#6ee7b7', '#a7f3d0', '#16a34a', '#15803d'
+    ];
+
+    // Red color shades for negative contributors
+    const RED_COLORS = [
+      '#ef4444', '#dc2626', '#b91c1c', '#991b1b', '#7f1d1d',
+      '#f87171', '#fca5a5', '#fecaca', '#e11d48', '#be123c'
+    ];
+
+    return (
+      <>
+        {/* Total P&L Display */}
+        <div style={{
+          textAlign: 'center',
+          marginBottom: '20px',
+          padding: '16px',
+          backgroundColor: totalPnL >= 0 ? '#f0fdf4' : '#fef2f2',
+          borderRadius: '8px'
+        }}>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: '600' }}>
+            Total {type === 'unrealized' ? 'Unrealized' : 'Realized'} P&L
+          </div>
+          <div style={{
+            fontSize: '28px',
+            fontWeight: '700',
+            color: totalPnL >= 0 ? '#166534' : '#dc2626',
+            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+          }}>
+            {formatCurrency(totalPnL)}
+          </div>
+        </div>
+
+        {/* Two Pie Charts Side by Side */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          {/* Positive Contributors Pie Chart */}
+          <div>
+            <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#166534', marginBottom: '12px', textAlign: 'center' }}>
+              Positive (+{formatCurrency(positiveData.reduce((sum, d) => sum + d.value, 0))})
+            </h4>
+            {positiveData.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={positiveData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={(entry: any) => {
+                        const total = positiveData.reduce((sum, d) => sum + d.value, 0);
+                        const pct = ((entry.value || 0) / total) * 100;
+                        return pct > 8 ? entry.name : '';
+                      }}
+                      outerRadius={80}
+                      dataKey="value"
+                    >
+                      {positiveData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={GREEN_COLORS[index % GREEN_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Legend */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: '6px',
+                  fontSize: '11px',
+                  marginTop: '12px',
+                  maxHeight: '120px',
+                  overflowY: 'auto'
+                }}>
+                  {positiveData.slice(0, 8).map((entry, index) => (
+                    <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{
+                        width: '12px',
+                        height: '12px',
+                        backgroundColor: GREEN_COLORS[index % GREEN_COLORS.length],
+                        borderRadius: '2px',
+                        flexShrink: 0
+                      }} />
+                      <span style={{ color: '#374151', fontWeight: '500' }}>{entry.name}:</span>
+                      <span style={{ color: '#166534', fontWeight: '600', marginLeft: 'auto' }}>
+                        {formatCurrency(entry.value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280', fontSize: '12px' }}>
+                No positive contributors
+              </div>
+            )}
+          </div>
+
+          {/* Negative Contributors Pie Chart */}
+          <div>
+            <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#dc2626', marginBottom: '12px', textAlign: 'center' }}>
+              Negative ({formatCurrency(-negativeData.reduce((sum, d) => sum + d.value, 0))})
+            </h4>
+            {negativeData.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={negativeData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={(entry: any) => {
+                        const total = negativeData.reduce((sum, d) => sum + d.value, 0);
+                        const pct = ((entry.value || 0) / total) * 100;
+                        return pct > 8 ? entry.name : '';
+                      }}
+                      outerRadius={80}
+                      dataKey="value"
+                    >
+                      {negativeData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={RED_COLORS[index % RED_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => formatCurrency(-value)} />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Legend */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: '6px',
+                  fontSize: '11px',
+                  marginTop: '12px',
+                  maxHeight: '120px',
+                  overflowY: 'auto'
+                }}>
+                  {negativeData.slice(0, 8).map((entry, index) => (
+                    <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{
+                        width: '12px',
+                        height: '12px',
+                        backgroundColor: RED_COLORS[index % RED_COLORS.length],
+                        borderRadius: '2px',
+                        flexShrink: 0
+                      }} />
+                      <span style={{ color: '#374151', fontWeight: '500' }}>{entry.name}:</span>
+                      <span style={{ color: '#dc2626', fontWeight: '600', marginLeft: 'auto' }}>
+                        {formatCurrency(-entry.value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280', fontSize: '12px' }}>
+                No negative contributors
+              </div>
+            )}
+          </div>
+        </div>
+
+        {positiveData.length === 0 && negativeData.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+            No {type} P&L data available
+          </div>
+        )}
+      </>
+    );
+  }
 };
 
 export default TotalPortfolioPnLChart;
