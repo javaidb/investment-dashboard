@@ -2,7 +2,22 @@ const express = require('express');
 const router = express.Router();
 const historicalCache = require('../historical-cache');
 const holdingsCache = require('../cache');
-const portfolioData = require('../data/cache/portfolios.json');
+const fs = require('fs');
+const path = require('path');
+
+// Load portfolio data dynamically (don't require it at module load time)
+function getPortfolioData() {
+  try {
+    const portfolioPath = path.join(__dirname, '../data/cache/portfolios.json');
+    if (fs.existsSync(portfolioPath)) {
+      return JSON.parse(fs.readFileSync(portfolioPath, 'utf8'));
+    }
+    return null;
+  } catch (error) {
+    console.warn('Could not load portfolio data:', error.message);
+    return null;
+  }
+}
 
 /**
  * Convert daily data to weekly data (take last trading day of each week)
@@ -379,11 +394,200 @@ function checkRecoverySignal(symbol, assetName, currentPrice) {
 }
 
 /**
- * Get all portfolio holdings
+ * Check if asset has dropped below its breakeven price
+ */
+function checkBelowBreakeven(symbol, assetName, currentPrice, breakEvenPrice, averageBuyPrice) {
+  try {
+    // Only check if we have valid breakeven data
+    if (!breakEvenPrice || breakEvenPrice <= 0) {
+      return null;
+    }
+
+    // Check if current price is below breakeven price
+    const isBelowBreakeven = currentPrice < breakEvenPrice;
+
+    if (!isBelowBreakeven) {
+      return null;
+    }
+
+    // Calculate how much below breakeven
+    const percentBelowBreakeven = ((breakEvenPrice - currentPrice) / breakEvenPrice) * 100;
+
+    // Calculate the dollar amount needed to recover
+    const dollarAmountToBreakeven = breakEvenPrice - currentPrice;
+
+    return {
+      id: `below_breakeven_${symbol}_${Date.now()}`,
+      symbol,
+      assetName,
+      type: 'warning',
+      title: 'Below Breakeven Price',
+      message: `${symbol} is trading at $${currentPrice.toFixed(2)}, which is ${percentBelowBreakeven.toFixed(2)}% below its breakeven price of $${breakEvenPrice.toFixed(2)}. Price needs to increase by $${dollarAmountToBreakeven.toFixed(2)} to break even.`,
+      timestamp: new Date(),
+      metadata: {
+        currentPrice,
+        breakEvenPrice,
+        averageBuyPrice,
+        percentBelowBreakeven,
+        dollarAmountToBreakeven,
+      },
+    };
+  } catch (error) {
+    console.error(`Error checking below breakeven for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check for peak-and-decline alert (peaked in last month, now trending down)
+ * Shows up to 6 months of data on chart, but evaluates only the last month
+ */
+function checkPeakDeclineAlert(symbol, assetName, currentPrice, breakEvenPrice) {
+  try {
+    // Get 6 months of data for chart display
+    const result6m = historicalCache.get(symbol, '6m');
+    const fullData = result6m?.data;
+
+    console.log(`🔍 Peak check for ${symbol}: data points = ${fullData?.length || 0}`);
+
+    if (!fullData || fullData.length < 10) {
+      console.log(`❌ ${symbol}: Not enough data (${fullData?.length || 0} points)`);
+      return null;
+    }
+
+    const sorted = [...fullData].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Calculate 1-month cutoff (approximately 30 days ago)
+    const now = new Date();
+    const oneMonthAgo = new Date(now);
+    oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+
+    // Find index where 1 month ago starts
+    const oneMonthAgoIndex = sorted.findIndex(d => new Date(d.date) >= oneMonthAgo);
+    const oneMonthAgoActualIndex = oneMonthAgoIndex >= 0 ? oneMonthAgoIndex : Math.max(0, sorted.length - 30);
+
+    // Get last month's data for evaluation
+    const lastMonthData = sorted.slice(oneMonthAgoActualIndex);
+    const lastMonthPrices = lastMonthData.map(d => d.close);
+
+    console.log(`📅 ${symbol}: Evaluating last ${lastMonthPrices.length} days (from index ${oneMonthAgoActualIndex})`);
+
+    if (lastMonthPrices.length < 10) {
+      console.log(`❌ ${symbol}: Not enough data in last month (${lastMonthPrices.length} points)`);
+      return null;
+    }
+
+    // Find the peak price in the LAST MONTH only
+    const peakPrice = Math.max(...lastMonthPrices);
+    const peakIndexInMonth = lastMonthPrices.indexOf(peakPrice);
+    const peakIndex = oneMonthAgoActualIndex + peakIndexInMonth; // Convert to full dataset index
+    const peakDate = sorted[peakIndex].date;
+
+    // Calculate how much time has passed since peak (must be at least 2 days ago)
+    const daysSincePeak = lastMonthPrices.length - peakIndexInMonth - 1;
+
+    console.log(`📊 ${symbol}: Peak $${peakPrice.toFixed(2)} on ${new Date(peakDate).toLocaleDateString()}, ${daysSincePeak} days ago, current $${currentPrice.toFixed(2)}`);
+
+    if (daysSincePeak < 2) {
+      console.log(`❌ ${symbol}: Peak too recent (${daysSincePeak} days)`);
+      return null; // Peak too recent
+    }
+
+    // Calculate decline from peak
+    const declineFromPeak = ((currentPrice - peakPrice) / peakPrice) * 100;
+
+    console.log(`📉 ${symbol}: Decline from peak = ${declineFromPeak.toFixed(2)}%`);
+
+    // Must have declined at least 2% from peak (relaxed from 3%)
+    if (declineFromPeak > -2) {
+      console.log(`❌ ${symbol}: Decline ${declineFromPeak.toFixed(2)}% not enough (need -2%)`);
+      return null;
+    }
+
+    // Check if currently trending downward (last 3 days, relaxed from 5)
+    const recentDays = Math.min(5, lastMonthPrices.length);
+    const lastNDays = lastMonthPrices.slice(-recentDays);
+
+    if (lastNDays.length < 3) {
+      console.log(`❌ ${symbol}: Not enough recent data`);
+      return null;
+    }
+
+    // Simple check: is the current price lower than the average of recent days?
+    const recentAvg = lastNDays.slice(0, -1).reduce((a, b) => a + b, 0) / (lastNDays.length - 1);
+    const isDowntrending = currentPrice < recentAvg || lastNDays[lastNDays.length - 1] < lastNDays[0];
+
+    console.log(`📊 ${symbol}: Recent avg $${recentAvg.toFixed(2)}, downtrending = ${isDowntrending}`);
+
+    if (!isDowntrending) {
+      console.log(`❌ ${symbol}: Not currently downtrending`);
+      return null; // Not currently trending down
+    }
+
+    console.log(`✅ ${symbol}: PEAK DECLINE ALERT TRIGGERED!`);
+
+    // Convert breakeven from CAD to USD for chart comparison (approximation using current price ratio)
+    // Note: breakEvenPrice is in CAD, currentPrice and historical prices are in USD
+    const holdingsCache = require('../cache');
+    const cachedHolding = holdingsCache?.cache?.get(symbol);
+    const cadPrice = cachedHolding?.cadPrice || cachedHolding?.price;
+    const usdPrice = cachedHolding?.price; // This is already USD
+
+    // If we have both CAD and USD prices, we can convert breakeven to USD
+    let breakEvenPriceUSD = null;
+    let percentFromBreakeven = null;
+
+    if (breakEvenPrice && breakEvenPrice > 0 && cadPrice && usdPrice && cadPrice !== usdPrice) {
+      // Calculate conversion ratio from CAD to USD
+      const cadToUsdRatio = usdPrice / cadPrice;
+      breakEvenPriceUSD = breakEvenPrice * cadToUsdRatio;
+      percentFromBreakeven = ((currentPrice - breakEvenPriceUSD) / breakEvenPriceUSD) * 100;
+      console.log(`💱 ${symbol}: Breakeven CAD $${breakEvenPrice.toFixed(2)} -> USD $${breakEvenPriceUSD.toFixed(2)}`);
+    } else if (breakEvenPrice && breakEvenPrice > 0) {
+      // Assume breakeven is already in same currency as currentPrice
+      breakEvenPriceUSD = breakEvenPrice;
+      percentFromBreakeven = ((currentPrice - breakEvenPrice) / breakEvenPrice) * 100;
+    }
+
+    return {
+      id: `peak_decline_${symbol}_${Date.now()}`,
+      symbol,
+      assetName,
+      type: 'warning',
+      title: 'Peak & Decline Alert',
+      message: `${symbol} peaked at $${peakPrice.toFixed(2)} on ${new Date(peakDate).toLocaleDateString()} and has declined ${Math.abs(declineFromPeak).toFixed(1)}% since then. Currently trending downward.`,
+      timestamp: new Date(),
+      metadata: {
+        currentPrice,
+        peakPrice,
+        peakDate,
+        declineFromPeak,
+        daysSincePeak,
+        breakEvenPrice: breakEvenPriceUSD, // Use USD-converted breakeven for chart
+        percentFromBreakeven,
+        oneMonthAgoIndex: oneMonthAgoActualIndex, // Index where 1-month evaluation period starts
+        monthlyData: sorted.map((d, idx) => ({
+          date: d.date,
+          price: d.close,
+          index: idx,
+          isPeak: idx === peakIndex,
+          isOneMonthMark: idx === oneMonthAgoActualIndex, // Mark where 1-month period begins
+        })),
+      },
+    };
+  } catch (error) {
+    console.error(`Error checking peak decline for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get all portfolio holdings with breakeven and average buy price data
  */
 function getPortfolioHoldings() {
   const holdings = [];
 
+  const portfolioData = getPortfolioData();
   if (!portfolioData) {
     return holdings;
   }
@@ -402,11 +606,26 @@ function getPortfolioHoldings() {
           continue;
         }
 
+        // Calculate breakeven price if not already provided
+        // Formula: (Total Invested - Realized P&L) / Shares
+        const totalInvested = holding.totalInvested || holding.totalAmountInvested || 0;
+        const realizedPnL = holding.realizedPnL || 0;
+        const shares = holding.shares || 0;
+        const breakEvenPrice = shares > 0 ? (totalInvested - realizedPnL) / shares : null;
+        const averageBuyPrice = holding.averagePrice || holding.averageBuyPrice || null;
+
+        // Get CAD price from cache (same approach as portfolio.js line 3668)
+        const cachedHolding = holdingsCache?.cache?.get(symbol);
+        const cadCurrentPrice = cachedHolding?.cadPrice || cachedHolding?.price || holding.currentPrice || 0;
+
         holdings.push({
           symbol,
           assetName: holding.assetName || symbol,
-          currentPrice: holding.currentPrice || 0,
-          shares: holding.shares || 0,
+          currentPrice: holding.currentPrice || 0, // Keep original for compatibility
+          cadCurrentPrice, // Store CAD price from cache for breakeven check
+          shares,
+          breakEvenPrice,
+          averageBuyPrice,
         });
       }
     } else if (portfolio.holdings && Array.isArray(portfolio.holdings)) {
@@ -417,11 +636,25 @@ function getPortfolioHoldings() {
           continue;
         }
 
+        // Calculate breakeven price
+        const totalInvested = holding.totalInvested || holding.totalAmountInvested || 0;
+        const realizedPnL = holding.realizedPnL || 0;
+        const shares = holding.quantity || holding.shares || 0;
+        const breakEvenPrice = shares > 0 ? (totalInvested - realizedPnL) / shares : null;
+        const averageBuyPrice = holding.averagePrice || holding.averageBuyPrice || null;
+
+        // Get CAD price from cache (same approach as portfolio.js line 3668)
+        const cachedHolding = holdingsCache?.cache?.get(holding.symbol);
+        const cadCurrentPrice = cachedHolding?.cadPrice || cachedHolding?.price || holding.currentPrice || 0;
+
         holdings.push({
           symbol: holding.symbol,
           assetName: holding.assetName || holding.symbol,
-          currentPrice: holding.currentPrice || 0,
-          shares: holding.shares || 0,
+          currentPrice: holding.currentPrice || 0, // Keep original for compatibility
+          cadCurrentPrice, // Store CAD price from cache for breakeven check
+          shares,
+          breakEvenPrice,
+          averageBuyPrice,
         });
       }
     }
@@ -456,21 +689,28 @@ router.get('/events', async (req, res) => {
       return {
         ...holding,
         currentPrice,
+        cadCurrentPrice: holding.cadCurrentPrice, // Explicitly preserve CAD price from portfolio data
         assetName: cachedData?.name || holding.assetName || holding.symbol,
+        breakEvenPrice: holding.breakEvenPrice,
+        averageBuyPrice: holding.averageBuyPrice,
       };
     }));
 
     // Check each holding for all types of signals
     for (const holding of holdingsWithPrices) {
-      const { symbol, assetName, currentPrice } = holding;
+      const { symbol, assetName, currentPrice, cadCurrentPrice, breakEvenPrice, averageBuyPrice } = holding;
 
       // Run all checks
+      // Note: Use USD price (currentPrice) for technical signals based on market data
+      // Use CAD price (cadCurrentPrice) for breakeven check since breakeven is in CAD
       const checks = [
         checkMomentumSignal(symbol, assetName, currentPrice),
         checkDailyMovement(symbol, assetName, currentPrice),
         checkWeeklyTrend(symbol, assetName, currentPrice),
         check52WeekHighLow(symbol, assetName, currentPrice),
         checkRecoverySignal(symbol, assetName, currentPrice),
+        Promise.resolve(checkBelowBreakeven(symbol, assetName, cadCurrentPrice, breakEvenPrice, averageBuyPrice)),
+        Promise.resolve(checkPeakDeclineAlert(symbol, assetName, currentPrice, breakEvenPrice)), // Use USD price for peak detection
       ];
 
       const results = await Promise.all(checks);
