@@ -246,11 +246,6 @@ const Watchlist: React.FC = () => {
             {/* Watchlists Section */}
             <Watchlists />
 
-            {/* Below 200-Week MA Section */}
-            {holdings.length > 0 && (
-              <Below200WeekMA holdings={holdings} />
-            )}
-
             {/* Holdings Chart */}
             {holdings.length > 0 && (
               <div style={{
@@ -264,6 +259,11 @@ const Watchlist: React.FC = () => {
               }}>
                 <HoldingsChartWrapper />
               </div>
+            )}
+
+            {/* Below 200-Week MA Section */}
+            {holdings.length > 0 && (
+              <Below200WeekMA holdings={holdings} />
             )}
 
             {/* Chart Toggles */}
