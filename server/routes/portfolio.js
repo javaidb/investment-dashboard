@@ -106,7 +106,7 @@ function loadPortfolios() {
             const tradesWithSource = fileData.portfolio.trades.map(trade => ({
               ...trade,
               sourceFile: filename,
-              id: trade.id || `${filename}-${trade.date}-${trade.symbol}-${trade.action}`
+              id: trade.id || `${filename}-${trade.date}-${trade.symbol}-${trade.action}-${trade.quantity || 0}-${trade.price || 0}-${trade.total || 0}`
             }));
 
             allTrades.push(...tradesWithSource);
@@ -163,7 +163,7 @@ function loadPortfolios() {
             console.log(`  📄 Migrating portfolio ${id}: ${portfolio.trades.length} trades`);
             const tradesWithIds = portfolio.trades.map(trade => ({
               ...trade,
-              id: trade.id || `${id}-${trade.date}-${trade.symbol}-${trade.action}`
+              id: trade.id || `${id}-${trade.date}-${trade.symbol}-${trade.action}-${trade.quantity || 0}-${trade.price || 0}-${trade.total || 0}`
             }));
             allTrades.push(...tradesWithIds);
           }
@@ -3259,6 +3259,38 @@ router.put('/cache/:symbol/sector', (req, res) => {
   }
 });
 
+// Update conviction level for a symbol in cache
+router.put('/cache/:symbol/conviction', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { conviction } = req.body;
+
+    console.log(`💪 Updating conviction level for ${symbol} to: ${conviction || 'null'}`);
+
+    // Get existing cache entry
+    const cached = holdingsCache.cache.get(symbol);
+    if (!cached) {
+      return res.status(404).json({ error: `Symbol ${symbol} not found in cache` });
+    }
+
+    // Update conviction
+    cached.conviction = conviction || null;
+    holdingsCache.cache.set(symbol, cached);
+    holdingsCache.saveCache();
+
+    res.json({
+      success: true,
+      symbol: symbol,
+      conviction: cached.conviction,
+      message: `Updated conviction level for ${symbol}`
+    });
+
+  } catch (error) {
+    console.error('Conviction update error:', error);
+    res.status(500).json({ error: 'Failed to update conviction level' });
+  }
+});
+
 // Debug endpoint to reset processing flag
 router.post('/debug/reset-flag', (req, res) => {
   const wasProcessing = isProcessing;
@@ -3547,6 +3579,7 @@ async function processUploadedFiles(req, res) {
 
       // Parse CSV and extract trades
       const trades = [];
+      let tradeCounter = 0; // Counter for ensuring unique IDs
       console.log(`   ⏳ Starting CSV parsing for ${fileInfo.name}...`);
       await new Promise((resolve, reject) => {
         fs.createReadStream(filePath)
@@ -3569,12 +3602,12 @@ async function processUploadedFiles(req, res) {
                 // Create a defensive copy to avoid object mutation issues
                 const tradeCopy = { ...trade };
 
-                // Generate unique trade ID if not present
-                if (!tradeCopy.id) {
-                  tradeCopy.id = `${fileInfo.name}-${tradeCopy.date}-${tradeCopy.symbol}-${tradeCopy.action}-${tradeCopy.quantity}`;
-                }
+                // Generate unique trade ID (always regenerate to ensure proper format)
+                // Include price, total, and counter to handle identical trades in same file
+                tradeCopy.id = `${fileInfo.name}-${tradeCopy.date}-${tradeCopy.symbol}-${tradeCopy.action}-${tradeCopy.quantity}-${tradeCopy.price}-${tradeCopy.total}-${tradeCounter}`;
                 tradeCopy.sourceFile = fileInfo.name; // Track source file
                 trades.push(tradeCopy);
+                tradeCounter++; // Increment counter for next trade
               }
             } catch (error) {
               console.warn(`Error processing row in ${fileInfo.name}:`, error.message);
