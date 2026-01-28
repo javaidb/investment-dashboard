@@ -41,6 +41,7 @@ const HoldingsChartWrapper: React.FC = () => {
   const {
     holdings: cachedHoldings,
     latestPortfolio,
+    recurringInvestments,
     isLoading,
     error: cacheError
   } = useCache();
@@ -93,7 +94,7 @@ const HoldingsChartWrapper: React.FC = () => {
     setError(null); // Clear any previous errors
     processPortfolioData();
     // eslint-disable-next-line
-  }, [latestPortfolio, cachedHoldings, watchlistData, cachedPrices]);
+  }, [latestPortfolio, cachedHoldings, recurringInvestments, watchlistData, cachedPrices]);
 
   const processPortfolioData = () => {
     try {
@@ -198,12 +199,42 @@ const HoldingsChartWrapper: React.FC = () => {
         })
         .filter(Boolean) as Holding[];
 
-      // Combine portfolio holdings and custom symbols
-      const allHoldings = [...safeHoldings, ...customHoldings];
+      // Add recurring investments as holdings
+      const recurringHoldings = (recurringInvestments?.investments || [])
+        .filter((inv: any) => inv.enabled && inv.totalShares > 0)
+        .map((inv: any) => {
+          const symbol = inv.symbol;
+          const cachedPrice = cachedHoldings[symbol];
+
+          return {
+            symbol: symbol,
+            quantity: inv.totalShares || 0,
+            averagePrice: inv.totalInvested > 0 && inv.totalShares > 0 ? inv.totalInvested / inv.totalShares : 0,
+            totalInvested: inv.totalInvested || 0,
+            totalAmountInvested: inv.totalInvested || 0,
+            realizedPnL: 0,
+            amountSold: 0,
+            type: 's', // All recurring investments are stocks/ETFs
+            currency: 'CAD',
+            companyName: inv.name || cachedPrice?.companyName || symbol,
+            currentPrice: inv.currentPrice || cachedPrice?.cadPrice || 0,
+            currentValue: inv.currentValue || 0,
+            unrealizedPnL: inv.profitLoss || 0,
+            totalPnL: inv.profitLoss || 0,
+            totalPnLPercent: inv.profitLossPercent || 0,
+            cacheUsed: !!cachedPrice,
+            usdPrice: cachedPrice?.usdPrice || 0,
+            exchangeRate: cachedPrice?.exchangeRate || 1.4,
+            isRecurring: true // Flag to identify recurring investments
+          } as Holding & { usdPrice?: number; exchangeRate?: number; isRecurring?: boolean };
+        });
+
+      // Combine portfolio holdings, custom symbols, and recurring investments
+      const allHoldings = [...safeHoldings, ...customHoldings, ...recurringHoldings];
 
       setHoldings(allHoldings);
 
-      console.log(`✅ HoldingsChartWrapper: Portfolio data processing completed successfully (${safeHoldings.length} portfolio + ${customHoldings.length} custom = ${allHoldings.length} total)`);
+      console.log(`✅ HoldingsChartWrapper: Portfolio data processing completed successfully (${safeHoldings.length} portfolio + ${customHoldings.length} custom + ${recurringHoldings.length} recurring = ${allHoldings.length} total)`);
     } catch (processingError) {
       console.error('Error processing portfolio data in HoldingsChartWrapper:', processingError);
       setError(`Failed to process portfolio data: ${processingError instanceof Error ? processingError.message : 'Unknown error'}`);
