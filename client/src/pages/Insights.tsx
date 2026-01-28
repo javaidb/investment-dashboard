@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, PieChart, Heart, Calendar, ShieldAlert, Wallet, Save, FolderOpen, Trash2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, PieChart, Heart, Calendar, ShieldAlert, Wallet, Save, FolderOpen, Trash2, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
 import {
   PieChart as RechartsPieChart,
   Pie,
@@ -124,6 +124,29 @@ interface RebalancingStrategy {
   updatedAt: string;
 }
 
+interface RebalancingRecommendation {
+  symbol: string;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  amount: number;
+  currentInvestment: number;
+  targetInvestment: number;
+  timing: 'EXCELLENT' | 'GOOD' | 'NEUTRAL' | 'POOR' | 'INSUFFICIENT_DATA' | 'ERROR';
+  recommendation: string;
+  confidence: 'high' | 'medium' | 'low';
+  indicators: {
+    currentPrice?: number;
+    sma200?: number;
+    sma50?: number;
+    sma20?: number;
+    rsi?: number;
+    momentum20?: number;
+    momentum50?: number;
+    aboveMA200?: boolean;
+    distanceFromMA200?: string;
+  };
+  reasons: string[];
+}
+
 const Insights: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [winLossStats, setWinLossStats] = useState<WinLossStats | null>(null);
@@ -147,6 +170,11 @@ const Insights: React.FC = () => {
   const [strategyDescription, setStrategyDescription] = useState('');
   const [saveError, setSaveError] = useState('');
   const [selectedStrategyToOverwrite, setSelectedStrategyToOverwrite] = useState<string>('');
+
+  // State for recommendations
+  const [recommendations, setRecommendations] = useState<RebalancingRecommendation[]>([]);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+  const [showRecommendations, setShowRecommendations] = useState(false);
 
   useEffect(() => {
     fetchInsightsData();
@@ -262,6 +290,53 @@ const Insights: React.FC = () => {
     } catch (error) {
       console.error('Error deleting strategy:', error);
       alert('Failed to delete strategy');
+    }
+  };
+
+  const fetchRecommendations = async () => {
+    if (Object.keys(adjustments).length === 0) {
+      setRecommendations([]);
+      setShowRecommendations(false);
+      return;
+    }
+
+    try {
+      setLoadingRecommendations(true);
+
+      // Build current allocations from positions and recurring investments
+      const currentAllocations: {[symbol: string]: number} = {};
+
+      positions.forEach(p => {
+        currentAllocations[p.symbol] = p.totalCost;
+      });
+
+      recurringInvestments.forEach(r => {
+        currentAllocations[r.symbol] = r.totalInvested;
+      });
+
+      const response = await fetch('/api/rebalancing-recommendations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          adjustments: adjustments,
+          currentAllocations: currentAllocations
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch recommendations');
+      }
+
+      const data = await response.json();
+      setRecommendations(data.recommendations || []);
+      setShowRecommendations(true);
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+      setRecommendations([]);
+    } finally {
+      setLoadingRecommendations(false);
     }
   };
 
@@ -649,6 +724,14 @@ const Insights: React.FC = () => {
                         </div>
                         <div className="flex gap-2">
                           <button
+                            onClick={fetchRecommendations}
+                            disabled={Object.keys(adjustments).length === 0 || loadingRecommendations}
+                            className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                          >
+                            <Activity className="w-4 h-4" />
+                            {loadingRecommendations ? 'Analyzing...' : 'Get Recommendations'}
+                          </button>
+                          <button
                             onClick={() => setShowSaveModal(true)}
                             disabled={Object.keys(adjustments).length === 0}
                             className="px-3 py-1 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
@@ -660,6 +743,8 @@ const Insights: React.FC = () => {
                             onClick={() => {
                               setAdjustments({});
                               setSearchSymbol('');
+                              setRecommendations([]);
+                              setShowRecommendations(false);
                             }}
                             className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200"
                           >
@@ -775,6 +860,147 @@ const Insights: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Rebalancing Recommendations Section */}
+                {showRecommendations && recommendations.length > 0 && (
+                  <div className="mt-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-lg border border-blue-200 p-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-blue-600" />
+                      Timing Recommendations for Your Adjustments
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-6">
+                      Based on technical analysis (200-day MA, RSI, momentum), here's when to execute your rebalancing moves:
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {recommendations.map((rec) => {
+                        const timingColors = {
+                          EXCELLENT: 'bg-green-100 border-green-400 text-green-800',
+                          GOOD: 'bg-blue-100 border-blue-400 text-blue-800',
+                          NEUTRAL: 'bg-yellow-100 border-yellow-400 text-yellow-800',
+                          POOR: 'bg-red-100 border-red-400 text-red-800',
+                          INSUFFICIENT_DATA: 'bg-gray-100 border-gray-400 text-gray-800',
+                          ERROR: 'bg-gray-100 border-gray-400 text-gray-800'
+                        };
+
+                        const timingIcons = {
+                          EXCELLENT: <CheckCircle className="w-4 h-4" />,
+                          GOOD: <CheckCircle className="w-4 h-4" />,
+                          NEUTRAL: <Clock className="w-4 h-4" />,
+                          POOR: <XCircle className="w-4 h-4" />,
+                          INSUFFICIENT_DATA: <AlertTriangle className="w-4 h-4" />,
+                          ERROR: <AlertTriangle className="w-4 h-4" />
+                        };
+
+                        return (
+                          <div key={rec.symbol} className={`border-l-4 rounded-lg p-3 ${timingColors[rec.timing]} h-full flex flex-col`}>
+                            {/* Header */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-1.5">
+                                {timingIcons[rec.timing]}
+                                <h4 className="font-bold text-base">{rec.symbol}</h4>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${rec.action === 'BUY' ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
+                                  {rec.action}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Timing Badge */}
+                            <div className="mb-2">
+                              <span className="text-xs font-bold uppercase">{rec.timing}</span>
+                              <span className="text-xs text-gray-600 ml-1">({rec.confidence})</span>
+                            </div>
+
+                            {/* Numbers */}
+                            <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+                              <div>
+                                <div className="text-gray-600">Current</div>
+                                <div className="font-semibold">${(rec.currentInvestment || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                              </div>
+                              <div>
+                                <div className="text-gray-600">Target</div>
+                                <div className="font-semibold">${(rec.targetInvestment || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                              </div>
+                            </div>
+
+                            {/* Change Amount */}
+                            <div className="mb-2 text-xs">
+                              <span className="text-gray-600">Change: </span>
+                              <span className={`font-bold ${rec.action === 'BUY' ? 'text-green-700' : 'text-red-700'}`}>
+                                {rec.action === 'BUY' ? '+' : '-'}${(rec.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                              </span>
+                            </div>
+
+                            {/* Recommendation */}
+                            <p className="text-xs font-semibold mb-2 flex-grow">{rec.recommendation}</p>
+
+                            {/* Key Factors - Collapsible */}
+                            {rec.reasons && rec.reasons.length > 0 && (
+                              <details className="mt-auto">
+                                <summary className="text-xs font-semibold cursor-pointer hover:text-gray-700 mb-1">
+                                  Key Factors ({rec.reasons.length})
+                                </summary>
+                                <ul className="text-xs space-y-0.5 ml-2 mt-1">
+                                  {rec.reasons.map((reason, idx) => (
+                                    <li key={idx} className="flex items-start gap-1">
+                                      <span className="mt-0.5">•</span>
+                                      <span className="leading-tight">{reason}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+
+                            {/* Technical Indicators - Collapsible */}
+                            {rec.indicators && Object.keys(rec.indicators).length > 0 && (
+                              <details className="mt-2">
+                                <summary className="text-xs font-semibold cursor-pointer hover:text-gray-700">
+                                  Technical Indicators
+                                </summary>
+                                <div className="mt-1 grid grid-cols-2 gap-1 text-xs">
+                                  {rec.indicators?.currentPrice && (
+                                    <div className="truncate">
+                                      <span className="text-gray-600">Price: </span>
+                                      <span className="font-semibold">${rec.indicators.currentPrice.toFixed(2)}</span>
+                                    </div>
+                                  )}
+                                  {rec.indicators?.sma200 && (
+                                    <div className="truncate">
+                                      <span className="text-gray-600">200MA: </span>
+                                      <span className="font-semibold">${rec.indicators.sma200.toFixed(2)}</span>
+                                    </div>
+                                  )}
+                                  {rec.indicators?.rsi && (
+                                    <div className="truncate">
+                                      <span className="text-gray-600">RSI: </span>
+                                      <span className="font-semibold">{rec.indicators.rsi.toFixed(1)}</span>
+                                    </div>
+                                  )}
+                                  {rec.indicators?.momentum20 !== undefined && (
+                                    <div className="truncate">
+                                      <span className="text-gray-600">Mom: </span>
+                                      <span className={`font-semibold ${rec.indicators.momentum20 > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                        {rec.indicators.momentum20.toFixed(1)}%
+                                      </span>
+                                    </div>
+                                  )}
+                                  {rec.indicators?.distanceFromMA200 && (
+                                    <div className="truncate">
+                                      <span className="text-gray-600">vs MA: </span>
+                                      <span className="font-semibold">{rec.indicators.distanceFromMA200}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </>
             );
           })()
