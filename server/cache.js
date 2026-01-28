@@ -64,7 +64,8 @@ class HoldingsCache {
       usdPrice: data.usdPrice,
       cadPrice: data.cadPrice,
       companyName: data.companyName,
-      sector: data.sector || null, // Sector/category information (permanent, doesn't change)
+      sector: data.sector || existing?.sector || null, // Preserve existing sector if not provided
+      conviction: data.conviction !== undefined ? data.conviction : (existing?.conviction || null), // Preserve existing conviction
       exchangeRate: data.exchangeRate,
       lastUpdated: new Date().toISOString(),
       priceDate: data.priceDate || new Date().toISOString(), // Store when the price data refers to
@@ -91,10 +92,13 @@ class HoldingsCache {
       return;
     }
 
-    // Preserve existing sector if not provided in update (sector doesn't change)
+    // Preserve existing sector and conviction if not provided in update (these don't change with price updates)
     const existing = this.cache.get(symbol);
     if (existing && existing.sector && !data.sector) {
       data.sector = existing.sector;
+    }
+    if (existing && existing.conviction !== undefined && data.conviction === undefined) {
+      data.conviction = existing.conviction;
     }
 
     this.set(symbol, data);
