@@ -20,6 +20,7 @@ const recurringInvestmentsRoutes = require('./routes/recurring-investments');
 const pnlRoutes = require('./routes/pnl');
 const newsboardRoutes = require('./routes/newsboard');
 const portfolioValueRoutes = require('./routes/portfolio-value');
+const rebalancingStrategiesRoutes = require('./routes/rebalancing-strategies');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
@@ -95,6 +96,7 @@ app.use('/api/recurring-investments', recurringInvestmentsRoutes);
 app.use('/api/pnl', pnlRoutes);
 app.use('/api/newsboard', newsboardRoutes);
 app.use('/api/portfolio-value', portfolioValueRoutes);
+app.use('/api/strategies', rebalancingStrategiesRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
