@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, PieChart, Heart, Calendar, ShieldAlert, Wallet } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, Award, AlertTriangle, PieChart, Heart, Calendar, ShieldAlert, Wallet, Save, FolderOpen, Trash2 } from 'lucide-react';
 import {
   PieChart as RechartsPieChart,
   Pie,
@@ -115,6 +115,15 @@ interface RecurringInvestment {
   totalInvested: number;
 }
 
+interface RebalancingStrategy {
+  id: string;
+  name: string;
+  description: string;
+  adjustments: {[symbol: string]: number};
+  createdAt: string;
+  updatedAt: string;
+}
+
 const Insights: React.FC = () => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [winLossStats, setWinLossStats] = useState<WinLossStats | null>(null);
@@ -130,8 +139,18 @@ const Insights: React.FC = () => {
   const [showAdjustments, setShowAdjustments] = useState(false);
   const [searchSymbol, setSearchSymbol] = useState('');
 
+  // State for saved strategies
+  const [savedStrategies, setSavedStrategies] = useState<RebalancingStrategy[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [strategyName, setStrategyName] = useState('');
+  const [strategyDescription, setStrategyDescription] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [selectedStrategyToOverwrite, setSelectedStrategyToOverwrite] = useState<string>('');
+
   useEffect(() => {
     fetchInsightsData();
+    fetchSavedStrategies();
   }, []);
 
   const fetchInsightsData = async () => {
@@ -150,6 +169,99 @@ const Insights: React.FC = () => {
       console.error('Error fetching insights:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSavedStrategies = async () => {
+    try {
+      const response = await fetch('/api/strategies');
+      const data = await response.json();
+      setSavedStrategies(data);
+    } catch (error) {
+      console.error('Error fetching saved strategies:', error);
+    }
+  };
+
+  const saveStrategy = async (forceOverwrite = false) => {
+    try {
+      setSaveError('');
+
+      if (!strategyName.trim()) {
+        setSaveError('Please enter a strategy name');
+        return;
+      }
+
+      if (Object.keys(adjustments).length === 0) {
+        setSaveError('Please make at least one adjustment before saving');
+        return;
+      }
+
+      // Determine if overwriting
+      const overwrite = forceOverwrite || selectedStrategyToOverwrite !== '';
+      const existingId = selectedStrategyToOverwrite || null;
+
+      const response = await fetch('/api/strategies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: strategyName,
+          description: strategyDescription,
+          adjustments: adjustments,
+          overwrite: overwrite,
+          existingId: existingId
+        })
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        // If name conflict and we have the existing strategy info
+        if (response.status === 400 && responseData.existingStrategy) {
+          setSaveError(`A strategy named "${strategyName}" already exists. Choose it from the dropdown to overwrite or use a different name.`);
+          return;
+        }
+        setSaveError(responseData.error || 'Failed to save strategy');
+        return;
+      }
+
+      await fetchSavedStrategies();
+      setShowSaveModal(false);
+      setStrategyName('');
+      setStrategyDescription('');
+      setSaveError('');
+      setSelectedStrategyToOverwrite('');
+    } catch (error) {
+      console.error('Error saving strategy:', error);
+      setSaveError('Failed to save strategy');
+    }
+  };
+
+  const loadStrategy = (strategy: RebalancingStrategy) => {
+    setAdjustments(strategy.adjustments);
+    setShowLoadModal(false);
+    setShowAdjustments(true);
+  };
+
+  const deleteStrategy = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this strategy?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/strategies/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete strategy');
+      }
+
+      await fetchSavedStrategies();
+    } catch (error) {
+      console.error('Error deleting strategy:', error);
+      alert('Failed to delete strategy');
     }
   };
 
@@ -507,16 +619,25 @@ const Insights: React.FC = () => {
                         Adjust asset investments to see how targets would change
                       </p>
                     </div>
-                    <button
-                      onClick={() => setShowAdjustments(!showAdjustments)}
-                      className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                        showAdjustments
-                          ? 'bg-blue-600 text-white hover:bg-blue-700'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      {showAdjustments ? 'Hide Simulator' : 'Show Simulator'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowLoadModal(true)}
+                        className="px-4 py-2 rounded-lg font-semibold text-sm bg-purple-600 text-white hover:bg-purple-700 transition-colors flex items-center gap-2"
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                        Load Strategy
+                      </button>
+                      <button
+                        onClick={() => setShowAdjustments(!showAdjustments)}
+                        className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
+                          showAdjustments
+                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {showAdjustments ? 'Hide Simulator' : 'Show Simulator'}
+                      </button>
+                    </div>
                   </div>
 
                   {showAdjustments && (
@@ -526,15 +647,25 @@ const Insights: React.FC = () => {
                           <p className="font-semibold">Original Total: <span className="text-gray-900">${allAssets.reduce((sum, a) => sum + a.totalCost, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
                           <p className="font-semibold mt-1">Adjusted Total: <span className={`${grandTotalInvested > allAssets.reduce((sum, a) => sum + a.totalCost, 0) ? 'text-green-600' : grandTotalInvested < allAssets.reduce((sum, a) => sum + a.totalCost, 0) ? 'text-red-600' : 'text-gray-900'}`}>${grandTotalInvested.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
                         </div>
-                        <button
-                          onClick={() => {
-                            setAdjustments({});
-                            setSearchSymbol('');
-                          }}
-                          className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200"
-                        >
-                          Reset All
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowSaveModal(true)}
+                            disabled={Object.keys(adjustments).length === 0}
+                            className="px-3 py-1 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                          >
+                            <Save className="w-4 h-4" />
+                            Save Strategy
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAdjustments({});
+                              setSearchSymbol('');
+                            }}
+                            className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200"
+                          >
+                            Reset All
+                          </button>
+                        </div>
                       </div>
 
                       {/* Search Bar */}
@@ -975,6 +1106,163 @@ const Insights: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Save Strategy Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Save Rebalancing Strategy</h3>
+
+            {saveError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {saveError}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Overwrite Existing Strategy (optional)
+              </label>
+              <select
+                value={selectedStrategyToOverwrite}
+                onChange={(e) => {
+                  const strategyId = e.target.value;
+                  setSelectedStrategyToOverwrite(strategyId);
+
+                  // Auto-fill name and description if overwriting
+                  if (strategyId) {
+                    const strategy = savedStrategies.find(s => s.id === strategyId);
+                    if (strategy) {
+                      setStrategyName(strategy.name);
+                      setStrategyDescription(strategy.description);
+                    }
+                  }
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+              >
+                <option value="">Create New Strategy</option>
+                {savedStrategies.map((strategy) => (
+                  <option key={strategy.id} value={strategy.id}>
+                    {strategy.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {selectedStrategyToOverwrite ? 'This will overwrite the selected strategy' : 'Or select an existing strategy to overwrite it'}
+              </p>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Strategy Name*
+              </label>
+              <input
+                type="text"
+                value={strategyName}
+                onChange={(e) => setStrategyName(e.target.value)}
+                placeholder="e.g., Increase Tech Holdings"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Description (optional)
+              </label>
+              <textarea
+                value={strategyDescription}
+                onChange={(e) => setStrategyDescription(e.target.value)}
+                placeholder="Add notes about this strategy..."
+                rows={3}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600 font-semibold mb-1">Adjustments:</p>
+              <p className="text-xs text-gray-500">{Object.keys(adjustments).length} assets modified</p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => saveStrategy()}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+              >
+                {selectedStrategyToOverwrite ? 'Overwrite Strategy' : 'Save Strategy'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowSaveModal(false);
+                  setSaveError('');
+                  setStrategyName('');
+                  setStrategyDescription('');
+                  setSelectedStrategyToOverwrite('');
+                }}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Strategy Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Load Rebalancing Strategy</h3>
+
+            {savedStrategies.length === 0 ? (
+              <div className="text-center py-12">
+                <FolderOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-600 font-semibold mb-2">No saved strategies</p>
+                <p className="text-sm text-gray-500">Create adjustments and save them to reuse later</p>
+              </div>
+            ) : (
+              <div className="space-y-3 mb-6">
+                {savedStrategies.map((strategy) => (
+                  <div key={strategy.id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <h4 className="font-bold text-gray-900">{strategy.name}</h4>
+                        {strategy.description && (
+                          <p className="text-sm text-gray-600 mt-1">{strategy.description}</p>
+                        )}
+                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                          <span>{Object.keys(strategy.adjustments).length} assets</span>
+                          <span>Created {new Date(strategy.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <button
+                          onClick={() => loadStrategy(strategy)}
+                          className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => deleteStrategy(strategy.id)}
+                          className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowLoadModal(false)}
+              className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
