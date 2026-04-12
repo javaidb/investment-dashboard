@@ -230,6 +230,22 @@ const RecurringInvestments: React.FC = () => {
                 }}>
                   {investment.symbol} · {investment.institution}
                 </div>
+                {investment.accounts && investment.accounts.length > 0 && (
+                  <div style={{ display: 'flex', gap: '4px', marginTop: '5px', flexWrap: 'wrap' }}>
+                    {investment.accounts.map((acc: string) => {
+                      const bg    = acc === 'TFSA' ? '#dcfce7' : acc === 'RRSP' ? '#dbeafe' : '#fef3c7';
+                      const color = acc === 'TFSA' ? '#166534' : acc === 'RRSP' ? '#1d4ed8' : '#92400e';
+                      return (
+                        <span key={acc} style={{
+                          background: bg, color,
+                          padding: '1px 7px', borderRadius: '10px',
+                          fontSize: '10px', fontWeight: 700,
+                          border: `1px solid ${color}30`,
+                        }}>{acc}</span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Vertical Separator */}
