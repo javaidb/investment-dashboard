@@ -16,6 +16,7 @@ import NewsBoard from './components/NewsBoard';
 import Icons from './components/Icons';
 import NotFound from './pages/NotFound';
 import IconTest from './components/IconTest';
+import Tax from './pages/Tax';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
             <Route path="/icons" element={<Icons />} />
             <Route path="/cache" element={<CacheManagement />} />
             <Route path="/icons-test" element={<IconTest />} />
+            <Route path="/tax" element={<Tax />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
