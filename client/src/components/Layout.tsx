@@ -15,7 +15,8 @@ import {
   Eye,
   LineChart,
   Newspaper,
-  Lightbulb
+  Lightbulb,
+  Receipt
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -48,6 +49,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Risk', href: '/ratios', icon: Calculator },
     { name: 'Insights', href: '/insights', icon: Lightbulb },
     { name: 'Analysis', href: '/analysis', icon: Activity },
+    { name: 'Tax', href: '/tax', icon: Receipt },
     { type: 'separator' },
     { name: 'Portfolio', href: '/portfolio', icon: Upload },
     { name: 'Icons', href: '/icons', icon: Image },
