@@ -156,29 +156,21 @@ async function getOrAssignIconId(symbol, type = 's') {
     return mapping.mappings[key];
   }
   
-  // Assign new ID
+  // Assign new entry pointing to shared template — user assigns a real icon later via the Icons tab
   const newId = mapping.nextId;
   mapping.mappings[key] = {
     id: newId,
     symbol: symbol.toUpperCase(),
     type: type,
-    filename: `${newId}.png`,
+    filename: 'template.png',
     created: new Date().toISOString(),
     source: 'template'
   };
   mapping.nextId = newId + 1;
-  
+
   await saveAssetMapping(mapping);
-  
-  // Copy template to new icon file
-  const newIconPath = path.join(ICONS_DIR, `${newId}.png`);
-  try {
-    await fs.copyFile(TEMPLATE_ICON_PATH, newIconPath);
-    console.log(`Created new icon ${newId}.png for ${symbol} (${type === 'c' ? 'crypto' : 'stock'})`);
-  } catch (error) {
-    console.error(`Error copying template for ${symbol}:`, error);
-  }
-  
+  console.log(`Assigned template.png for ${symbol} (${type === 'c' ? 'crypto' : 'stock'})`);
+
   return mapping.mappings[key];
 }
 
@@ -247,29 +239,6 @@ async function fetchIcon(symbol, type = 's') {
 
   // Get or assign unique ID for this symbol
   const iconMapping = await getOrAssignIconId(symbol, type);
-  
-  // Check if the icon file exists
-  const iconPath = path.join(ICONS_DIR, iconMapping.filename);
-  try {
-    await fs.access(iconPath);
-  } catch (error) {
-    // Icon file doesn't exist, copy from template
-    try {
-      await fs.copyFile(TEMPLATE_ICON_PATH, iconPath);
-      console.log(`Created icon ${iconMapping.filename} for ${symbol} from template`);
-    } catch (copyError) {
-      console.error(`Failed to create icon for ${symbol}:`, copyError);
-      // Update cache with failed status
-      cache[cacheKey] = {
-        symbol,
-        type,
-        timestamp: Date.now(),
-        failed: true
-      };
-      await saveIconsCache(cache);
-      return null;
-    }
-  }
 
   // Create icon data object
   const iconData = {
@@ -439,57 +408,96 @@ router.post('/batch', async (req, res) => {
   }
 });
 
-// Get icons cache (filtered by actual portfolio holdings)
+// Get icons cache (all portfolio holdings, initializing missing ones)
 router.get('/cache', async (req, res) => {
   try {
-    const cache = await loadIconsCache();
-
-    // Load portfolio holdings to filter icons
+    // Load portfolio holdings
     const portfoliosPath = path.join(__dirname, '..', 'data', 'cache', 'portfolios.json');
-    let actualHoldings = new Set();
+    let allHoldings = [];
 
     try {
       const portfoliosData = await fs.readFile(portfoliosPath, 'utf8');
       const portfolios = JSON.parse(portfoliosData);
 
-      // Collect all unique symbol+type combinations from all portfolios
+      // Collect all unique symbol+type combinations from trades (more complete than holdings)
+      const seen = new Set();
       Object.values(portfolios).forEach(portfolioEntry => {
         const portfolio = portfolioEntry.portfolio || portfolioEntry;
+
+        // From trades (catches all ever-traded symbols)
+        if (portfolio.trades && Array.isArray(portfolio.trades)) {
+          portfolio.trades.forEach(trade => {
+            if (trade.symbol) {
+              const type = trade.type || 's';
+              const key = `${trade.symbol.toUpperCase()}_${type}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                allHoldings.push({ symbol: trade.symbol.toUpperCase(), type });
+              }
+            }
+          });
+        }
+
+        // Also from holdings (in case trades aren't available)
         if (portfolio.holdings && Array.isArray(portfolio.holdings)) {
           portfolio.holdings.forEach(holding => {
-            if (holding.symbol && holding.quantity > 0) {
+            if (holding.symbol) {
               const type = holding.type || 's';
-              const cacheKey = `${holding.symbol}_${type}`.toLowerCase();
-              actualHoldings.add(cacheKey);
+              const key = `${holding.symbol.toUpperCase()}_${type}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                allHoldings.push({ symbol: holding.symbol.toUpperCase(), type });
+              }
             }
           });
         }
       });
 
-      console.log(`🔍 Found ${actualHoldings.size} unique holdings in portfolio`);
+      console.log(`🔍 Found ${allHoldings.length} unique symbols in portfolio`);
     } catch (portfolioError) {
-      console.warn('⚠️ Could not load portfolios for filtering, returning all icons:', portfolioError.message);
-      // If we can't load portfolios, return all icons
-      return res.json({
-        success: true,
-        cache: cache
-      });
+      console.warn('⚠️ Could not load portfolios, returning existing cache:', portfolioError.message);
+      const cache = await loadIconsCache();
+      return res.json({ success: true, cache });
     }
 
-    // Filter cache to only include icons for actual holdings
+    // Also include recurring investment symbols (e.g. BNS397) which are not in portfolios.json
+    try {
+      const recurringPath = path.join(__dirname, '..', 'data', 'recurring-investments.json');
+      const recurringData = await fs.readFile(recurringPath, 'utf8');
+      const { recurringInvestments } = JSON.parse(recurringData);
+      const seen = new Set(allHoldings.map(h => `${h.symbol}_${h.type}`));
+      for (const inv of (recurringInvestments || [])) {
+        if (inv.symbol) {
+          const key = `${inv.symbol.toUpperCase()}_s`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            allHoldings.push({ symbol: inv.symbol.toUpperCase(), type: 's' });
+          }
+        }
+      }
+      console.log(`🔍 Total symbols including recurring investments: ${allHoldings.length}`);
+    } catch (recurringError) {
+      console.warn('⚠️ Could not load recurring investments for icons:', recurringError.message);
+    }
+
+    // Initialize icons for any symbols not yet in cache (sequential to avoid race condition on ID assignment)
+    for (const { symbol, type } of allHoldings) {
+      await fetchIcon(symbol, type).catch(() => null);
+    }
+
+    // Return the full cache filtered to portfolio symbols
+    const cache = await loadIconsCache();
+    const portfolioKeys = new Set(allHoldings.map(({ symbol, type }) => `${symbol}_${type}`.toLowerCase()));
     const filteredCache = {};
     Object.entries(cache).forEach(([key, value]) => {
-      if (actualHoldings.has(key.toLowerCase())) {
+      if (portfolioKeys.has(key.toLowerCase())) {
         filteredCache[key] = value;
       }
     });
 
-    console.log(`📦 Returning ${Object.keys(filteredCache).length} icons (filtered from ${Object.keys(cache).length} total)`);
+    console.log(`📦 Returning ${Object.keys(filteredCache).length} icons for ${allHoldings.length} portfolio symbols`);
 
-    res.json({
-      success: true,
-      cache: filteredCache
-    });
+    res.json({ success: true, cache: filteredCache });
   } catch (error) {
     console.error('Error getting icons cache:', error);
     res.status(500).json({ error: 'Internal server error' });
