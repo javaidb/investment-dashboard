@@ -61,8 +61,58 @@ interface SymbolSummary {
   isActive: boolean;
 }
 
+interface TimingRecommendation {
+  symbol: string;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  amount: number;
+  currentInvestment: number;
+  targetInvestment: number;
+  timing: 'EXCELLENT' | 'GOOD' | 'NEUTRAL' | 'POOR' | 'INSUFFICIENT_DATA' | 'ERROR';
+  recommendation: string;
+  confidence: 'high' | 'medium' | 'low';
+  indicators: {
+    currentPrice?: number;
+    cadPrice?: number;
+    exchangeRate?: number;
+    sma200?: number;
+    sma50?: number;
+    sma20?: number;
+    rsi?: number;
+    momentum20?: number;
+    momentum50?: number;
+    aboveMA200?: boolean;
+    distanceFromMA200?: string;
+    distanceFromMA50?: string;
+    distanceFromMA20?: string;
+    volatility?: number;
+    weekHigh52?: number;
+    weekLow52?: number;
+    distanceFromHigh?: number;
+    distanceFromLow?: number;
+    volumeTrend?: number;
+    macdBullish?: boolean | null;
+    macdHistogram?: number | null;
+    bollingerB?: number | null;
+    adx?: number | null;
+    safetyScore?: number | null;
+    riskReward?: number | null;
+    momentum5?: number | null;
+    momentum252?: number | null;
+    cmf?: number | null;
+    atrPercent?: number | null;
+    relativeStrength?: number | null;
+    beta?: number | null;
+  };
+  reasons: string[];
+  buyScore: number | null;
+  sellScore: number | null;
+  unrealizedPnL?: number;
+  realizedPnL?: number;
+  totalProfit?: number;
+}
+
 const NewsBoard: React.FC = () => {
-  const [selectedView, setSelectedView] = useState<'alerts' | 'gains-losses' | 'notable-change' | 'eagle'>('alerts');
+  const [selectedView, setSelectedView] = useState<'alerts' | 'gains-losses' | 'notable-change' | 'eagle' | 'recs' | 'sells'>('recs');
 
   const { data, isLoading, error, refetch } = useQuery<NewsResponse>(
     'newsboard',
@@ -89,7 +139,7 @@ const NewsBoard: React.FC = () => {
         const portfolioList = listResponse.data;
 
         if (!portfolioList || portfolioList.length === 0) {
-          return {};
+          return { holdingsMap: {}, activeHoldings: [], allPortfolioHoldings: [] };
         }
 
         // Get the first (most recent) portfolio's full data
@@ -99,19 +149,47 @@ const NewsBoard: React.FC = () => {
 
         // Convert holdings array to map keyed by symbol
         const holdingsMap: { [key: string]: any } = {};
+        const activeHoldings: any[] = [];
+        const allPortfolioHoldings: any[] = [];
+
         if (portfolio.holdings && Array.isArray(portfolio.holdings)) {
           portfolio.holdings.forEach((holding: any) => {
+            const shares = holding.quantity || 0;
+            const currentValue = holding.currentValue || 0;
+            const totalInvested = holding.totalInvested || 0;
+            const unrealizedPnL = holding.unrealizedPnL || 0;
+            const realizedPnL = holding.realizedPnL || 0;
+
             holdingsMap[holding.symbol] = {
-              shares: holding.quantity || 0,
-              currentValue: holding.currentValue || 0,
+              shares,
+              currentValue,
+              totalInvested,
+              unrealizedPnL,
+              realizedPnL,
             };
+
+            const entry = {
+              symbol: holding.symbol,
+              currentInvestment: totalInvested,
+              shares,
+              currentValue,
+              unrealizedPnL,
+              realizedPnL,
+            };
+
+            allPortfolioHoldings.push(entry);
+
+            // Only include active holdings (shares >= 0.01)
+            if (shares >= 0.01) {
+              activeHoldings.push(entry);
+            }
           });
         }
 
-        return holdingsMap;
+        return { holdingsMap, activeHoldings, allPortfolioHoldings };
       } catch (error) {
         console.error('Error fetching holdings:', error);
-        return {};
+        return { holdingsMap: {}, activeHoldings: [], allPortfolioHoldings: [] };
       }
     },
     {
@@ -120,11 +198,80 @@ const NewsBoard: React.FC = () => {
     }
   );
 
+  // Fetch watchlist (active, inactive, custom) to supplement portfolio holdings
+  const { data: watchlistData } = useQuery(
+    'watchlist-data',
+    async () => {
+      try {
+        const response = await axios.get('/api/watchlist');
+        return response.data as { active: string[]; inactive: string[]; custom: string[] };
+      } catch (error) {
+        console.error('Error fetching watchlist:', error);
+        return { active: [], inactive: [], custom: [] };
+      }
+    },
+    {
+      staleTime: 5 * 60 * 1000,
+      cacheTime: 30 * 60 * 1000,
+    }
+  );
+
+  // Fetch timing recommendations for ALL tracked assets (active, inactive, custom watchlist)
+  const { data: recsData, isLoading: recsLoading, refetch: refetchRecs } = useQuery(
+    'recs-timing-data',
+    async () => {
+      try {
+        const allPortfolioHoldings = holdingsData?.allPortfolioHoldings || [];
+        const portfolioSymbols = new Set(allPortfolioHoldings.map((h: any) => h.symbol));
+
+        // Add ALL watchlist symbols (active, inactive, custom) not already in portfolio
+        const watchlistSymbols = [
+          ...(watchlistData?.active   || []),
+          ...(watchlistData?.inactive || []),
+          ...(watchlistData?.custom   || []),
+        ];
+        const extraHoldings = watchlistSymbols.filter((sym: string, i: number) => watchlistSymbols.indexOf(sym) === i)
+          .filter((sym: string) => !portfolioSymbols.has(sym))
+          .map((sym: string) => ({
+            symbol: sym,
+            currentInvestment: 0,
+            shares: 0,
+            currentValue: 0,
+            unrealizedPnL: 0,
+            realizedPnL: 0,
+          }));
+
+        const allHoldings = [...allPortfolioHoldings, ...extraHoldings];
+
+        if (allHoldings.length === 0) {
+          return { recommendations: [], summary: { total: 0, strongBuys: 0, strongSells: 0, analyzed: 0 } };
+        }
+
+        console.log('🔄 Fetching timing recommendations for', allHoldings.length, 'total tracked assets');
+
+        const response = await axios.post('/api/rebalancing-recommendations/all-active', {
+          holdings: allHoldings,
+        });
+
+        console.log('✅ Received timing recommendations:', response.data);
+        return response.data;
+      } catch (error) {
+        console.error('❌ Failed to fetch timing recommendations:', error);
+        return { recommendations: [], summary: { total: 0, strongBuys: 0, strongSells: 0, analyzed: 0 } };
+      }
+    },
+    {
+      enabled: (selectedView === 'recs' || selectedView === 'sells') && !!holdingsData?.allPortfolioHoldings && !!watchlistData,
+      staleTime: 10 * 60 * 1000, // 10 minutes
+      cacheTime: 30 * 60 * 1000, // 30 minutes
+    }
+  );
+
   // Group news items by symbol and summarize (excluding recovery signals and breakeven signals for gains/losses view)
   const symbolSummaries = useMemo(() => {
     if (!data?.items) return [];
 
-    console.log('🔍 Holdings Data:', holdingsData);
+    console.log('🔍 Holdings Data:', holdingsData?.holdingsMap);
 
     const grouped = new Map<string, SymbolSummary>();
 
@@ -151,7 +298,7 @@ const NewsBoard: React.FC = () => {
           : item.type === 'achievement' || item.type === 'momentum_signal';
 
         // Check if asset is active (has shares > 0 in holdings)
-        const holding = holdingsData?.[item.symbol];
+        const holding = holdingsData?.holdingsMap?.[item.symbol];
         const isActive = holding && holding.shares > 0;
 
         console.log(`📊 ${item.symbol}: holding=`, holding, 'isActive=', isActive);
@@ -182,7 +329,7 @@ const NewsBoard: React.FC = () => {
     return data.items
       .filter(item => item.title === 'Potential Recovery Signal')
       .map(item => {
-        const holding = holdingsData?.[item.symbol];
+        const holding = holdingsData?.holdingsMap?.[item.symbol];
         const isActive = holding && holding.shares > 0;
 
         return {
@@ -203,7 +350,7 @@ const NewsBoard: React.FC = () => {
     return data.items
       .filter(item => item.title === 'Below Breakeven Price')
       .map(item => {
-        const holding = holdingsData?.[item.symbol];
+        const holding = holdingsData?.holdingsMap?.[item.symbol];
         // Check for meaningful share count (> 0.01 to handle floating point artifacts)
         const isActive = holding && holding.shares >= 0.01;
 
@@ -229,7 +376,7 @@ const NewsBoard: React.FC = () => {
     return data.items
       .filter(item => item.title === 'Peak & Decline Alert')
       .map(item => {
-        const holding = holdingsData?.[item.symbol];
+        const holding = holdingsData?.holdingsMap?.[item.symbol];
         const isActive = holding && holding.shares >= 0.01;
 
         return {
@@ -344,6 +491,143 @@ const NewsBoard: React.FC = () => {
       staleTime: 10 * 60 * 1000,
     }
   );
+
+  // Helper functions for sell recommendations
+  const getReason1 = (symbol: string, pnlPercent: number): string => {
+    const reasons: { [key: string]: string } = {
+      'TRUMP': 'Meme coin down 99.99% - worthless',
+      'DOGE': 'Meme coin with no utility - high risk',
+      'SOL': 'Position too small to be meaningful',
+      'ZEC': 'Privacy coin - limited adoption',
+      'MSTR': 'Over-leveraged Bitcoin proxy - crash risk in correction',
+      'IREN': 'Bitcoin miner - high operating costs in downturn',
+      'LULU': 'Weak discretionary retail fundamentals',
+      'ZETA': 'Small cap with weak positioning',
+      'HIMS': 'Speculative telehealth under pressure',
+    };
+    return reasons[symbol] || `Down ${pnlPercent.toFixed(1)}% - high risk`;
+  };
+
+  const getReason2 = (symbol: string, pnlPercent: number, indicators: any): string => {
+    if (symbol === 'TSLA') return `Up ${pnlPercent.toFixed(1)}% - lock in gains, high volatility`;
+    if (symbol === 'ASTS') return `Up ${pnlPercent.toFixed(1)}% - speculative space stock`;
+    if (symbol === 'BTC') return `RSI ${indicators?.rsi?.toFixed(0) || 'high'} - crypto vulnerable in correction`;
+    if (symbol === 'ETH') return `Down ${Math.abs(pnlPercent).toFixed(1)}% - reduce crypto exposure`;
+    if (symbol === 'NVDA') return 'Near 52-week high - extended valuation';
+    if (symbol === 'AVGO') return 'Reduce losing mega-cap position';
+    return 'Consider trimming exposure';
+  };
+
+  const getTrimPercent = (symbol: string, pnlPercent: number): number => {
+    if (symbol === 'TSLA' && pnlPercent > 0) return 50; // Take 50% profits
+    if (symbol === 'ASTS' && pnlPercent > 30) return 50;
+    if (symbol === 'BTC') return 33; // Trim 1/3
+    if (symbol === 'ETH') return 25;
+    if (symbol === 'NVDA') return 50;
+    if (symbol === 'AVGO') return 33;
+    return 25;
+  };
+
+  // Categorize assets for sell recommendations based on correction strategy
+  const sellRecommendations = useMemo(() => {
+    if (!recsData?.recommendations || !holdingsData?.holdingsMap) return { priority1: [], priority2: [], total: 0 };
+
+    const priority1: any[] = []; // Immediate sells
+    const priority2: any[] = []; // Trim/reduce positions
+
+    recsData.recommendations.forEach((rec: TimingRecommendation) => {
+      const holding = holdingsData.holdingsMap[rec.symbol];
+      if (!holding || holding.shares < 0.01) return;
+
+      const pnlPercent = holding.totalInvested > 0
+        ? ((holding.unrealizedPnL || 0) / holding.totalInvested) * 100
+        : 0;
+
+      // Priority 1: Immediate Sell Candidates
+      // Meme coins/stocks down significantly or fundamentally weak
+      if (
+        rec.symbol === 'TRUMP' || // Meme coin, down 99%+
+        rec.symbol === 'DOGE' || // Meme coin
+        rec.symbol === 'SOL' && holding.shares < 0.01 || // Essentially worthless position
+        rec.symbol === 'ZEC' || // Privacy coin, limited adoption
+        (rec.symbol === 'MSTR' && pnlPercent < -30) || // Bitcoin proxy, down significantly
+        (rec.symbol === 'IREN' && pnlPercent < 0) || // Bitcoin miner, high risk
+        (rec.symbol === 'LULU' && pnlPercent < -15) || // Weak retail
+        (rec.symbol === 'ZETA' && pnlPercent < -10) || // Small cap risk
+        (rec.symbol === 'HIMS' && pnlPercent < -15) // Speculative healthcare
+      ) {
+        priority1.push({
+          ...rec,
+          holding,
+          pnlPercent,
+          reason: getReason1(rec.symbol, pnlPercent),
+          suggestedAction: 'SELL ALL',
+        });
+      }
+      // Priority 2: Trim/Reduce Positions
+      // Take profits or reduce high-risk exposure
+      else if (
+        (rec.symbol === 'TSLA' && pnlPercent > 0) || // Take profits, high volatility
+        (rec.symbol === 'ASTS' && pnlPercent > 30) || // Lock in gains, speculative
+        (rec.symbol === 'BTC' && (rec.indicators?.rsi || 0) > 65) || // Crypto high, reduce
+        (rec.symbol === 'ETH' && pnlPercent < 0) || // Reduce losing crypto
+        (rec.symbol === 'NVDA' && (rec.indicators?.distanceFromHigh || -999) > -5) || // Near highs
+        (rec.symbol === 'AVGO' && pnlPercent < 0) // Reduce losing position
+      ) {
+        const trimPercent = getTrimPercent(rec.symbol, pnlPercent);
+        priority2.push({
+          ...rec,
+          holding,
+          pnlPercent,
+          reason: getReason2(rec.symbol, pnlPercent, rec.indicators),
+          suggestedAction: `TRIM ${trimPercent}%`,
+        });
+      }
+    });
+
+    return {
+      priority1: priority1.sort((a, b) => a.pnlPercent - b.pnlPercent),
+      priority2: priority2.sort((a, b) => b.pnlPercent - a.pnlPercent),
+      total: priority1.length + priority2.length,
+    };
+  }, [recsData?.recommendations, holdingsData?.holdingsMap]);
+
+  // Count how many recs display each signal flag (same priority logic as the table badge)
+  const flagCounts = useMemo(() => {
+    const counts = { strongEntry: 0, modEntry: 0, recovery: 0, trend: 0, prime: 0, extended: 0 };
+    if (!recsData?.recommendations) return counts;
+    for (const rec of recsData.recommendations) {
+      const ind = rec.indicators;
+      if (!ind) continue;
+      const reversal   = ind.momentum5 != null && ind.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
+      const accumStrong = (ind.cmf ?? -1) >= 0.10;
+      const accumWeak   = (ind.cmf ?? -1) > 0;
+      const bullish     = ind.macdBullish === true;
+      const d200        = parseFloat(ind.distanceFromMA200 ?? '0');
+      const mom5v       = ind.momentum5 ?? null;
+      const mom20v      = ind.momentum20 ?? null;
+      const adxV        = ind.adx ?? 0;
+      const accumTrend  = (ind.cmf ?? -1) > -0.05;
+      const dip         = ind.distanceFromHigh ?? 0;
+      const safety      = ind.safetyScore ?? 0;
+
+      const isStrong   = reversal && accumStrong && bullish;
+      const isModerate = (reversal && bullish && accumWeak) || (reversal && accumStrong);
+      const isExtended = d200 > 20;
+      const isRecovery = !reversal && mom5v != null && mom20v != null && mom5v > 0 && mom20v > 0 && mom20v < 8 && d200 < 0 && bullish && accumWeak;
+      const isTrend    = !reversal && !isRecovery && mom20v != null && mom20v > 0 && bullish && adxV > 15 && d200 >= 0 && d200 <= 30 && accumTrend;
+      const isPrime    = !reversal && !isRecovery && !isTrend && safety >= 40 && dip <= -20 && dip >= -55 && d200 <= -8 && d200 >= -35;
+
+      // Same priority as the badge IIFE
+      if (isTrend)         counts.trend++;
+      else if (isExtended) counts.extended++;
+      else if (isStrong)   counts.strongEntry++;
+      else if (isModerate) counts.modEntry++;
+      else if (isPrime)    counts.prime++;
+      else if (isRecovery) counts.recovery++;
+    }
+    return counts;
+  }, [recsData?.recommendations]);
 
   // Analyze historical data for inflection points (bottoms turning upward)
   const analyzeInflectionPoint = (data: any[], symbol: string) => {
@@ -758,6 +1042,16 @@ const NewsBoard: React.FC = () => {
               {/* View Toggle */}
               <div className="flex bg-slate-700/50 rounded-xl p-1 border border-slate-600/50">
                 <button
+                  onClick={() => setSelectedView('recs')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                    selectedView === 'recs'
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  📊 Recs
+                </button>
+                <button
                   onClick={() => setSelectedView('alerts')}
                   className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
                     selectedView === 'alerts'
@@ -796,6 +1090,16 @@ const NewsBoard: React.FC = () => {
                   }`}
                 >
                   🦅 Eagle
+                </button>
+                <button
+                  onClick={() => setSelectedView('sells')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                    selectedView === 'sells'
+                      ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  💸 Sells
                 </button>
               </div>
 
@@ -1516,6 +1820,844 @@ const NewsBoard: React.FC = () => {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : selectedView === 'recs' ? (
+          // Recs View - Timing Recommendations for All Active Assets
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-indigo-600/20 to-purple-600/20 backdrop-blur-sm rounded-2xl border border-indigo-500/30 p-5 shadow-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-indigo-500/20 p-2.5 rounded-xl border border-indigo-500/40">
+                    <span className="text-2xl">📊</span>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white">Timing Recommendations</h2>
+                    <p className="text-indigo-300/70 text-xs">Technical analysis for all active assets</p>
+                    <div className="flex items-center gap-3 mt-2 bg-slate-800/60 border border-slate-600/40 rounded-lg px-3 py-2">
+                      <span className="text-slate-300 text-xs"><span className="text-indigo-300 font-bold">Group = verdict</span> <span className="text-slate-500">—</span> Strong Buy/Sell = act now.</span>
+                      <span className="text-slate-600 text-xs">|</span>
+                      <span className="text-slate-300 text-xs"><span className="text-yellow-300 font-bold">Row flags = timing layer</span> <span className="text-slate-500">—</span> confirms how &amp; when to enter.</span>
+                      <span className="text-slate-600 text-xs">|</span>
+                      <span className="text-slate-400 text-xs italic">Strong Buy with no flag: scale in. Flag only: watch closely.</span>
+                    </div>
+                  </div>
+                </div>
+                {recsData?.summary && (
+                  <div className="flex items-center gap-3">
+                    <div className="bg-green-500/20 border border-green-500/40 px-3 py-1.5 rounded-xl">
+                      <span className="text-green-300 font-black text-sm">{recsData.summary.strongBuys} Strong Buys</span>
+                    </div>
+                    <div className="bg-red-500/20 border border-red-500/40 px-3 py-1.5 rounded-xl">
+                      <span className="text-red-300 font-black text-sm">{recsData.summary.strongSells} Strong Sells</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+
+            {recsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+                  <p className="text-slate-400 text-lg">Analyzing your active assets...</p>
+                </div>
+              </div>
+            ) : !recsData?.recommendations || recsData.recommendations.length === 0 ? (
+              <div className="bg-slate-800/30 border border-slate-600/30 rounded-xl p-12 text-center backdrop-blur-sm">
+                <p className="text-slate-400 text-xl mb-2">📭 No tracked assets to analyze</p>
+                <p className="text-slate-500">Upload portfolio data or add symbols to your watchlist.</p>
+              </div>
+            ) : (
+              <>
+              {/* Signal legend */}
+              <div className="flex gap-2 mb-3 w-full items-stretch">
+
+                {/* Entry group */}
+                <div className="flex flex-col flex-[2] gap-1">
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-green-400/60 text-center">↓ Entry Signals</div>
+                  <div className="flex gap-1.5 flex-1">
+                    {([
+                      { color: 'border-green-400 text-green-400', badge: '⚡ entry', count: flagCounts.strongEntry, short: '5d ↑  ·  20d ↓  ·  CMF ≥ 0.10  ·  MACD ↑', action: 'STRONG BUY — all signals aligned', detail: 'Strongest entry: 5-day momentum has just turned positive while 20-day is still negative (reversal starting). Strong accumulation (CMF ≥ 0.10) and MACD bullish confirm buyers are stepping in. Best risk/reward entry point.' },
+                      { color: 'border-lime-400 text-lime-400',   badge: '↗ entry', count: flagCounts.modEntry,    short: '5d ↑  ·  20d ↓  ·  CMF > 0  ·  MACD ↑',    action: 'BUY — watch for follow-through',   detail: 'Same reversal pattern as ⚡ but with lighter accumulation (CMF just above zero). Valid entry signal, slightly less confirmed — higher chance of a false start.' },
+                    ] as const).map(({ color, badge, count, short, action, detail }) => (
+                      <div key={badge} className={`relative group flex-1 bg-slate-800/60 border ${color} rounded-lg px-3 py-2.5 text-center`}>
+                        {count > 0 && (
+                          <div className="absolute -top-2 -right-2 min-w-[18px] h-[18px] rounded-full bg-slate-700 border border-slate-500 flex items-center justify-center px-1">
+                            <span className="text-[10px] font-black text-white leading-none">{count}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className="font-black text-sm">{badge}</span>
+                          <span className="opacity-40 hover:opacity-80 cursor-default select-none text-xs">ⓘ</span>
+                        </div>
+                        <div className="opacity-60 mt-1 text-xs leading-snug">{short}</div>
+                        <div className="font-bold mt-1.5 text-xs tracking-wide">{action}</div>
+                        <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-900 border border-slate-600/60 rounded-lg px-3 py-2 text-xs text-slate-300 leading-relaxed shadow-xl z-50 hidden group-hover:block pointer-events-none">{detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Standalone signals */}
+                {([
+                  { color: 'border-blue-400 text-blue-400',     label: 'Recovery',  badge: '◎ recovery', count: flagCounts.recovery, short: '5d ↑  ·  20d ↑ (<8%)  ·  below 200MA',        action: 'CAN BUY — reversal confirmed',       detail: 'Reversal already complete — both 5d and 20d momentum are positive but still small (<8%), and price is still below the 200MA. The asset is stabilising after a decline. Next stage after entry.' },
+                  { color: 'border-yellow-400 text-yellow-400', label: 'Trend',     badge: '↑ trend',    count: flagCounts.trend,    short: '20d ↑  ·  ADX > 15  ·  MACD ↑  ·  0–30% above 200MA', action: 'HOLD or ADD ON DIPS',          detail: 'Active sustained uptrend. 20-day momentum positive, ADX > 15 (directional strength confirmed), MACD bullish, price 0–30% above 200MA. No reversal needed — trend is intact. Hold or add on dips.' },
+                  { color: 'border-purple-400 text-purple-400', label: 'Prime Dip', badge: '★ prime',    count: flagCounts.prime,    short: 'dip ≥ 20%  ·  200MA elevated  ·  safety 40+',    action: 'ACCUMULATE — quality at discount',   detail: 'Quality asset in a sudden dip. Price is ≥20% below 52-week high while 200MA is still elevated — indicating a recent crash, not prolonged structural decline. Safety ≥60 = bright purple, 40–59 = dimmer purple (more volatile, same signal).' },
+                  { color: 'border-orange-400 text-orange-400', label: 'Extended',  badge: '↗ extended', count: flagCounts.extended,  short: 'entry signal  ·  > 20% above 200MA',              action: 'WAIT — let it pull back first',      detail: 'A valid entry or reversal signal is present, but the asset is already more than 20% above its 200MA. The move may already be priced in. Consider waiting for a pullback before entering.' },
+                ] as const).map(({ color, badge, count, label, short, action, detail }) => (
+                  <div key={badge} className="flex flex-col flex-1 gap-1">
+                    <div className={`text-[9px] font-bold uppercase tracking-widest text-center opacity-60 ${color.split(' ')[1]}`}>{label}</div>
+                    <div className={`relative group flex-1 bg-slate-800/60 border ${color} rounded-lg px-3 py-2.5 text-center`}>
+                      {count > 0 && (
+                        <div className="absolute -top-2 -right-2 min-w-[18px] h-[18px] rounded-full bg-slate-700 border border-slate-500 flex items-center justify-center px-1">
+                          <span className="text-[10px] font-black text-white leading-none">{count}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className="font-black text-sm">{badge}</span>
+                        <span className="opacity-40 hover:opacity-80 cursor-default select-none text-xs">ⓘ</span>
+                      </div>
+                      <div className="opacity-60 mt-1 text-xs leading-snug">{short}</div>
+                      <div className="font-bold mt-1.5 text-xs tracking-wide">{action}</div>
+                      <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-900 border border-slate-600/60 rounded-lg px-3 py-2 text-xs text-slate-300 leading-relaxed shadow-xl z-50 hidden group-hover:block pointer-events-none">{detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-indigo-500/30 p-4 shadow-lg overflow-x-auto overflow-y-auto max-h-[70vh]">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-800">
+                    {/* Group header row */}
+                    <tr className="border-b border-slate-700/40">
+                      {/* Identity: 2 cols */}
+                      <th colSpan={2} className="px-3 pt-2 pb-1 text-left">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Identity</span>
+                      </th>
+                      {/* Verdict: 2 cols */}
+                      <th colSpan={2} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-400">Verdict</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-indigo-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute left-1/2 -translate-x-1/2 top-5 z-50 hidden group-hover:block w-64 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-indigo-300 font-bold">Buy</span> — 0–100: higher = better time to enter. ≥70 strong signal.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-indigo-300 font-bold">Sell</span> — 0–100: higher = better time to exit. ≥70 strong signal.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-emerald-400 font-bold">⚡ entry</span> — reversal + CMF accum + MACD bullish, price not extended (&lt;+20% vs 200MA).<br/><span className="text-green-500 font-bold">↗ entry</span> — reversal + MACD bullish or CMF accum, price not extended.<br/><span className="text-amber-400 font-bold">↗ extended</span> — same signals but price &gt;+20% above 200MA — momentum trade, not a value entry.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                      {/* Trend: 4 cols — vs 200MA, vs 50MA, vs 20MA, ADX */}
+                      <th colSpan={4} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400">Trend</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-blue-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute left-1/2 -translate-x-1/2 top-5 z-50 hidden group-hover:block w-72 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-blue-300 font-bold">vs 200MA / 50MA / 20MA</span> — % distance from moving average. Negative = below MA (value zone). Positive = extended above.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-blue-300 font-bold">ADX</span> — trend strength. &lt;20 choppy/no trend, 20–40 developing, &gt;40 strong trend.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                      {/* Momentum: 5 cols — RSI, Mom 20d, MACD, Mom 1y, RS vs SPY */}
+                      <th colSpan={5} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Momentum</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-amber-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute left-1/2 -translate-x-1/2 top-5 z-50 hidden group-hover:block w-72 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-amber-300 font-bold">RSI</span> — &lt;30 oversold (buy signal), &gt;70 overbought (sell signal).</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-amber-300 font-bold">Mom 20d</span> — price change over 20 days. Reversal = 5d positive while 20d still negative.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-amber-300 font-bold">MACD</span> — ▲ bullish (uptrend), ▼ bearish (downtrend).</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-amber-300 font-bold">Mom 1y</span> — annual price change. Positive = in long uptrend.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-amber-300 font-bold">RS vs SPY</span> — annual momentum minus SPY's. Positive = outperforming the market.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                      {/* Range: 3 cols — vs 52w Hi, vs 52w Lo, Bollinger %B */}
+                      <th colSpan={3} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-purple-400">Range</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-purple-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute left-1/2 -translate-x-1/2 top-5 z-50 hidden group-hover:block w-64 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-purple-300 font-bold">vs 52w Hi</span> — % below the 52-week high. Very negative = deep value territory.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-purple-300 font-bold">vs 52w Lo</span> — % above the 52-week low. Near 0% = at lows.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-purple-300 font-bold">Boll %B</span> — position within Bollinger Bands. 0 = lower band (oversold), 1 = upper band (overbought).</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                      {/* Activity: 3 cols — CMF, Volatility, Vol Ratio */}
+                      <th colSpan={3} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">Activity</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-cyan-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute right-0 top-5 z-50 hidden group-hover:block w-72 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-cyan-300 font-bold">CMF</span> — Chaikin Money Flow. ≥+0.10 = institutions accumulating. ≤−0.10 = distribution.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-cyan-300 font-bold">Volatility</span> — annualised. &lt;20% stable, &gt;40% high risk.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-cyan-300 font-bold">Vol Ratio</span> — today's volume vs 20-day average. &gt;+50% = unusual activity spike.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                      {/* Risk: 4 cols — Safety, R/R, ATR%, Beta */}
+                      <th colSpan={4} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-rose-400">Risk</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-rose-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute right-0 top-5 z-50 hidden group-hover:block w-72 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-rose-300 font-bold">Safety</span> — 0–100 composite: volatility (40%), max drawdown (35%), ATR% (25%). ≥70 low risk.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-rose-300 font-bold">R/R</span> — (52w High − price) ÷ (price − 52w Low). ≥3 = asymmetric upside.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-rose-300 font-bold">ATR%</span> — average daily range as % of price. &lt;1% calm, &gt;3% volatile — use for position sizing.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-rose-300 font-bold">Beta</span> — sensitivity to market. &lt;0.8 defensive, &gt;1.3 amplified market moves.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                      {/* P&L: 1 col */}
+                      <th colSpan={1} className="px-3 pt-2 pb-1 text-right border-l border-slate-700/50">
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-green-400">P&L</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-green-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute right-0 top-5 z-50 hidden group-hover:block w-52 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-green-300 font-bold">Profit</span> — total unrealized + realized P&L for this position in CAD.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
+                    </tr>
+                    {/* Column header row */}
+                    <tr className="border-b border-slate-600/50">
+                      {/* Identity */}
+                      <th className="px-3 py-2 text-left text-xs font-bold text-slate-300 uppercase">Symbol</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Price</th>
+                      {/* Verdict */}
+                      <th className="px-3 py-2 text-center text-xs font-bold text-green-300 uppercase border-l border-slate-700/50">Buy</th>
+                      <th className="px-3 py-2 text-center text-xs font-bold text-red-300 uppercase">Sell</th>
+                      {/* Trend */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase border-l border-slate-700/50">vs 200MA</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">vs 50MA</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">vs 20MA</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">ADX</th>
+                      {/* Momentum */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase border-l border-slate-700/50">RSI</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-blue-300 uppercase outline outline-1 outline-blue-500/50">Mom 20d</th>
+                      <th className="px-3 py-2 text-center text-xs font-bold text-blue-300 uppercase outline outline-1 outline-blue-500/50">MACD</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Mom 1y</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">RS/SPY</th>
+                      {/* Range */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase border-l border-slate-700/50">vs 52w Hi</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">vs 52w Lo</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Boll %B</th>
+                      {/* Activity */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-blue-300 uppercase border-l border-slate-700/50 outline outline-1 outline-blue-500/50">CMF</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Volatility</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Vol Ratio</th>
+                      {/* Risk */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase border-l border-slate-700/50">Safety</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">R/R</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">ATR%</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Beta</th>
+                      {/* P&L */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase border-l border-slate-700/50">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      // ── colour helpers ───────────────────────────────────
+                      const getRSIColor = (rsi: number | undefined) => {
+                        if (!rsi) return 'text-slate-400';
+                        if (rsi < 30) return 'text-green-400';
+                        if (rsi > 70) return 'text-red-400';
+                        return 'text-yellow-400';
+                      };
+                      const getMomentumColor = (mom: number | undefined) => {
+                        if (mom === undefined) return 'text-slate-400';
+                        if (mom > 5) return 'text-green-400';
+                        if (mom < -5) return 'text-red-400';
+                        return 'text-yellow-400';
+                      };
+                      const getMAColor = (distanceStr: string | undefined) => {
+                        if (!distanceStr) return 'text-slate-400';
+                        const d = parseFloat(distanceStr);
+                        if (d < -10) return 'text-green-400';
+                        if (d > 15) return 'text-red-400';
+                        return 'text-yellow-400';
+                      };
+                      const getBuyScoreStyle = (score: number | null) => {
+                        if (score == null) return 'text-slate-500';
+                        if (score >= 75) return 'text-emerald-400 font-black';
+                        if (score >= 60) return 'text-green-400 font-bold';
+                        if (score >= 45) return 'text-yellow-400 font-semibold';
+                        if (score >= 30) return 'text-orange-400 font-semibold';
+                        return 'text-red-400 font-semibold';
+                      };
+                      const getSellScoreStyle = (score: number | null) => {
+                        if (score == null) return 'text-slate-500';
+                        if (score >= 75) return 'text-red-400 font-black';
+                        if (score >= 60) return 'text-orange-400 font-bold';
+                        if (score >= 45) return 'text-yellow-400 font-semibold';
+                        if (score >= 30) return 'text-green-400 font-semibold';
+                        return 'text-emerald-400 font-semibold';
+                      };
+                      const getVolatilityColor = (vol: number | undefined) => {
+                        if (vol === undefined) return 'text-slate-400';
+                        if (vol < 20) return 'text-green-400';
+                        if (vol > 40) return 'text-red-400';
+                        return 'text-yellow-400';
+                      };
+                      const get52wRangeColor = (distHigh: number | undefined, distLow: number | undefined) => {
+                        if (distHigh === undefined || distLow === undefined) return 'text-slate-400';
+                        if (distHigh > -5) return 'text-red-400';
+                        if (distLow < 10) return 'text-green-400';
+                        return 'text-yellow-400';
+                      };
+                      const getVolumeColor = (trend: number | undefined) => {
+                        if (trend === undefined) return 'text-slate-400';
+                        if (trend > 50) return 'text-green-400';
+                        if (trend < -50) return 'text-red-400';
+                        return 'text-yellow-400';
+                      };
+                      const getADXColor = (adx: number | null | undefined) => {
+                        if (adx == null) return 'text-slate-400';
+                        if (adx < 20) return 'text-slate-400';
+                        if (adx >= 40) return 'text-green-400';
+                        return 'text-yellow-400';
+                      };
+                      const getBollingerColor = (b: number | null | undefined) => {
+                        if (b == null) return 'text-slate-400';
+                        if (b < 0.2) return 'text-green-400';
+                        if (b > 0.8) return 'text-red-400';
+                        return 'text-yellow-400';
+                      };
+                      const getSafetyColor = (s: number | null | undefined) => {
+                        if (s == null) return 'text-slate-400';
+                        if (s >= 70) return 'text-green-400';
+                        if (s >= 50) return 'text-yellow-400';
+                        if (s >= 30) return 'text-orange-400';
+                        return 'text-red-400';
+                      };
+                      const getRRColor = (rr: number | null | undefined) => {
+                        if (rr == null) return 'text-slate-400';
+                        if (rr >= 3)    return 'text-emerald-400';
+                        if (rr >= 2)    return 'text-green-400';
+                        if (rr >= 1)    return 'text-yellow-400';
+                        if (rr >= 0.5)  return 'text-orange-400';
+                        return 'text-red-400';
+                      };
+
+                      // ── grouping ─────────────────────────────────────────
+                      type GroupId = 0 | 1 | 2 | 3 | 4 | 5;
+                      const GROUP_META: { label: string; scoreLabel: string; textColor: string; bgColor: string; borderColor: string }[] = [
+                        { label: 'Strong Buy',     scoreLabel: 'Buy ≥ 70',             textColor: 'text-emerald-300', bgColor: 'bg-emerald-500/10', borderColor: 'border-emerald-500/40' },
+                        { label: 'Strong Sell',    scoreLabel: 'Sell ≥ 70',            textColor: 'text-red-300',     bgColor: 'bg-red-500/10',     borderColor: 'border-red-500/40'     },
+                        { label: 'Moderate Buy',   scoreLabel: 'Buy 45–69',            textColor: 'text-green-300',   bgColor: 'bg-green-500/8',    borderColor: 'border-green-600/30'   },
+                        { label: 'Moderate Sell',  scoreLabel: 'Sell 45–69', textColor: 'text-orange-300', bgColor: 'bg-orange-500/8',   borderColor: 'border-orange-500/30'  },
+                        { label: 'Hold',           scoreLabel: 'Holding · no signal',  textColor: 'text-sky-300',     bgColor: 'bg-sky-500/10',     borderColor: 'border-sky-500/30'     },
+                        { label: 'Watch',          scoreLabel: 'Not held · no signal', textColor: 'text-slate-400',   bgColor: 'bg-slate-700/10',   borderColor: 'border-slate-600/30'   },
+                      ];
+
+                      const getGroupId = (rec: TimingRecommendation): GroupId => {
+                        const isHolding = (holdingsData?.holdingsMap?.[rec.symbol]?.shares ?? 0) >= 0.01;
+                        // No data — always Watch, never Hold
+                        if (rec.buyScore == null || rec.sellScore == null) return 5;
+                        const b = rec.buyScore;
+                        const s = rec.sellScore;
+                        // Strong signals always override
+                        if (b >= 70) return 0;
+                        if (s >= 70) return 1;
+                        if (isHolding) {
+                          // Owned: only surface as Moderate Buy/Sell when one score clearly
+                          // dominates (≥15pt gap AND ≥55) — otherwise signals are too mixed to act
+                          if (b >= 55 && b - s >= 15) return 2;
+                          if (s >= 55 && s - b >= 15) return 3;
+                          return 4; // Hold — signals balanced or weak, sit tight
+                        }
+                        // Not owned
+                        if (b >= 45 && b > s) return 2;
+                        if (s >= 45) return 3;
+                        return 5;
+                      };
+
+                      // Sort: by group first, then by dominant score descending within group
+                      const sorted = [...recsData.recommendations].sort((a: TimingRecommendation, b: TimingRecommendation) => {
+                        const ga = getGroupId(a);
+                        const gb = getGroupId(b);
+                        if (ga !== gb) return ga - gb;
+                        // Within buy groups sort by buyScore, sell groups by sellScore, neutral by max
+                        const scoreA = (ga === 0 || ga === 2) ? (a.buyScore ?? 0) : (ga === 1 || ga === 3) ? (a.sellScore ?? 0) : Math.max(a.buyScore ?? 0, a.sellScore ?? 0);
+                        const scoreB = (gb === 0 || gb === 2) ? (b.buyScore ?? 0) : (gb === 1 || gb === 3) ? (b.sellScore ?? 0) : Math.max(b.buyScore ?? 0, b.sellScore ?? 0);
+                        return scoreB - scoreA;
+                      });
+
+                      // ── build flat row list with separator rows ──────────
+                      const rows: React.ReactNode[] = [];
+                      let lastGroup: GroupId | null = null;
+
+                      sorted.forEach((rec: TimingRecommendation) => {
+                        const gid = getGroupId(rec);
+                        if (gid !== lastGroup) {
+                          lastGroup = gid;
+                          const g = GROUP_META[gid];
+                          rows.push(
+                            <tr key={`sep-${gid}`}>
+                              <td colSpan={18} className={`px-4 py-1.5 ${g.bgColor} border-y ${g.borderColor}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[11px] font-black uppercase tracking-widest ${g.textColor}`}>{g.label}</span>
+                                  <span className="text-[10px] text-slate-500">{g.scoreLabel}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        rows.push(
+                          <tr
+                            key={rec.symbol}
+                            className={`border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors ${
+                              (() => {
+                                const ind = rec.indicators;
+                                const reversal    = ind?.momentum5 != null && ind?.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
+                                const accumStrong = (ind?.cmf ?? -1) >= 0.10;
+                                const accumWeak   = (ind?.cmf ?? -1) > 0;
+                                const bullish     = ind?.macdBullish === true;
+                                const d200        = parseFloat(ind?.distanceFromMA200 ?? '0');
+                                const isExtended  = d200 > 20;
+                                const isStrong    = reversal && accumStrong && bullish;
+                                const isModerate  = (reversal && bullish && accumWeak) || (reversal && accumStrong);
+                                const mom5v       = ind?.momentum5 ?? null;
+                                const mom20v      = ind?.momentum20 ?? null;
+                                const isRecovery  = !reversal && mom5v != null && mom20v != null && mom5v > 0 && mom20v > 0 && mom20v < 8 && d200 < 0 && bullish && accumWeak;
+                                const adxV        = ind?.adx ?? 0;
+                                const accumTrend  = (ind?.cmf ?? -1) > -0.05;
+                                const isTrend     = !reversal && !isRecovery && mom20v != null && mom20v > 0 && bullish && adxV > 15 && d200 >= 0 && d200 <= 30 && accumTrend;
+                                const dip         = ind?.distanceFromHigh ?? 0;
+                                const safety      = ind?.safetyScore ?? 0;
+                                const isPrime     = !reversal && !isRecovery && !isTrend && safety >= 65 && dip <= -15 && dip >= -50 && d200 >= -20;
+                                if (!isStrong && !isModerate && !isRecovery && !isTrend && !isPrime) return '';
+                                if (isTrend)    return 'bg-yellow-500/10 border-l-4 border-l-yellow-400';
+                                if (isExtended) return 'bg-orange-500/10 border-l-4 border-l-orange-400';
+                                if (isStrong)   return 'bg-green-500/15 border-l-4 border-l-green-400';
+                                if (isModerate) return 'bg-lime-500/10 border-l-4 border-l-lime-400';
+                                if (isPrime)    return 'bg-purple-500/10 border-l-4 border-l-purple-400';
+                                return 'bg-blue-500/10 border-l-4 border-l-blue-400';
+                              })()
+                            }`}
+                          >
+                            {/* Identity */}
+                            <td className="px-3 py-3">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`w-2 h-2 rounded-full flex-shrink-0 ${(holdingsData?.holdingsMap?.[rec.symbol]?.shares ?? 0) >= 0.01 ? 'bg-green-400' : 'bg-slate-600'}`}
+                                  title={(holdingsData?.holdingsMap?.[rec.symbol]?.shares ?? 0) >= 0.01 ? 'Currently holding' : 'Not held'}
+                                />
+                                <div className="font-bold text-white">{rec.symbol}</div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className="text-white font-semibold">
+                                ${rec.indicators?.cadPrice?.toFixed(2) || '-'}
+                              </div>
+                            </td>
+                            {/* Verdict */}
+                            <td className="px-3 py-3 text-center border-l border-slate-700/30">
+                              <span className={`text-base tabular-nums ${getBuyScoreStyle(rec.buyScore)}`}>
+                                {rec.buyScore != null ? rec.buyScore : '–'}
+                              </span>
+                              {(() => {
+                                const ind = rec.indicators;
+                                const reversal    = ind?.momentum5 != null && ind?.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
+                                const accumStrong = (ind?.cmf ?? -1) >= 0.10;
+                                const accumWeak   = (ind?.cmf ?? -1) > 0;
+                                const bullish     = ind?.macdBullish === true;
+                                const d200        = parseFloat(ind?.distanceFromMA200 ?? '0');
+                                const isExtended  = d200 > 20;
+                                const strong  = reversal && accumStrong && bullish;
+                                const moderate  = (reversal && bullish && accumWeak) || (reversal && accumStrong);
+                                const mom5v2    = ind?.momentum5 ?? null;
+                                const mom20v2   = ind?.momentum20 ?? null;
+                                const recovery  = !reversal && mom5v2 != null && mom20v2 != null && mom5v2 > 0 && mom20v2 > 0 && mom20v2 < 8 && d200 < 0 && bullish && accumWeak;
+                                const adxV2       = ind?.adx ?? 0;
+                                const accumTrend2 = (ind?.cmf ?? -1) > -0.05;
+                                const trend       = !reversal && !recovery && mom20v2 != null && mom20v2 > 0 && bullish && adxV2 > 15 && d200 >= 0 && d200 <= 30 && accumTrend2;
+                                const dip2        = ind?.distanceFromHigh ?? 0;
+                                const safety2     = ind?.safetyScore ?? 0;
+                                const prime       = !reversal && !recovery && !trend && safety2 >= 65 && dip2 <= -15 && dip2 >= -50 && d200 >= -20;
+                                if (!strong && !moderate && !recovery && !trend && !prime) return null;
+                                if (trend)      return <div className="text-[9px] font-black text-yellow-400 uppercase tracking-wide leading-none mt-0.5">↑ trend</div>;
+                                if (isExtended) return <div className="text-[9px] font-black text-orange-400 uppercase tracking-wide leading-none mt-0.5">↗ extended</div>;
+                                if (strong)     return <div className="text-[9px] font-black text-green-400 uppercase tracking-wide leading-none mt-0.5">⚡ entry</div>;
+                                if (moderate)   return <div className="text-[9px] font-black text-lime-400 uppercase tracking-wide leading-none mt-0.5">↗ entry</div>;
+                                if (prime)      return safety2 >= 60
+                                  ? <div className="text-[9px] font-black text-purple-400 uppercase tracking-wide leading-none mt-0.5">★ prime</div>
+                                  : <div className="text-[9px] font-black text-purple-300/70 uppercase tracking-wide leading-none mt-0.5">★ prime !</div>;
+                                return              <div className="text-[9px] font-black text-blue-400 uppercase tracking-wide leading-none mt-0.5">◎ recovery</div>;
+                              })()}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <span className={`text-base tabular-nums ${getSellScoreStyle(rec.sellScore)}`}>
+                                {rec.sellScore != null ? rec.sellScore : '–'}
+                              </span>
+                            </td>
+                            {/* Trend */}
+                            <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                              <div className={`font-semibold ${getMAColor(rec.indicators?.distanceFromMA200)}`}>
+                                {rec.indicators?.distanceFromMA200 || '-'}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getMAColor(rec.indicators?.distanceFromMA50)}`}>
+                                {rec.indicators?.distanceFromMA50 || '-'}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getMAColor(rec.indicators?.distanceFromMA20)}`}>
+                                {rec.indicators?.distanceFromMA20 || '-'}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getADXColor(rec.indicators?.adx)}`}>
+                                {rec.indicators?.adx != null ? rec.indicators.adx.toFixed(1) : '-'}
+                              </div>
+                            </td>
+                            {/* Momentum */}
+                            <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                              <div className={`font-semibold ${getRSIColor(rec.indicators?.rsi)}`}>
+                                {rec.indicators?.rsi?.toFixed(1) || '-'}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getMomentumColor(rec.indicators?.momentum20)}`}>
+                                {rec.indicators?.momentum20 !== undefined
+                                  ? `${rec.indicators.momentum20 > 0 ? '+' : ''}${rec.indicators.momentum20.toFixed(1)}%`
+                                  : '-'}
+                              </div>
+                              {rec.indicators?.momentum5 != null && rec.indicators?.momentum20 != null
+                                && rec.indicators.momentum5 > 0 && rec.indicators.momentum20 < 0 && (
+                                <div className="text-[9px] font-black text-emerald-400 uppercase tracking-wide leading-none mt-0.5"
+                                  title={`5d momentum: +${rec.indicators.momentum5.toFixed(1)}% — reversal signal`}>
+                                  ↑ reversal
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              {rec.indicators?.macdBullish == null ? (
+                                <span className="text-slate-500 text-xs">-</span>
+                              ) : rec.indicators.macdBullish ? (
+                                <span className="text-green-400 font-bold text-sm" title={`Histogram: ${rec.indicators.macdHistogram?.toFixed(3)}`}>▲</span>
+                              ) : (
+                                <span className="text-red-400 font-bold text-sm" title={`Histogram: ${rec.indicators.macdHistogram?.toFixed(3)}`}>▼</span>
+                              )}
+                            </td>
+                            {/* Mom 1y */}
+                            <td className="px-3 py-3 text-right">
+                              {(() => {
+                                const m = rec.indicators?.momentum252;
+                                if (m == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = m >= 20 ? 'text-emerald-400' : m >= 5 ? 'text-green-400' : m >= 0 ? 'text-slate-300' : m >= -15 ? 'text-orange-400' : 'text-red-400';
+                                return <div className={`font-semibold ${color}`}>{m > 0 ? '+' : ''}{m.toFixed(1)}%</div>;
+                              })()}
+                            </td>
+                            {/* RS vs SPY */}
+                            <td className="px-3 py-3 text-right">
+                              {(() => {
+                                const rs = rec.indicators?.relativeStrength;
+                                if (rs == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = rs >= 15 ? 'text-emerald-400' : rs >= 5 ? 'text-green-400' : rs >= -5 ? 'text-slate-300' : rs >= -15 ? 'text-orange-400' : 'text-red-400';
+                                return <div className={`font-semibold ${color}`}>{rs > 0 ? '+' : ''}{rs.toFixed(1)}%</div>;
+                              })()}
+                            </td>
+                            {/* Range */}
+                            <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                              <div className={`font-semibold ${get52wRangeColor(rec.indicators?.distanceFromHigh, rec.indicators?.distanceFromLow)}`}>
+                                {rec.indicators?.distanceFromHigh !== undefined && rec.indicators?.distanceFromLow !== undefined
+                                  ? `${rec.indicators.distanceFromHigh > 0 ? '+' : ''}${rec.indicators.distanceFromHigh.toFixed(0)}%`
+                                  : '-'}
+                              </div>
+                            </td>
+                            {/* vs 52w Lo */}
+                            <td className="px-3 py-3 text-right">
+                              {(() => {
+                                const lo = rec.indicators?.distanceFromLow;
+                                if (lo == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = lo <= 10 ? 'text-green-400' : lo <= 30 ? 'text-slate-300' : lo <= 60 ? 'text-orange-300' : 'text-red-400';
+                                return <div className={`font-semibold ${color}`}>+{lo.toFixed(0)}%</div>;
+                              })()}
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getBollingerColor(rec.indicators?.bollingerB)}`}>
+                                {rec.indicators?.bollingerB != null
+                                  ? rec.indicators.bollingerB.toFixed(2)
+                                  : '-'}
+                              </div>
+                            </td>
+                            {/* Activity */}
+                            <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                              {(() => {
+                                const c = rec.indicators?.cmf;
+                                if (c == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = c >= 0.25 ? 'text-emerald-400'
+                                            : c >= 0.10 ? 'text-green-400'
+                                            : c >= 0    ? 'text-slate-300'
+                                            : c >= -0.10 ? 'text-orange-400'
+                                            : 'text-red-400';
+                                const label = c >= 0.10 ? 'accum' : c <= -0.10 ? 'distrib' : null;
+                                return (
+                                  <div>
+                                    <div className={`font-semibold ${color}`}>
+                                      {c >= 0 ? '+' : ''}{c.toFixed(2)}
+                                    </div>
+                                    {label && (
+                                      <div className={`text-[9px] font-black uppercase tracking-wide leading-none mt-0.5 ${c > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {label}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getVolatilityColor(rec.indicators?.volatility)}`}>
+                                {rec.indicators?.volatility !== undefined
+                                  ? `${rec.indicators.volatility.toFixed(1)}%`
+                                  : '-'}
+                              </div>
+                            </td>
+                            {/* Vol Ratio */}
+                            <td className="px-3 py-3 text-right">
+                              {(() => {
+                                const vt = rec.indicators?.volumeTrend;
+                                if (vt == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = vt >= 100 ? 'text-emerald-400' : vt >= 50 ? 'text-green-400' : vt >= -20 ? 'text-slate-300' : 'text-orange-400';
+                                return <div className={`font-semibold ${color}`}>{vt > 0 ? '+' : ''}{vt.toFixed(0)}%</div>;
+                              })()}
+                            </td>
+                            {/* Risk */}
+                            <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                              <div className={`font-semibold ${getSafetyColor(rec.indicators?.safetyScore)}`}>
+                                {rec.indicators?.safetyScore != null ? rec.indicators.safetyScore : '-'}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <div className={`font-semibold ${getRRColor(rec.indicators?.riskReward)}`}>
+                                {rec.indicators?.riskReward != null ? rec.indicators.riskReward.toFixed(1) + 'x' : '-'}
+                              </div>
+                            </td>
+                            {/* ATR% */}
+                            <td className="px-3 py-3 text-right">
+                              {(() => {
+                                const atr = rec.indicators?.atrPercent;
+                                if (atr == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = atr < 1 ? 'text-green-400' : atr < 2 ? 'text-slate-300' : atr < 3.5 ? 'text-orange-400' : 'text-red-400';
+                                return <div className={`font-semibold ${color}`}>{atr.toFixed(2)}%</div>;
+                              })()}
+                            </td>
+                            {/* Beta */}
+                            <td className="px-3 py-3 text-right">
+                              {(() => {
+                                const b = rec.indicators?.beta;
+                                if (b == null) return <div className="font-semibold text-slate-500">-</div>;
+                                const color = b < 0.8 ? 'text-green-400' : b < 1.2 ? 'text-slate-300' : b < 1.6 ? 'text-orange-400' : 'text-red-400';
+                                return <div className={`font-semibold ${color}`}>{b.toFixed(2)}</div>;
+                              })()}
+                            </td>
+                            {/* P&L */}
+                            <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                              <div className={`font-semibold ${(rec.totalProfit || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {rec.totalProfit !== undefined
+                                  ? `${rec.totalProfit >= 0 ? '+' : ''}$${rec.totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  : '-'}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      });
+
+                      return rows;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              </>
+            )}
+          </div>
+        ) : selectedView === 'sells' ? (
+          // Sells View - Market Correction Strategy
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-red-600/20 to-orange-600/20 backdrop-blur-sm rounded-2xl border border-red-500/30 p-5 shadow-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-red-500/20 p-2.5 rounded-xl border border-red-500/40">
+                    <span className="text-2xl">💸</span>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white">Market Correction Strategy</h2>
+                    <p className="text-red-300/70 text-xs">Assets to sell/trim before potential downturn</p>
+                  </div>
+                </div>
+                <div className="bg-red-500/20 border border-red-500/40 px-3 py-1.5 rounded-xl">
+                  <span className="text-red-300 font-black text-base">
+                    {sellRecommendations.total} Assets
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {recsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-red-500 mx-auto mb-4"></div>
+                  <p className="text-slate-400 text-lg">Analyzing sell opportunities...</p>
+                </div>
+              </div>
+            ) : sellRecommendations.total === 0 ? (
+              <div className="bg-slate-800/30 border border-slate-600/30 rounded-xl p-12 text-center backdrop-blur-sm">
+                <p className="text-slate-400 text-xl mb-2">✅ Portfolio looks defensive</p>
+                <p className="text-slate-500">No immediate sell recommendations based on correction strategy.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Priority 1 and 2 Side by Side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Priority 1: Immediate Sells */}
+                  {sellRecommendations.priority1.length > 0 && (
+                    <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-red-500/40 overflow-hidden shadow-lg">
+                      <div className="bg-gradient-to-r from-red-600/30 to-orange-600/30 px-4 py-2.5 border-b border-red-500/30">
+                        <h3 className="text-base font-black text-white flex items-center gap-2">
+                          <span className="text-lg">🚨</span>
+                          Priority 1: Immediate Sells
+                        </h3>
+                        <p className="text-red-300/70 text-xs mt-0.5">High risk, weak fundamentals, or meme assets</p>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {sellRecommendations.priority1.map((item: any, index: number) => (
+                          <div
+                            key={item.symbol}
+                            className="bg-slate-800/40 border border-red-500/20 rounded-lg p-2.5 hover:border-red-500/40 transition-all"
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-base font-black text-white">{item.symbol}</span>
+                                <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-red-500/30 border border-red-500/50 text-red-200">
+                                  {item.suggestedAction}
+                                </span>
+                              </div>
+                              <div className="text-sm font-bold text-white">
+                                ${item.holding.currentValue?.toFixed(2) || '0.00'}
+                              </div>
+                            </div>
+                            <div className="text-xs text-red-300/80 mb-1.5">{item.reason}</div>
+                            <div className="flex items-center gap-3 text-xs">
+                              <div>
+                                <span className="text-slate-400">P&L: </span>
+                                <span className={`font-bold ${item.pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {item.pnlPercent >= 0 ? '+' : ''}{item.pnlPercent.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Price: </span>
+                                <span className="font-semibold text-white">
+                                  ${item.indicators?.cadPrice?.toFixed(2) || item.indicators?.currentPrice?.toFixed(2) || '-'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Shares: </span>
+                                <span className="font-semibold text-white">
+                                  {item.holding.shares?.toFixed(4) || '-'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Priority 2: Trim/Reduce */}
+                  {sellRecommendations.priority2.length > 0 && (
+                    <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-orange-500/40 overflow-hidden shadow-lg">
+                      <div className="bg-gradient-to-r from-orange-600/30 to-yellow-600/30 px-4 py-2.5 border-b border-orange-500/30">
+                        <h3 className="text-base font-black text-white flex items-center gap-2">
+                          <span className="text-lg">⚠️</span>
+                          Priority 2: Trim / Reduce
+                        </h3>
+                        <p className="text-orange-300/70 text-xs mt-0.5">Take profits or reduce high-risk exposure</p>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {sellRecommendations.priority2.map((item: any, index: number) => (
+                          <div
+                            key={item.symbol}
+                            className="bg-slate-800/40 border border-orange-500/20 rounded-lg p-2.5 hover:border-orange-500/40 transition-all"
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-base font-black text-white">{item.symbol}</span>
+                                <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-orange-500/30 border border-orange-500/50 text-orange-200">
+                                  {item.suggestedAction}
+                                </span>
+                              </div>
+                              <div className="text-sm font-bold text-white">
+                                ${item.holding.currentValue?.toFixed(2) || '0.00'}
+                              </div>
+                            </div>
+                            <div className="text-xs text-orange-300/80 mb-1.5">{item.reason}</div>
+                            <div className="flex items-center gap-3 text-xs">
+                              <div>
+                                <span className="text-slate-400">P&L: </span>
+                                <span className={`font-bold ${item.pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {item.pnlPercent >= 0 ? '+' : ''}{item.pnlPercent.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Price: </span>
+                                <span className="font-semibold text-white">
+                                  ${item.indicators?.cadPrice?.toFixed(2) || item.indicators?.currentPrice?.toFixed(2) || '-'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">RSI: </span>
+                                <span className={`font-bold ${(item.indicators?.rsi || 0) > 70 ? 'text-red-400' : (item.indicators?.rsi || 0) < 30 ? 'text-green-400' : 'text-yellow-400'}`}>
+                                  {item.indicators?.rsi?.toFixed(0) || '-'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">Shares: </span>
+                                <span className="font-semibold text-white">
+                                  {item.holding.shares?.toFixed(4) || '-'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Strategy Summary */}
+                <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-blue-500/30 p-5 shadow-lg">
+                  <h3 className="text-lg font-black text-white mb-3 flex items-center gap-2">
+                    <span className="text-xl">📋</span>
+                    Correction Strategy Summary
+                  </h3>
+                  <div className="space-y-2 text-sm text-slate-300">
+                    <p>• <strong className="text-white">Raise Cash:</strong> Target 20-30% of portfolio in cash for buying opportunities</p>
+                    <p>• <strong className="text-white">Quality First:</strong> Hold defensive positions (VOO, XEQT, healthcare, energy)</p>
+                    <p>• <strong className="text-white">Re-Deploy on Dips:</strong> Buy quality tech (GOOGL, META, AMD) at 15-25% discounts</p>
+                    <p>• <strong className="text-white">Precious Metals:</strong> Consider adding GLD/SLV as hedges</p>
+                  </div>
                 </div>
               </div>
             )}
