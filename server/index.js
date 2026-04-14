@@ -21,6 +21,8 @@ const pnlRoutes = require('./routes/pnl');
 const newsboardRoutes = require('./routes/newsboard');
 const portfolioValueRoutes = require('./routes/portfolio-value');
 const rebalancingStrategiesRoutes = require('./routes/rebalancing-strategies');
+const rebalancingRecommendationsRoutes = require('./routes/rebalancing-recommendations');
+const taxRoutes = require('./routes/tax');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
@@ -97,6 +99,13 @@ app.use('/api/pnl', pnlRoutes);
 app.use('/api/newsboard', newsboardRoutes);
 app.use('/api/portfolio-value', portfolioValueRoutes);
 app.use('/api/strategies', rebalancingStrategiesRoutes);
+app.use('/api/rebalancing-recommendations', rebalancingRecommendationsRoutes);
+app.use('/api/tax', taxRoutes);
+
+// Watchlist endpoint - expose all tracked symbols (active, inactive, custom)
+app.get('/api/watchlist', (req, res) => {
+  res.json(watchlistCache.getWatchlist());
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
