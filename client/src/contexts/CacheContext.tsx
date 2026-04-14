@@ -119,6 +119,19 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadCacheData();
   }, []);
 
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        const resp = await axios.get('/api/recurring-investments');
+        setRecurringInvestments(resp.data);
+      } catch (err) {
+        console.error('Failed to refresh recurring investments:', err);
+      }
+    };
+    window.addEventListener('recurring-investments-synced', handler);
+    return () => window.removeEventListener('recurring-investments-synced', handler);
+  }, []);
+
   const value: CacheContextType = {
     holdings,
     portfolios,
