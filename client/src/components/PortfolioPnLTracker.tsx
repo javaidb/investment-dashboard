@@ -49,6 +49,7 @@ interface Trade {
   total: number;
   type: 's' | 'c';
   currency: string;
+  folder?: string;
 }
 
 const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }) => {
@@ -242,6 +243,50 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
 
   const getAssetIcon = (symbol: string, type: 's' | 'c' = 's') => {
     return `/api/icons/symbol/${symbol}/image?type=${type}`;
+  };
+
+  const getSourceBadge = (folder?: string) => {
+    if (!folder) return null;
+
+    let imageName = '';
+    let alt = '';
+
+    if (folder === 'wealthsimple') {
+      imageName = 'WS.png';
+      alt = 'Wealthsimple';
+    } else if (folder === 'questrade') {
+      imageName = 'QS.png';
+      alt = 'Questrade';
+    } else if (folder === 'crypto') {
+      imageName = 'BB.png';
+      alt = 'Crypto';
+    } else {
+      return null;
+    }
+
+    return (
+      <img
+        src={`/api/icons/image/${imageName}`}
+        alt={alt}
+        title={alt}
+        style={{
+          width: '20px',
+          height: '20px',
+          objectFit: 'contain',
+          display: 'inline-block',
+          verticalAlign: 'middle'
+        }}
+        onError={(e) => {
+          // Fallback to text if image fails to load
+          const target = e.target as HTMLImageElement;
+          target.style.display = 'none';
+          const textBadge = document.createElement('span');
+          textBadge.textContent = imageName.replace('.png', '');
+          textBadge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: #f3f4f6; color: #6b7280;';
+          target.parentNode?.insertBefore(textBadge, target);
+        }}
+      />
+    );
   };
 
   if (loading) {
@@ -711,6 +756,7 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                       <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                         <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Date</th>
                         <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Action</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Source</th>
                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Quantity</th>
                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Running Total</th>
                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Price</th>
@@ -766,6 +812,9 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                               }} />
                               {trade.action.toUpperCase()}
                             </div>
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            {getSourceBadge(trade.folder)}
                           </td>
                           <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
                             {trade.quantity.toFixed(4)}
