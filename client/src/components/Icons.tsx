@@ -27,11 +27,20 @@ const Icons: React.FC = () => {
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState<string | null>(null);
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadIconsData();
   }, []);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const close = () => setPickerOpen(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [pickerOpen]);
 
   const loadIconsData = async () => {
     try {
@@ -416,32 +425,83 @@ const Icons: React.FC = () => {
 
                       {/* Icon Selector */}
                       <td className="py-3 px-6">
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                          <select
-                            value={icon.filename}
-                            onChange={(e) => handleIconChange(key, e.target.value)}
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (pickerOpen === key) { setPickerOpen(null); return; }
+                              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                              const pickerWidth = 320;
+                              const pickerHeight = 300;
+                              let left = rect.left;
+                              let top = rect.bottom + 6;
+                              if (left + pickerWidth > window.innerWidth - 10) left = window.innerWidth - pickerWidth - 10;
+                              if (top + pickerHeight > window.innerHeight - 10) top = rect.top - pickerHeight - 6;
+                              setPickerPos({ top, left });
+                              setPickerOpen(key);
+                            }}
                             disabled={saving === key}
                             style={{
-                              width: '100%',
-                              padding: '6px 10px',
-                              fontSize: '13px',
+                              padding: '4px 10px',
+                              fontSize: '12px',
+                              color: '#374151',
+                              backgroundColor: 'white',
                               border: '1px solid #d1d5db',
                               borderRadius: '6px',
-                              backgroundColor: 'white',
                               cursor: saving === key ? 'not-allowed' : 'pointer',
-                              opacity: saving === key ? 0.5 : 1
+                              opacity: saving === key ? 0.5 : 1,
                             }}
                           >
-                            {availableIcons.map((availableIcon) => (
-                              <option key={availableIcon.filename} value={availableIcon.filename}>
-                                {availableIcon.filename}
-                              </option>
-                            ))}
-                          </select>
-                          {saving === key && (
-                            <div className="flex items-center mt-1 text-xs text-blue-600">
-                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                              Saving...
+                            {saving === key ? (
+                              <span className="flex items-center gap-1">
+                                <RefreshCw style={{ width: '12px', height: '12px' }} className="animate-spin" />
+                                Saving...
+                              </span>
+                            ) : 'Change Icon'}
+                          </button>
+
+                          {pickerOpen === key && (
+                            <div onClick={(e) => e.stopPropagation()} style={{
+                              position: 'fixed',
+                              top: pickerPos.top,
+                              left: pickerPos.left,
+                              zIndex: 1000,
+                              backgroundColor: 'white',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '10px',
+                              boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+                              padding: '10px',
+                              width: '320px',
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(6, 1fr)',
+                              gap: '6px',
+                            }}>
+                              {availableIcons.map((availableIcon) => (
+                                <button
+                                  key={availableIcon.filename}
+                                  title={availableIcon.filename}
+                                  onClick={() => {
+                                    handleIconChange(key, availableIcon.filename);
+                                    setPickerOpen(null);
+                                  }}
+                                  style={{
+                                    padding: '4px',
+                                    border: availableIcon.filename === icon.filename ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                                    borderRadius: '6px',
+                                    backgroundColor: availableIcon.filename === icon.filename ? '#eff6ff' : 'white',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <img
+                                    src={availableIcon.url}
+                                    alt={availableIcon.filename}
+                                    style={{ width: '32px', height: '32px', objectFit: 'contain', display: 'block' }}
+                                    onError={(e) => { (e.target as HTMLImageElement).src = '/api/icons/image/template.png'; }}
+                                  />
+                                </button>
+                              ))}
                             </div>
                           )}
                         </div>
