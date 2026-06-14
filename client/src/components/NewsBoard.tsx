@@ -102,6 +102,23 @@ interface TimingRecommendation {
     atrPercent?: number | null;
     relativeStrength?: number | null;
     beta?: number | null;
+    fundamentals?: {
+      pe?: number | null;
+      eps?: number | null;
+      epsGrowth?: number | null;
+      revenueGrowth?: number | null;
+      dividendYield?: number | null;
+      recommendationMean?: number | null;
+      recommendationKey?: string | null;
+      analystCounts?: {
+        strongBuy: number;
+        buy: number;
+        hold: number;
+        sell: number;
+        strongSell: number;
+        total: number;
+      } | null;
+    } | null;
   };
   reasons: string[];
   buyScore: number | null;
@@ -111,8 +128,31 @@ interface TimingRecommendation {
   totalProfit?: number;
 }
 
+interface ScreenerMatch {
+  symbol: string;
+  sector?: string | null;
+  signals: string[];
+  buyScore: number | null;
+  sellScore: number | null;
+  indicators: TimingRecommendation['indicators'];
+}
+
+interface ScanJob {
+  status: 'running' | 'done' | 'error';
+  progress: number;
+  total: number;
+  matches: ScreenerMatch[];
+  error?: string;
+}
+
 const NewsBoard: React.FC = () => {
-  const [selectedView, setSelectedView] = useState<'alerts' | 'gains-losses' | 'notable-change' | 'eagle' | 'recs' | 'sells'>('recs');
+  const [selectedView, setSelectedView] = useState<'alerts' | 'gains-losses' | 'notable-change' | 'eagle' | 'recs' | 'sells' | 'scan'>('recs');
+  const [scanJobId, setScanJobId] = useState<string | null>(null);
+  const [scanFilter, setScanFilter] = useState<string>('all');
+  const [recsLegendFilter, setRecsLegendFilter] = useState<string>('all');
+  const [completedScanMatches, setCompletedScanMatches] = useState<ScreenerMatch[] | null>(null);
+  const [addingToWatchlist, setAddingToWatchlist] = useState<Set<string>>(new Set());
+  const [watchlistAdded, setWatchlistAdded] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error, refetch } = useQuery<NewsResponse>(
     'newsboard',
@@ -266,6 +306,79 @@ const NewsBoard: React.FC = () => {
       cacheTime: 30 * 60 * 1000, // 30 minutes
     }
   );
+
+  // ── Screener scan ──────────────────────────────────────────────────────────
+  // Manually triggered; returns { jobId } or { cached: true, matches }
+  const { refetch: triggerScan } = useQuery<{ cached?: boolean; matches?: ScreenerMatch[]; jobId?: string }>(
+    'screener-scan',
+    async () => {
+      const res = await axios.post('/api/screener/scan', { force: true });
+      return res.data;
+    },
+    {
+      enabled: false,
+      staleTime: 60 * 60 * 1000,
+      cacheTime: 60 * 60 * 1000,
+      onSuccess: (d: any) => {
+        if (d?.jobId) {
+          setScanJobId(d.jobId);
+        } else if (d?.cached && d?.matches) {
+          // Server returned a cached result directly — no job needed
+          setCompletedScanMatches(d.matches);
+        }
+      },
+    }
+  );
+
+  // Poll for progress while a job is running
+  const { data: scanJobData } = useQuery<ScanJob>(
+    ['screener-scan-progress', scanJobId],
+    async () => {
+      const res = await axios.get(`/api/screener/scan/progress/${scanJobId}`);
+      return res.data;
+    },
+    {
+      enabled: !!scanJobId,
+      refetchInterval: (d: any) => {
+        if (!d || d.status === 'done' || d.status === 'error') return false;
+        return 600;
+      },
+      staleTime: 0,
+      cacheTime: 60 * 60 * 1000,
+      onSuccess: (d: any) => {
+        if (d?.status === 'done') {
+          // Persist results into state before clearing the job ID
+          setCompletedScanMatches(d.matches || []);
+          setScanJobId(null);
+        } else if (d?.status === 'error') {
+          setScanJobId(null);
+        }
+      },
+    }
+  );
+
+  // Show in-progress matches while running, or persisted completed results
+  const scanMatches: ScreenerMatch[] = useMemo(() => {
+    if (scanJobData?.status === 'running') return scanJobData.matches ?? [];
+    return completedScanMatches ?? [];
+  }, [scanJobData, completedScanMatches]);
+
+  const scanIsRunning = !!(scanJobId && scanJobData?.status === 'running');
+  const scanProgress = scanJobData?.progress ?? 0;
+  const scanTotal = scanJobData?.total ?? 0;
+
+  const handleAddToWatchlist = async (symbol: string) => {
+    if (addingToWatchlist.has(symbol)) return;
+    setAddingToWatchlist(prev => new Set(prev).add(symbol));
+    try {
+      await axios.post('/api/portfolio/watchlist/custom/add', { symbol });
+      setWatchlistAdded(prev => new Set(prev).add(symbol));
+    } catch (err) {
+      console.error('Failed to add to watchlist', err);
+    } finally {
+      setAddingToWatchlist(prev => { const s = new Set(prev); s.delete(symbol); return s; });
+    }
+  };
 
   // Group news items by symbol and summarize (excluding recovery signals and breakeven signals for gains/losses view)
   const symbolSummaries = useMemo(() => {
@@ -592,39 +705,48 @@ const NewsBoard: React.FC = () => {
     };
   }, [recsData?.recommendations, holdingsData?.holdingsMap]);
 
-  // Count how many recs display each signal flag (same priority logic as the table badge)
+  // Derive the signal key for a single recommendation (priority order matches badge display)
+  const getRecSignal = (rec: TimingRecommendation): string | null => {
+    const ind = rec.indicators;
+    if (!ind) return null;
+    const reversal    = ind.momentum5 != null && ind.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
+    const accumStrong = (ind.cmf ?? -1) >= 0.10;
+    const accumWeak   = (ind.cmf ?? -1) > 0;
+    const bullish     = ind.macdBullish === true;
+    const d200        = parseFloat(ind.distanceFromMA200 ?? '0');
+    const mom5v       = ind.momentum5 ?? null;
+    const mom20v      = ind.momentum20 ?? null;
+    const adxV        = ind.adx ?? 0;
+    const accumTrend  = (ind.cmf ?? -1) > -0.05;
+    const dip         = ind.distanceFromHigh ?? 0;
+    const dipFromLow  = ind.distanceFromLow ?? 100;
+    const safety      = ind.safetyScore ?? 0;
+    const isStrong    = reversal && accumStrong && bullish;
+    const isModerate  = (reversal && bullish && accumWeak) || (reversal && accumStrong);
+    const isExtended  = d200 > 20;
+    const isRecovery  = !reversal && mom5v != null && mom20v != null && mom5v > 0 && mom20v > 0 && mom20v < 8 && d200 < 0 && bullish && accumWeak;
+    const isTrend     = !reversal && !isRecovery && mom20v != null && mom20v > 0 && bullish && adxV > 15 && d200 >= 0 && d200 <= 30 && accumTrend;
+    // Standard prime: significant dip from yearly high, below 200MA
+    const isPrimeDip  = safety >= 40 && dip <= -20 && dip >= -55 && d200 <= -8 && d200 >= -35;
+    // Support-break prime: stable stock hugging its 52w low while below 200MA (e.g. STE-type assets)
+    const isPrimeSupport = safety >= 55 && dipFromLow <= 12 && d200 <= -3 && d200 >= -25;
+    const isPrime     = !reversal && !isRecovery && !isTrend && (isPrimeDip || isPrimeSupport);
+    if (isTrend)    return 'trend';
+    if (isExtended) return 'extended';
+    if (isStrong)   return 'strongEntry';
+    if (isModerate) return 'modEntry';
+    if (isPrime)    return 'prime';
+    if (isRecovery) return 'recovery';
+    return null;
+  };
+
+  // Count how many recs display each signal flag
   const flagCounts = useMemo(() => {
     const counts = { strongEntry: 0, modEntry: 0, recovery: 0, trend: 0, prime: 0, extended: 0 };
     if (!recsData?.recommendations) return counts;
     for (const rec of recsData.recommendations) {
-      const ind = rec.indicators;
-      if (!ind) continue;
-      const reversal   = ind.momentum5 != null && ind.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
-      const accumStrong = (ind.cmf ?? -1) >= 0.10;
-      const accumWeak   = (ind.cmf ?? -1) > 0;
-      const bullish     = ind.macdBullish === true;
-      const d200        = parseFloat(ind.distanceFromMA200 ?? '0');
-      const mom5v       = ind.momentum5 ?? null;
-      const mom20v      = ind.momentum20 ?? null;
-      const adxV        = ind.adx ?? 0;
-      const accumTrend  = (ind.cmf ?? -1) > -0.05;
-      const dip         = ind.distanceFromHigh ?? 0;
-      const safety      = ind.safetyScore ?? 0;
-
-      const isStrong   = reversal && accumStrong && bullish;
-      const isModerate = (reversal && bullish && accumWeak) || (reversal && accumStrong);
-      const isExtended = d200 > 20;
-      const isRecovery = !reversal && mom5v != null && mom20v != null && mom5v > 0 && mom20v > 0 && mom20v < 8 && d200 < 0 && bullish && accumWeak;
-      const isTrend    = !reversal && !isRecovery && mom20v != null && mom20v > 0 && bullish && adxV > 15 && d200 >= 0 && d200 <= 30 && accumTrend;
-      const isPrime    = !reversal && !isRecovery && !isTrend && safety >= 40 && dip <= -20 && dip >= -55 && d200 <= -8 && d200 >= -35;
-
-      // Same priority as the badge IIFE
-      if (isTrend)         counts.trend++;
-      else if (isExtended) counts.extended++;
-      else if (isStrong)   counts.strongEntry++;
-      else if (isModerate) counts.modEntry++;
-      else if (isPrime)    counts.prime++;
-      else if (isRecovery) counts.recovery++;
+      const sig = getRecSignal(rec);
+      if (sig && sig in counts) counts[sig as keyof typeof counts]++;
     }
     return counts;
   }, [recsData?.recommendations]);
@@ -1015,7 +1137,7 @@ const NewsBoard: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 md:p-6">
       {/* Header */}
-      <div className="max-w-[1800px] mx-auto mb-8">
+      <div className="max-w-[2000px] mx-auto mb-8">
         <div className="relative bg-gradient-to-br from-slate-800/90 via-slate-800/70 to-slate-800/90 backdrop-blur-xl rounded-3xl p-6 md:p-8 border border-slate-600/40 shadow-2xl overflow-hidden">
           {/* Animated background gradient */}
           <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-green-600/10 animate-pulse-glow"></div>
@@ -1101,6 +1223,16 @@ const NewsBoard: React.FC = () => {
                 >
                   💸 Sells
                 </button>
+                <button
+                  onClick={() => setSelectedView('scan')}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                    selectedView === 'scan'
+                      ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  🔭 Scan
+                </button>
               </div>
 
               <button
@@ -1116,7 +1248,7 @@ const NewsBoard: React.FC = () => {
       </div>
 
       {/* Content Sections */}
-      <div className="max-w-[1800px] mx-auto">
+      <div className="max-w-[2000px] mx-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
@@ -1881,10 +2013,12 @@ const NewsBoard: React.FC = () => {
                   <div className="text-[9px] font-bold uppercase tracking-widest text-green-400/60 text-center">↓ Entry Signals</div>
                   <div className="flex gap-1.5 flex-1">
                     {([
-                      { color: 'border-green-400 text-green-400', badge: '⚡ entry', count: flagCounts.strongEntry, short: '5d ↑  ·  20d ↓  ·  CMF ≥ 0.10  ·  MACD ↑', action: 'STRONG BUY — all signals aligned', detail: 'Strongest entry: 5-day momentum has just turned positive while 20-day is still negative (reversal starting). Strong accumulation (CMF ≥ 0.10) and MACD bullish confirm buyers are stepping in. Best risk/reward entry point.' },
-                      { color: 'border-lime-400 text-lime-400',   badge: '↗ entry', count: flagCounts.modEntry,    short: '5d ↑  ·  20d ↓  ·  CMF > 0  ·  MACD ↑',    action: 'BUY — watch for follow-through',   detail: 'Same reversal pattern as ⚡ but with lighter accumulation (CMF just above zero). Valid entry signal, slightly less confirmed — higher chance of a false start.' },
-                    ] as const).map(({ color, badge, count, short, action, detail }) => (
-                      <div key={badge} className={`relative group flex-1 bg-slate-800/60 border ${color} rounded-lg px-3 py-2.5 text-center`}>
+                      { filterKey: 'strongEntry', color: 'border-green-400 text-green-400', badge: '⚡ entry', count: flagCounts.strongEntry, short: '5d ↑  ·  20d ↓  ·  CMF ≥ 0.10  ·  MACD ↑', action: 'STRONG BUY — all signals aligned', detail: 'Strongest entry: 5-day momentum has just turned positive while 20-day is still negative (reversal starting). Strong accumulation (CMF ≥ 0.10) and MACD bullish confirm buyers are stepping in. Best risk/reward entry point.' },
+                      { filterKey: 'modEntry',    color: 'border-lime-400 text-lime-400',   badge: '↗ entry', count: flagCounts.modEntry,    short: '5d ↑  ·  20d ↓  ·  CMF > 0  ·  MACD ↑',    action: 'BUY — watch for follow-through',   detail: 'Same reversal pattern as ⚡ but with lighter accumulation (CMF just above zero). Valid entry signal, slightly less confirmed — higher chance of a false start.' },
+                    ] as const).map(({ filterKey, color, badge, count, short, action, detail }) => {
+                      const isActive = recsLegendFilter === filterKey;
+                      return (
+                      <div key={badge} onClick={() => setRecsLegendFilter(prev => prev === filterKey ? 'all' : filterKey)} className={`relative group flex-1 bg-slate-800/60 border ${color} rounded-lg px-3 py-2.5 text-center cursor-pointer transition-all ${isActive ? 'ring-2 ring-offset-1 ring-offset-slate-900 brightness-125' : 'opacity-80 hover:opacity-100'}`}>
                         {count > 0 && (
                           <div className="absolute -top-2 -right-2 min-w-[18px] h-[18px] rounded-full bg-slate-700 border border-slate-500 flex items-center justify-center px-1">
                             <span className="text-[10px] font-black text-white leading-none">{count}</span>
@@ -1898,20 +2032,23 @@ const NewsBoard: React.FC = () => {
                         <div className="font-bold mt-1.5 text-xs tracking-wide">{action}</div>
                         <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-900 border border-slate-600/60 rounded-lg px-3 py-2 text-xs text-slate-300 leading-relaxed shadow-xl z-50 hidden group-hover:block pointer-events-none">{detail}</div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* Standalone signals */}
                 {([
-                  { color: 'border-blue-400 text-blue-400',     label: 'Recovery',  badge: '◎ recovery', count: flagCounts.recovery, short: '5d ↑  ·  20d ↑ (<8%)  ·  below 200MA',        action: 'CAN BUY — reversal confirmed',       detail: 'Reversal already complete — both 5d and 20d momentum are positive but still small (<8%), and price is still below the 200MA. The asset is stabilising after a decline. Next stage after entry.' },
-                  { color: 'border-yellow-400 text-yellow-400', label: 'Trend',     badge: '↑ trend',    count: flagCounts.trend,    short: '20d ↑  ·  ADX > 15  ·  MACD ↑  ·  0–30% above 200MA', action: 'HOLD or ADD ON DIPS',          detail: 'Active sustained uptrend. 20-day momentum positive, ADX > 15 (directional strength confirmed), MACD bullish, price 0–30% above 200MA. No reversal needed — trend is intact. Hold or add on dips.' },
-                  { color: 'border-purple-400 text-purple-400', label: 'Prime Dip', badge: '★ prime',    count: flagCounts.prime,    short: 'dip ≥ 20%  ·  200MA elevated  ·  safety 40+',    action: 'ACCUMULATE — quality at discount',   detail: 'Quality asset in a sudden dip. Price is ≥20% below 52-week high while 200MA is still elevated — indicating a recent crash, not prolonged structural decline. Safety ≥60 = bright purple, 40–59 = dimmer purple (more volatile, same signal).' },
-                  { color: 'border-orange-400 text-orange-400', label: 'Extended',  badge: '↗ extended', count: flagCounts.extended,  short: 'entry signal  ·  > 20% above 200MA',              action: 'WAIT — let it pull back first',      detail: 'A valid entry or reversal signal is present, but the asset is already more than 20% above its 200MA. The move may already be priced in. Consider waiting for a pullback before entering.' },
-                ] as const).map(({ color, badge, count, label, short, action, detail }) => (
+                  { filterKey: 'recovery', color: 'border-blue-400 text-blue-400',     label: 'Recovery',  badge: '◎ recovery', count: flagCounts.recovery, short: '5d ↑  ·  20d ↑ (<8%)  ·  below 200MA',        action: 'CAN BUY — reversal confirmed',       detail: 'Reversal already complete — both 5d and 20d momentum are positive but still small (<8%), and price is still below the 200MA. The asset is stabilising after a decline. Next stage after entry.' },
+                  { filterKey: 'trend',    color: 'border-yellow-400 text-yellow-400', label: 'Trend',     badge: '↑ trend',    count: flagCounts.trend,    short: '20d ↑  ·  ADX > 15  ·  MACD ↑  ·  0–30% above 200MA', action: 'HOLD or ADD ON DIPS',          detail: 'Active sustained uptrend. 20-day momentum positive, ADX > 15 (directional strength confirmed), MACD bullish, price 0–30% above 200MA. No reversal needed — trend is intact. Hold or add on dips.' },
+                  { filterKey: 'prime',    color: 'border-purple-400 text-purple-400', label: 'Prime Dip', badge: '★ prime',    count: flagCounts.prime,    short: 'dip ≥ 20% from high  OR  near 52w low  ·  below 200MA  ·  safety 40+',    action: 'ACCUMULATE — quality at discount',   detail: 'Quality asset trading at a discount. Two paths: (1) ≥20% below 52w high with 200MA elevated — sudden crash on a solid name. (2) Hugging 52w low (within 12%) while below 200MA — stable stock quietly slipping below long-term support. Both require safety ≥40 (path 2 requires ≥55). Accumulate in layers.' },
+                  { filterKey: 'extended', color: 'border-orange-400 text-orange-400', label: 'Extended',  badge: '↗ extended', count: flagCounts.extended,  short: 'entry signal  ·  > 20% above 200MA',              action: 'WAIT — let it pull back first',      detail: 'A valid entry or reversal signal is present, but the asset is already more than 20% above its 200MA. The move may already be priced in. Consider waiting for a pullback before entering.' },
+                ] as const).map(({ filterKey, color, badge, count, label, short, action, detail }) => {
+                  const isActive = recsLegendFilter === filterKey;
+                  return (
                   <div key={badge} className="flex flex-col flex-1 gap-1">
                     <div className={`text-[9px] font-bold uppercase tracking-widest text-center opacity-60 ${color.split(' ')[1]}`}>{label}</div>
-                    <div className={`relative group flex-1 bg-slate-800/60 border ${color} rounded-lg px-3 py-2.5 text-center`}>
+                    <div onClick={() => setRecsLegendFilter(prev => prev === filterKey ? 'all' : filterKey)} className={`relative group flex-1 bg-slate-800/60 border ${color} rounded-lg px-3 py-2.5 text-center cursor-pointer transition-all ${isActive ? 'ring-2 ring-offset-1 ring-offset-slate-900 brightness-125' : 'opacity-80 hover:opacity-100'}`}>
                       {count > 0 && (
                         <div className="absolute -top-2 -right-2 min-w-[18px] h-[18px] rounded-full bg-slate-700 border border-slate-500 flex items-center justify-center px-1">
                           <span className="text-[10px] font-black text-white leading-none">{count}</span>
@@ -1926,10 +2063,11 @@ const NewsBoard: React.FC = () => {
                       <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-900 border border-slate-600/60 rounded-lg px-3 py-2 text-xs text-slate-300 leading-relaxed shadow-xl z-50 hidden group-hover:block pointer-events-none">{detail}</div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-indigo-500/30 p-4 shadow-lg overflow-x-auto overflow-y-auto max-h-[70vh]">
-                <table className="w-full text-sm">
+                <table className="text-sm" style={{ minWidth: '1800px' }}>
                   <thead className="sticky top-0 z-10 bg-slate-800">
                     {/* Group header row */}
                     <tr className="border-b border-slate-700/40">
@@ -2023,6 +2161,20 @@ const NewsBoard: React.FC = () => {
                           </span>
                         </div>
                       </th>
+                      {/* Fundamentals: 3 cols — P/E, Rec, EPS */}
+                      <th colSpan={3} className="px-3 pt-2 pb-1 text-center border-l border-slate-700/50">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-teal-400">Fundamentals</span>
+                          <span className="group relative cursor-default">
+                            <span className="text-teal-400/60 text-[10px] font-bold">ⓘ</span>
+                            <div className="absolute right-0 top-5 z-50 hidden group-hover:block w-72 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-left shadow-xl">
+                              <p className="text-[11px] text-slate-200 leading-relaxed"><span className="text-teal-300 font-bold">P/E</span> — normalized trailing price/earnings ratio. ≤18 = value, ≥35 = expensive.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-teal-300 font-bold">Rec</span> — Wall Street analyst consensus (Finnhub). Shows Buy/Hold/Sell label + analyst count breakdown.</p>
+                              <p className="text-[11px] text-slate-200 leading-relaxed mt-1"><span className="text-teal-300 font-bold">EPS</span> — trailing 12-month earnings per share with YoY growth rate.</p>
+                            </div>
+                          </span>
+                        </div>
+                      </th>
                       {/* P&L: 1 col */}
                       <th colSpan={1} className="px-3 pt-2 pb-1 text-right border-l border-slate-700/50">
                         <div className="flex items-center justify-end gap-1">
@@ -2068,6 +2220,10 @@ const NewsBoard: React.FC = () => {
                       <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">R/R</th>
                       <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">ATR%</th>
                       <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase">Beta</th>
+                      {/* Fundamentals */}
+                      <th className="px-3 py-2 text-right text-xs font-bold text-teal-300 uppercase border-l border-slate-700/50">P/E</th>
+                      <th className="px-3 py-2 text-center text-xs font-bold text-teal-300 uppercase">Rec</th>
+                      <th className="px-3 py-2 text-right text-xs font-bold text-teal-300 uppercase">EPS</th>
                       {/* P&L */}
                       <th className="px-3 py-2 text-right text-xs font-bold text-slate-300 uppercase border-l border-slate-700/50">Profit</th>
                     </tr>
@@ -2200,11 +2356,16 @@ const NewsBoard: React.FC = () => {
                         return scoreB - scoreA;
                       });
 
+                      // ── apply legend filter ───────────────────────────────
+                      const filteredRecs = recsLegendFilter === 'all'
+                        ? sorted
+                        : sorted.filter((rec: TimingRecommendation) => getRecSignal(rec) === recsLegendFilter);
+
                       // ── build flat row list with separator rows ──────────
                       const rows: React.ReactNode[] = [];
                       let lastGroup: GroupId | null = null;
 
-                      sorted.forEach((rec: TimingRecommendation) => {
+                      filteredRecs.forEach((rec: TimingRecommendation) => {
                         const gid = getGroupId(rec);
                         if (gid !== lastGroup) {
                           lastGroup = gid;
@@ -2226,31 +2387,14 @@ const NewsBoard: React.FC = () => {
                             key={rec.symbol}
                             className={`border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors ${
                               (() => {
-                                const ind = rec.indicators;
-                                const reversal    = ind?.momentum5 != null && ind?.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
-                                const accumStrong = (ind?.cmf ?? -1) >= 0.10;
-                                const accumWeak   = (ind?.cmf ?? -1) > 0;
-                                const bullish     = ind?.macdBullish === true;
-                                const d200        = parseFloat(ind?.distanceFromMA200 ?? '0');
-                                const isExtended  = d200 > 20;
-                                const isStrong    = reversal && accumStrong && bullish;
-                                const isModerate  = (reversal && bullish && accumWeak) || (reversal && accumStrong);
-                                const mom5v       = ind?.momentum5 ?? null;
-                                const mom20v      = ind?.momentum20 ?? null;
-                                const isRecovery  = !reversal && mom5v != null && mom20v != null && mom5v > 0 && mom20v > 0 && mom20v < 8 && d200 < 0 && bullish && accumWeak;
-                                const adxV        = ind?.adx ?? 0;
-                                const accumTrend  = (ind?.cmf ?? -1) > -0.05;
-                                const isTrend     = !reversal && !isRecovery && mom20v != null && mom20v > 0 && bullish && adxV > 15 && d200 >= 0 && d200 <= 30 && accumTrend;
-                                const dip         = ind?.distanceFromHigh ?? 0;
-                                const safety      = ind?.safetyScore ?? 0;
-                                const isPrime     = !reversal && !isRecovery && !isTrend && safety >= 65 && dip <= -15 && dip >= -50 && d200 >= -20;
-                                if (!isStrong && !isModerate && !isRecovery && !isTrend && !isPrime) return '';
-                                if (isTrend)    return 'bg-yellow-500/10 border-l-4 border-l-yellow-400';
-                                if (isExtended) return 'bg-orange-500/10 border-l-4 border-l-orange-400';
-                                if (isStrong)   return 'bg-green-500/15 border-l-4 border-l-green-400';
-                                if (isModerate) return 'bg-lime-500/10 border-l-4 border-l-lime-400';
-                                if (isPrime)    return 'bg-purple-500/10 border-l-4 border-l-purple-400';
-                                return 'bg-blue-500/10 border-l-4 border-l-blue-400';
+                                const sig = getRecSignal(rec);
+                                if (sig === 'trend')       return 'bg-yellow-500/10 border-l-4 border-l-yellow-400';
+                                if (sig === 'extended')    return 'bg-orange-500/10 border-l-4 border-l-orange-400';
+                                if (sig === 'strongEntry') return 'bg-green-500/15 border-l-4 border-l-green-400';
+                                if (sig === 'modEntry')    return 'bg-lime-500/10 border-l-4 border-l-lime-400';
+                                if (sig === 'prime')       return 'bg-purple-500/10 border-l-4 border-l-purple-400';
+                                if (sig === 'recovery')    return 'bg-blue-500/10 border-l-4 border-l-blue-400';
+                                return '';
                               })()
                             }`}
                           >
@@ -2275,33 +2419,14 @@ const NewsBoard: React.FC = () => {
                                 {rec.buyScore != null ? rec.buyScore : '–'}
                               </span>
                               {(() => {
-                                const ind = rec.indicators;
-                                const reversal    = ind?.momentum5 != null && ind?.momentum20 != null && ind.momentum5 > 0 && ind.momentum20 < 0;
-                                const accumStrong = (ind?.cmf ?? -1) >= 0.10;
-                                const accumWeak   = (ind?.cmf ?? -1) > 0;
-                                const bullish     = ind?.macdBullish === true;
-                                const d200        = parseFloat(ind?.distanceFromMA200 ?? '0');
-                                const isExtended  = d200 > 20;
-                                const strong  = reversal && accumStrong && bullish;
-                                const moderate  = (reversal && bullish && accumWeak) || (reversal && accumStrong);
-                                const mom5v2    = ind?.momentum5 ?? null;
-                                const mom20v2   = ind?.momentum20 ?? null;
-                                const recovery  = !reversal && mom5v2 != null && mom20v2 != null && mom5v2 > 0 && mom20v2 > 0 && mom20v2 < 8 && d200 < 0 && bullish && accumWeak;
-                                const adxV2       = ind?.adx ?? 0;
-                                const accumTrend2 = (ind?.cmf ?? -1) > -0.05;
-                                const trend       = !reversal && !recovery && mom20v2 != null && mom20v2 > 0 && bullish && adxV2 > 15 && d200 >= 0 && d200 <= 30 && accumTrend2;
-                                const dip2        = ind?.distanceFromHigh ?? 0;
-                                const safety2     = ind?.safetyScore ?? 0;
-                                const prime       = !reversal && !recovery && !trend && safety2 >= 65 && dip2 <= -15 && dip2 >= -50 && d200 >= -20;
-                                if (!strong && !moderate && !recovery && !trend && !prime) return null;
-                                if (trend)      return <div className="text-[9px] font-black text-yellow-400 uppercase tracking-wide leading-none mt-0.5">↑ trend</div>;
-                                if (isExtended) return <div className="text-[9px] font-black text-orange-400 uppercase tracking-wide leading-none mt-0.5">↗ extended</div>;
-                                if (strong)     return <div className="text-[9px] font-black text-green-400 uppercase tracking-wide leading-none mt-0.5">⚡ entry</div>;
-                                if (moderate)   return <div className="text-[9px] font-black text-lime-400 uppercase tracking-wide leading-none mt-0.5">↗ entry</div>;
-                                if (prime)      return safety2 >= 60
-                                  ? <div className="text-[9px] font-black text-purple-400 uppercase tracking-wide leading-none mt-0.5">★ prime</div>
-                                  : <div className="text-[9px] font-black text-purple-300/70 uppercase tracking-wide leading-none mt-0.5">★ prime !</div>;
-                                return              <div className="text-[9px] font-black text-blue-400 uppercase tracking-wide leading-none mt-0.5">◎ recovery</div>;
+                                const sig = getRecSignal(rec);
+                                if (sig === 'trend')       return <div className="text-[9px] font-black text-yellow-400 uppercase tracking-wide leading-none mt-0.5">↑ trend</div>;
+                                if (sig === 'extended')    return <div className="text-[9px] font-black text-orange-400 uppercase tracking-wide leading-none mt-0.5">↗ extended</div>;
+                                if (sig === 'strongEntry') return <div className="text-[9px] font-black text-green-400 uppercase tracking-wide leading-none mt-0.5">⚡ entry</div>;
+                                if (sig === 'modEntry')    return <div className="text-[9px] font-black text-lime-400 uppercase tracking-wide leading-none mt-0.5">↗ entry</div>;
+                                if (sig === 'prime')       return <div className="text-[9px] font-black text-purple-400 uppercase tracking-wide leading-none mt-0.5">★ prime</div>;
+                                if (sig === 'recovery')    return <div className="text-[9px] font-black text-blue-400 uppercase tracking-wide leading-none mt-0.5">◎ recovery</div>;
+                                return null;
                               })()}
                             </td>
                             <td className="px-3 py-3 text-center">
@@ -2471,6 +2596,43 @@ const NewsBoard: React.FC = () => {
                                 return <div className={`font-semibold ${color}`}>{b.toFixed(2)}</div>;
                               })()}
                             </td>
+                            {/* Fundamentals */}
+                            {(() => {
+                              const fund = rec.indicators?.fundamentals;
+                              const getPEColor = (pe: number) =>
+                                pe <= 15 ? 'text-emerald-400' : pe <= 25 ? 'text-green-400' : pe <= 35 ? 'text-yellow-400' : pe <= 50 ? 'text-orange-400' : 'text-red-400';
+                              const getRecColor = (key: string) =>
+                                (key === 'strong_buy' || key === 'buy') ? 'text-emerald-400' : key === 'hold' ? 'text-yellow-400' : 'text-red-400';
+                              return (<>
+                                {/* P/E */}
+                                <td className="px-3 py-3 text-right border-l border-slate-700/30">
+                                  {fund?.pe != null
+                                    ? <div className={`font-semibold text-sm ${getPEColor(fund.pe)}`}>{fund.pe.toFixed(1)}x</div>
+                                    : <div className="text-slate-500">–</div>}
+                                </td>
+                                {/* Rec */}
+                                <td className="px-3 py-3 text-center">
+                                  {fund?.recommendationKey
+                                    ? <div className={`text-[10px] font-black uppercase tracking-wide ${getRecColor(fund.recommendationKey)}`}>
+                                        {fund.recommendationKey.replace('_', ' ')}
+                                      </div>
+                                    : <div className="text-slate-500">–</div>}
+                                </td>
+                                {/* EPS */}
+                                <td className="px-3 py-3 text-right">
+                                  {fund?.eps != null
+                                    ? <div>
+                                        <div className="font-semibold text-sm text-slate-200">${fund.eps.toFixed(2)}</div>
+                                        {fund.epsGrowth != null && (
+                                          <div className={`text-[9px] mt-0.5 ${fund.epsGrowth >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {fund.epsGrowth > 0 ? '+' : ''}{fund.epsGrowth.toFixed(1)}% YoY
+                                          </div>
+                                        )}
+                                      </div>
+                                    : <div className="text-slate-500">–</div>}
+                                </td>
+                              </>);
+                            })()}
                             {/* P&L */}
                             <td className="px-3 py-3 text-right border-l border-slate-700/30">
                               <div className={`font-semibold ${(rec.totalProfit || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -2483,6 +2645,15 @@ const NewsBoard: React.FC = () => {
                         );
                       });
 
+                      if (rows.length === 0) {
+                        rows.push(
+                          <tr key="empty">
+                            <td colSpan={18} className="px-4 py-10 text-center text-slate-500 text-sm">
+                              No assets match this signal filter.
+                            </td>
+                          </tr>
+                        );
+                      }
                       return rows;
                     })()}
                   </tbody>
@@ -2662,7 +2833,7 @@ const NewsBoard: React.FC = () => {
               </div>
             )}
           </div>
-        ) : (
+        ) : selectedView !== 'scan' ? (
           // Gains/Losses View
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* GAINS Section */}
@@ -2770,6 +2941,281 @@ const NewsBoard: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        ) : (
+          // Scan View — Universe Signal Screener
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-cyan-600/20 to-teal-600/20 backdrop-blur-sm rounded-2xl border border-cyan-500/30 p-5 shadow-xl">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-cyan-500/20 p-2.5 rounded-xl border border-cyan-500/40">
+                      <span className="text-2xl">🔭</span>
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-black text-white">Universe Signal Screener</h2>
+                      <p className="text-cyan-300/70 text-xs">
+                        Scans ~570 stocks, ETFs &amp; crypto for active legend signals. Results cached 1 hour.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setScanJobId(null); setCompletedScanMatches(null); triggerScan(); }}
+                    disabled={scanIsRunning}
+                    className="px-5 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 transition-all hover:from-cyan-700 hover:to-teal-700 shadow-lg flex items-center gap-2"
+                  >
+                    {scanIsRunning ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
+                        Scanning {scanProgress}/{scanTotal}...
+                      </>
+                    ) : '🔍 Scan universe'}
+                  </button>
+                </div>
+
+                {/* Signal filter pills */}
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { key: 'all',        label: 'All signals',   color: 'border-cyan-500/50 text-cyan-300' },
+                    { key: 'strongEntry',label: '⚡ entry',      color: 'border-green-500/50 text-green-400' },
+                    { key: 'modEntry',   label: '↗ entry',      color: 'border-lime-500/50 text-lime-400' },
+                    { key: 'recovery',   label: '◎ recovery',   color: 'border-blue-500/50 text-blue-400' },
+                    { key: 'trend',      label: '↑ trend',      color: 'border-yellow-500/50 text-yellow-400' },
+                    { key: 'prime',      label: '★ prime',      color: 'border-purple-500/50 text-purple-400' },
+                    { key: 'extended',   label: '↗ extended',   color: 'border-orange-500/50 text-orange-400' },
+                  ] as const).map(({ key, label, color }) => {
+                    const count = key === 'all' ? scanMatches.length : scanMatches.filter(m => m.signals.includes(key)).length;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setScanFilter(key)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all border ${
+                          scanFilter === key
+                            ? 'bg-slate-600/60 ' + color
+                            : 'border-slate-700/50 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                        }`}
+                      >
+                        {label}{count > 0 && <span className="ml-1 opacity-70">({count})</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Progress bar */}
+                {scanIsRunning && scanTotal > 0 && (
+                  <div>
+                    <div className="w-full bg-slate-700/50 rounded-full h-1.5">
+                      <div
+                        className="bg-gradient-to-r from-cyan-500 to-teal-500 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${(scanProgress / scanTotal) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">{scanProgress} of {scanTotal} symbols analyzed — {scanMatches.length} matches so far</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Empty state */}
+            {scanMatches.length === 0 && !scanIsRunning && (
+              <div className="bg-slate-800/30 border border-slate-600/30 rounded-xl p-12 text-center backdrop-blur-sm">
+                <p className="text-slate-400 text-xl mb-2">Click "Scan universe" to discover opportunities</p>
+                <p className="text-slate-500 text-sm">Analyzes ~570 symbols for strong entry, trend, prime dip &amp; other signals. First scan takes ~2-3 min; subsequent scans are near-instant.</p>
+              </div>
+            )}
+
+            {/* Results table */}
+            {(scanMatches.length > 0 || scanIsRunning) && (
+              <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl border border-cyan-500/20 shadow-lg overflow-x-auto">
+                <div className="max-h-[65vh] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 z-10 bg-slate-800/95 backdrop-blur-sm">
+                      <tr className="border-b border-slate-600/50">
+                        <th className="px-3 py-2.5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Symbol</th>
+                        <th className="px-3 py-2.5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Sector</th>
+                        <th className="px-3 py-2.5 text-center text-[10px] font-black text-cyan-400 uppercase tracking-widest">Signal</th>
+                        <th className="px-3 py-2.5 text-center text-[10px] font-black text-green-400 uppercase tracking-widest">Buy</th>
+                        <th className="px-3 py-2.5 text-center text-[10px] font-black text-red-400 uppercase tracking-widest">Sell</th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">vs 200MA</th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Mom 20d</th>
+                        <th className="px-3 py-2.5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">MACD</th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">CMF</th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Safety</th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">vs 52w Hi</th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">RSI</th>
+                        <th className="px-3 py-2.5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scanMatches
+                        .filter(m => scanFilter === 'all' || m.signals.includes(scanFilter))
+                        .map(match => {
+                          const isOwned = (holdingsData?.holdingsMap?.[match.symbol]?.shares ?? 0) >= 0.01;
+                          const allWatched = [
+                            ...(watchlistData?.active   ?? []),
+                            ...(watchlistData?.inactive ?? []),
+                            ...(watchlistData?.custom   ?? []),
+                          ];
+                          const isAlreadyWatching = allWatched.includes(match.symbol);
+                          const isAdded   = watchlistAdded.has(match.symbol);
+                          const isAdding  = addingToWatchlist.has(match.symbol);
+                          const ind = match.indicators;
+                          const d200 = parseFloat(ind?.distanceFromMA200 ?? '0');
+
+                          const rowBg =
+                            match.signals.includes('strongEntry') ? 'bg-green-500/10 border-l-4 border-l-green-400' :
+                            match.signals.includes('trend')       ? 'bg-yellow-500/10 border-l-4 border-l-yellow-400' :
+                            match.signals.includes('prime')       ? 'bg-purple-500/10 border-l-4 border-l-purple-400' :
+                            match.signals.includes('modEntry')    ? 'bg-lime-500/10 border-l-4 border-l-lime-400' :
+                            match.signals.includes('recovery')    ? 'bg-blue-500/10 border-l-4 border-l-blue-400' :
+                            match.signals.includes('extended')    ? 'bg-orange-500/10 border-l-4 border-l-orange-400' : '';
+
+                          return (
+                            <tr key={match.symbol} className={`border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors ${rowBg}`}>
+                              {/* Symbol */}
+                              <td className="px-3 py-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOwned ? 'bg-green-400' : 'bg-slate-600'}`} />
+                                  <span className="font-bold text-white text-xs">{match.symbol}</span>
+                                  {isOwned && <span className="text-[9px] text-green-400/70">owned</span>}
+                                </div>
+                              </td>
+                              {/* Sector */}
+                              <td className="px-3 py-2.5">
+                                {match.sector ? (
+                                  <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border whitespace-nowrap ${
+                                    match.sector === 'Tech'             ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' :
+                                    match.sector === 'Healthcare'       ? 'bg-red-500/15 text-red-300 border-red-500/30' :
+                                    match.sector === 'Energy'           ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                                    match.sector === 'Cryptocurrency'   ? 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' :
+                                    match.sector === 'ETF'              ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
+                                    match.sector === 'Financial Services' ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' :
+                                    match.sector === 'Consumer Cyclical' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                                    match.sector === 'Industrials'      ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                                    match.sector === 'Telecommunications' ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' :
+                                    match.sector === 'Utilities'        ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' :
+                                    match.sector === 'Materials'        ? 'bg-lime-500/15 text-lime-300 border-lime-500/30' :
+                                    match.sector === 'Real Estate'      ? 'bg-pink-500/15 text-pink-300 border-pink-500/30' :
+                                                                          'bg-slate-700/40 text-slate-400 border-slate-600/30'
+                                  }`}>
+                                    {match.sector}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-600 text-xs">–</span>
+                                )}
+                              </td>
+                              {/* Signals */}
+                              <td className="px-3 py-2.5">
+                                <div className="flex items-center justify-center gap-1 flex-wrap">
+                                  {match.signals.map(sig => (
+                                    <span key={sig} className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide border ${
+                                      sig === 'strongEntry' ? 'bg-green-500/20 text-green-400 border-green-500/40' :
+                                      sig === 'modEntry'    ? 'bg-lime-500/20 text-lime-400 border-lime-500/40' :
+                                      sig === 'recovery'    ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' :
+                                      sig === 'trend'       ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' :
+                                      sig === 'prime'       ? 'bg-purple-500/20 text-purple-400 border-purple-500/40' :
+                                                              'bg-orange-500/20 text-orange-400 border-orange-500/40'
+                                    }`}>
+                                      {sig === 'strongEntry' ? '⚡ entry' : sig === 'modEntry' ? '↗ entry' : sig === 'recovery' ? '◎ rec' : sig === 'trend' ? '↑ trend' : sig === 'prime' ? '★ prime' : '↗ ext'}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              {/* Buy score */}
+                              <td className="px-3 py-2.5 text-center tabular-nums">
+                                <span className={`font-bold text-sm ${
+                                  match.buyScore != null && match.buyScore >= 75 ? 'text-emerald-400' :
+                                  match.buyScore != null && match.buyScore >= 60 ? 'text-green-400' :
+                                  match.buyScore != null && match.buyScore >= 45 ? 'text-yellow-400' : 'text-slate-500'
+                                }`}>
+                                  {match.buyScore ?? '–'}
+                                </span>
+                              </td>
+                              {/* Sell score */}
+                              <td className="px-3 py-2.5 text-center tabular-nums">
+                                <span className="text-slate-400 text-sm">{match.sellScore ?? '–'}</span>
+                              </td>
+                              {/* vs 200MA */}
+                              <td className="px-3 py-2.5 text-right tabular-nums">
+                                <span className={`text-xs font-semibold ${d200 > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {ind?.distanceFromMA200 != null ? `${d200 > 0 ? '+' : ''}${parseFloat(ind.distanceFromMA200).toFixed(1)}%` : '–'}
+                                </span>
+                              </td>
+                              {/* Mom 20d */}
+                              <td className="px-3 py-2.5 text-right tabular-nums">
+                                <span className={`text-xs font-semibold ${(ind?.momentum20 ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {ind?.momentum20 != null ? `${ind.momentum20 > 0 ? '+' : ''}${ind.momentum20.toFixed(1)}%` : '–'}
+                                </span>
+                              </td>
+                              {/* MACD */}
+                              <td className="px-3 py-2.5 text-center">
+                                {ind?.macdBullish === true  ? <span className="text-green-400 font-black text-sm">▲</span> :
+                                 ind?.macdBullish === false ? <span className="text-red-400 font-black text-sm">▼</span> :
+                                                              <span className="text-slate-600">–</span>}
+                              </td>
+                              {/* CMF */}
+                              <td className="px-3 py-2.5 text-right tabular-nums">
+                                <span className={`text-xs font-semibold ${
+                                  (ind?.cmf ?? 0) >= 0.10 ? 'text-green-400' :
+                                  (ind?.cmf ?? 0) <= -0.10 ? 'text-red-400' : 'text-slate-300'
+                                }`}>
+                                  {ind?.cmf != null ? `${ind.cmf >= 0 ? '+' : ''}${ind.cmf.toFixed(2)}` : '–'}
+                                </span>
+                              </td>
+                              {/* Safety */}
+                              <td className="px-3 py-2.5 text-right tabular-nums">
+                                <span className={`text-xs font-semibold ${
+                                  (ind?.safetyScore ?? 0) >= 70 ? 'text-green-400' :
+                                  (ind?.safetyScore ?? 0) >= 50 ? 'text-yellow-400' : 'text-orange-400'
+                                }`}>
+                                  {ind?.safetyScore ?? '–'}
+                                </span>
+                              </td>
+                              {/* vs 52w Hi */}
+                              <td className="px-3 py-2.5 text-right tabular-nums">
+                                <span className="text-xs text-slate-300">
+                                  {ind?.distanceFromHigh != null ? `${ind.distanceFromHigh.toFixed(0)}%` : '–'}
+                                </span>
+                              </td>
+                              {/* RSI */}
+                              <td className="px-3 py-2.5 text-right tabular-nums">
+                                <span className={`text-xs font-semibold ${
+                                  (ind?.rsi ?? 50) < 30 ? 'text-green-400' :
+                                  (ind?.rsi ?? 50) > 70 ? 'text-red-400' : 'text-yellow-400'
+                                }`}>
+                                  {ind?.rsi?.toFixed(1) ?? '–'}
+                                </span>
+                              </td>
+                              {/* Action */}
+                              <td className="px-3 py-2.5">
+                                {isOwned ? (
+                                  <span className="text-[10px] text-slate-500 italic">in portfolio</span>
+                                ) : (isAdded || isAlreadyWatching) ? (
+                                  <span className="text-[10px] text-green-400 font-bold">✓ Watching</span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleAddToWatchlist(match.symbol)}
+                                    disabled={isAdding}
+                                    className="px-2.5 py-1 text-[10px] font-bold rounded-lg border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-50 transition-all"
+                                  >
+                                    {isAdding ? '...' : '+ Watchlist'}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+                {scanMatches.filter(m => scanFilter === 'all' || m.signals.includes(scanFilter)).length === 0 && !scanIsRunning && (
+                  <div className="p-8 text-center text-slate-500 text-sm">
+                    No matches for this signal filter right now.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
