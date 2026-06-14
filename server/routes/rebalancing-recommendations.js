@@ -1,15 +1,57 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const historicalDataCache = require('../historical-cache');
 const { fetchYahooChart } = require('../utils/yahoo-finance');
 const { isCanadianFundCode, fetchCanadianFundHistory } = require('../services/recurring-investments');
 const router = express.Router();
 
 const CANADIAN_SUFFIXES = ['.TO', '.V', '.CN'];
+const KNOWN_CRYPTOS = new Set(['BTC','ETH','ADA','SOL','DOT','LINK','UNI','MATIC','AVAX','ATOM','LTC','BCH','XRP','DOGE','SHIB','TRX','ETC','FIL','NEAR','ALGO','TRUMP']);
 
 // --- Module-level caches ---
-// Fundamentals (Beta, Analyst Target, EPS growth, P/E) from Alpha Vantage OVERVIEW — 7-day TTL
+// Fundamentals (P/E, EPS, analyst recommendations) from Finnhub — 24h in-memory TTL
 const fundamentalsCache = {};
+
+// File-backed dividend yield cache — 7-day TTL, survives server restarts
+const DIVIDEND_CACHE_FILE = path.join(__dirname, '../data/cache/dividend-cache.json');
+
+function loadDividendCache() {
+  try {
+    if (fs.existsSync(DIVIDEND_CACHE_FILE)) {
+      const stored = JSON.parse(fs.readFileSync(DIVIDEND_CACHE_FILE, 'utf8'));
+      const TTL_7D = 7 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      for (const [symbol, entry] of Object.entries(stored)) {
+        if (now - entry.fetchedAt < TTL_7D) {
+          // Pre-populate in-memory cache so getFundamentals won't refetch
+          fundamentalsCache[symbol] = { data: entry.data, fetchedAt: entry.fetchedAt };
+        }
+      }
+      console.log(`📦 Loaded dividend cache: ${Object.keys(stored).length} symbols`);
+    }
+  } catch (e) {
+    console.warn('⚠️ Could not load dividend cache:', e.message);
+  }
+}
+
+function saveDividendCache() {
+  try {
+    const dir = path.dirname(DIVIDEND_CACHE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    // Persist only the entries that are currently in fundamentalsCache and have data
+    const toSave = {};
+    for (const [symbol, entry] of Object.entries(fundamentalsCache)) {
+      if (!entry.skipped && entry.data) toSave[symbol] = entry;
+    }
+    fs.writeFileSync(DIVIDEND_CACHE_FILE, JSON.stringify(toSave, null, 2));
+  } catch (e) {
+    console.warn('⚠️ Could not save dividend cache:', e.message);
+  }
+}
+
+loadDividendCache();
 // SPY annual momentum — 1-hour TTL so we don't refetch on every request
 const spyMomCache = { value: null, timestamp: 0 };
 
@@ -341,15 +383,88 @@ function calculateCMF(sortedData, period = 20) {
   return volSum === 0 ? null : mfvSum / volSum;
 }
 
-// Safety Score 0–100. Weights: volatility 40%, maxDrawdown 35%, atrPercent 25%.
+// Safety Score 0–100. Weights: volatility 50%, maxDrawdown 20%, atrPercent 30%.
 function calculateSafetyScore(volatility, maxDrawdown, atrPercent) {
   const volScore = volatility < 15 ? 1.0 : volatility < 25 ? 0.8 : volatility < 40 ? 0.6 : volatility < 60 ? 0.35 : 0.1;
   const ddScore  = maxDrawdown < 20 ? 1.0 : maxDrawdown < 35 ? 0.8 : maxDrawdown < 50 ? 0.6 : maxDrawdown < 65 ? 0.35 : 0.1;
   if (atrPercent == null) {
-    return Math.round((volScore * 0.40 + ddScore * 0.35) / 0.75 * 100);
+    return Math.round((volScore * 0.50 + ddScore * 0.20) / 0.70 * 100);
   }
   const atrScore = atrPercent < 1.0 ? 1.0 : atrPercent < 2.0 ? 0.8 : atrPercent < 3.5 ? 0.6 : atrPercent < 6.0 ? 0.35 : 0.1;
-  return Math.round((volScore * 0.40 + ddScore * 0.35 + atrScore * 0.25) * 100);
+  return Math.round((volScore * 0.50 + ddScore * 0.20 + atrScore * 0.30) * 100);
+}
+
+// Simple throttle: enforce minimum gap between Finnhub calls to avoid rate limiting (60/min free tier).
+let _lastFinnhubMs = 0;
+async function finnhubGet(url) {
+  const gap = 200; // ms between calls — 5/sec max, well under 60/min
+  const wait = gap - (Date.now() - _lastFinnhubMs);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  _lastFinnhubMs = Date.now();
+  return axios.get(url, { timeout: 8000 });
+}
+
+// Fetch fundamentals (P/E, EPS, analyst recommendations) from Finnhub with 24h in-memory cache.
+// Returns null for crypto and on fetch failure. Canadian suffixes are stripped before querying.
+async function getFundamentals(symbol) {
+  if (KNOWN_CRYPTOS.has(symbol.toUpperCase()) || symbol.includes('-USD')) return null;
+
+  const bare = symbol.replace(/\.(TO|V|CN)$/i, '');
+  const now = Date.now();
+  const TTL = 24 * 60 * 60 * 1000;
+  const RETRY_TTL = 5 * 60 * 1000; // retry rate-limited/transient failures after 5 min
+  const cached = fundamentalsCache[bare];
+  if (cached) {
+    if (cached.skipped && (now - cached.fetchedAt < (cached.transient ? RETRY_TTL : TTL))) return null;
+    if (!cached.skipped && now - cached.fetchedAt < TTL) return cached.data;
+  }
+
+  const FINNHUB_KEY = process.env.FINNHUB_API_KEY;
+  if (!FINNHUB_KEY) return null;
+
+  try {
+    const [metricsRes, recsRes] = await Promise.all([
+      finnhubGet(`https://finnhub.io/api/v1/stock/metric?symbol=${bare}&metric=all&token=${FINNHUB_KEY}`),
+      finnhubGet(`https://finnhub.io/api/v1/stock/recommendation?symbol=${bare}&token=${FINNHUB_KEY}`),
+    ]);
+
+    const m = metricsRes.data?.metric;
+    if (!m) {
+      fundamentalsCache[bare] = { skipped: true, fetchedAt: now };
+      return null;
+    }
+
+    const pe = m.peNormalizedAnnual ?? m.peAnnual ?? m.peTTM ?? m.peBasicExclExtraTTM ?? m.peExclExtraTTM ?? m.peInclExtraTTM ?? null;
+    const eps = m.epsTTM ?? null;
+    const epsGrowth = m.epsGrowthTTMYoy ?? null;
+    const revenueGrowth = m.revenueGrowthTTMYoy ?? null;
+    const dividendYield = m.currentDividendYieldTTM ?? null;
+
+    const rec = recsRes.data?.[0];
+    const { strongBuy = 0, buy = 0, hold = 0, sell = 0, strongSell = 0 } = rec ?? {};
+    const total = strongBuy + buy + hold + sell + strongSell;
+    const recommendationMean = total > 0
+      ? (1 * strongBuy + 2 * buy + 3 * hold + 4 * sell + 5 * strongSell) / total
+      : null;
+    const recommendationKey = recommendationMean == null ? null
+      : recommendationMean <= 1.5 ? 'strong_buy'
+      : recommendationMean <= 2.5 ? 'buy'
+      : recommendationMean <= 3.5 ? 'hold'
+      : recommendationMean <= 4.5 ? 'sell' : 'strong_sell';
+    const analystCounts = rec ? { strongBuy, buy, hold, sell, strongSell, total } : null;
+
+    const data = { pe, eps, epsGrowth, revenueGrowth, dividendYield, recommendationMean, recommendationKey, analystCounts };
+    fundamentalsCache[bare] = { data, fetchedAt: now };
+    saveDividendCache();
+    console.log(`📋 Fundamentals: ${bare} P/E=${pe?.toFixed(1)}, rec=${recommendationKey}`);
+    return data;
+  } catch (err) {
+    const status = err.response?.status;
+    const transient = status === 429 || (status >= 500 && status < 600) || !status;
+    console.warn(`⚠️  Fundamentals fetch failed for ${bare}: HTTP ${status ?? 'timeout/network'} — ${transient ? 'retry in 5min' : 'skipping permanently'}`);
+    fundamentalsCache[bare] = { skipped: true, transient, fetchedAt: now };
+    return null;
+  }
 }
 
 // Analyze a single asset for timing recommendations
@@ -370,6 +485,9 @@ async function analyzeAssetTiming(symbol, adjustment, currentInvestment) {
     const spyPrices = spyData?.historicalData
       ? [...spyData.historicalData].sort((a, b) => new Date(b.date) - new Date(a.date)).map(d => d.close)
       : [];
+
+    // Fetch fundamentals in parallel — non-blocking, null for crypto/failure
+    const fundamentals = await getFundamentals(symbol);
 
     // Cache SPY 252-day momentum for 1 hour
     let spyMom252 = null;
@@ -436,7 +554,7 @@ async function analyzeAssetTiming(symbol, adjustment, currentInvestment) {
 
     // Calculate Volatility (standard deviation of returns)
     const returns = [];
-    for (let i = 0; i < Math.min(20, closePrices.length - 1); i++) {
+    for (let i = 0; i < Math.min(60, closePrices.length - 1); i++) {
       returns.push((closePrices[i] - closePrices[i + 1]) / closePrices[i + 1]);
     }
     const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
@@ -740,6 +858,16 @@ async function analyzeAssetTiming(symbol, adjustment, currentInvestment) {
           ? parseFloat((momentum252 - spyMom252).toFixed(2)) : null,
         // Beta calculated from regression of daily returns vs SPY (252-day window)
         beta: spyPrices.length >= 30 ? calculateBeta(closePrices, spyPrices) : null,
+        fundamentals: fundamentals ? {
+          pe: fundamentals.pe,
+          eps: fundamentals.eps,
+          epsGrowth: fundamentals.epsGrowth,
+          revenueGrowth: fundamentals.revenueGrowth,
+          dividendYield: fundamentals.dividendYield,
+          recommendationMean: fundamentals.recommendationMean,
+          recommendationKey: fundamentals.recommendationKey,
+          analystCounts: fundamentals.analystCounts,
+        } : null,
         riskReward: (() => {
           const denom = currentPrice - weekLow52;
           if (denom <= 0) return 10;
@@ -933,10 +1061,11 @@ function calculateBuySellScore(analysis) {
   const d50  = ind.distanceFromMA50  ? parseFloat(ind.distanceFromMA50)  : null;
   const d20  = ind.distanceFromMA20  ? parseFloat(ind.distanceFromMA20)  : null;
   const { rsi, momentum5, momentum20, macdBullish, bollingerB, adx, distanceFromHigh, safetyScore, riskReward, cmf } = ind;
+  const fund = ind.fundamentals ?? null;
 
   // Weights — computeScore normalises by totalWeight so these don't need to sum to any fixed number.
   // safety and rr are added alongside the existing indicators.
-  const W = { rsi: 18, ma200: 15, ma50: 15, ma20: 6, macd: 15, boll: 10, mom: 10, hi52: 3, adx: 8, safety: 35, rr: 10, momRev: 10, volConf: 8, trend: 15 };
+  const W = { rsi: 22, ma200: 15, ma50: 15, ma20: 6, macd: 15, boll: 10, mom: 10, hi52: 3, adx: 8, safety: 20, rr: 10, momRev: 13, volConf: 8, trend: 15, pe: 8, recMean: 8 };
 
   // --- BUY components (0.0 = terrible time to buy, 1.0 = ideal) ---
   const buy = {};
@@ -1038,6 +1167,19 @@ function calculateBuySellScore(analysis) {
               : 0.15;                      // no trend — neutral/negative
   }
 
+  // Fundamentals (skipped for crypto / assets without coverage)
+  if (fund) {
+    if (fund.pe != null && fund.pe > 0) {
+      const pe = fund.pe;
+      buy.pe = pe <= 12 ? 1.00 : pe <= 18 ? 0.82 : pe <= 25 ? 0.60 : pe <= 35 ? 0.38 : pe <= 50 ? 0.18 : 0.05;
+    }
+    if (fund.recommendationMean != null) {
+      const rm = fund.recommendationMean;
+      buy.recMean = rm <= 1.5 ? 0.95 : rm <= 2.0 ? 0.80 : rm <= 2.5 ? 0.62 : rm <= 3.0 ? 0.45
+                  : rm <= 3.5 ? 0.28 : rm <= 4.0 ? 0.15 : 0.05;
+    }
+  }
+
   // --- SELL components (0.0 = terrible time to sell, 1.0 = ideal) ---
   const sell = {};
 
@@ -1071,8 +1213,16 @@ function calculateBuySellScore(analysis) {
   }
 
   if (momentum20 != null) {
-    sell.mom = momentum20 >= 15 ? 0.15 : momentum20 >= 5 ? 0.30 : momentum20 >= 0 ? 0.45
-             : momentum20 >= -8 ? 0.68 : 0.90;
+    const baseMom = momentum20 >= 15 ? 0.15 : momentum20 >= 5 ? 0.30 : momentum20 >= 0 ? 0.45
+                  : momentum20 >= -8 ? 0.68 : 0.90;
+    // Below 200MA + falling: risky assets should cut losses.
+    // Below 200MA + rising: recovery in progress — trust momentum direction (sell.safety handles riskiness).
+    if (d200 != null && d200 < 0 && safetyScore != null && momentum20 <= 0) {
+      const recoverFactor = safetyScore / 100; // 0 = risky → sell, 1 = safe → hold
+      sell.mom = 0.15 + (1 - recoverFactor) * 0.55; // safe ≈ 0.15, risky ≈ 0.70
+    } else {
+      sell.mom = baseMom;
+    }
   }
 
   if (distanceFromHigh != null) {
@@ -1098,6 +1248,24 @@ function calculateBuySellScore(analysis) {
     sell.rr = riskReward < 0.5 ? 1.00 : riskReward < 1 ? 0.80 : riskReward < 2 ? 0.55 : riskReward < 3 ? 0.30 : 0.10;
   }
 
+  // Fundamentals (skipped for crypto / assets without coverage)
+  if (fund) {
+    if (fund.pe != null && fund.pe > 0) {
+      const pe = fund.pe;
+      sell.pe = pe >= 50 ? 0.90 : pe >= 35 ? 0.72 : pe >= 25 ? 0.52 : pe >= 18 ? 0.32 : pe >= 12 ? 0.18 : 0.05;
+    }
+    if (fund.recommendationMean != null) {
+      const rm = fund.recommendationMean;
+      sell.recMean = rm >= 4.5 ? 0.95 : rm >= 4.0 ? 0.80 : rm >= 3.5 ? 0.62 : rm >= 3.0 ? 0.45
+                   : rm >= 2.5 ? 0.28 : rm >= 2.0 ? 0.15 : 0.05;
+    }
+  }
+
+  // Debug: log sell components for key symbols
+  if (analysis.symbol === 'MSFT' || analysis.symbol === 'AMD') {
+    console.log(`[${analysis.symbol} sell debug]`, { d200, momentum20, safetyScore, rsi, sell });
+  }
+
   // Weighted average → 0–100
   const computeScore = (components) => {
     let weightedSum = 0;
@@ -1118,3 +1286,6 @@ function calculateBuySellScore(analysis) {
 }
 
 module.exports = router;
+module.exports.analyzeAssetTiming = analyzeAssetTiming;
+module.exports.calculateBuySellScore = calculateBuySellScore;
+module.exports.getFundamentals = getFundamentals;
