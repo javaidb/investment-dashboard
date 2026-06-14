@@ -16,6 +16,8 @@ interface CacheData {
     cadPrice: number;
     companyName: string;
     sector?: string | null;
+    subsector?: string[] | string | null;
+    otherSectors?: string[] | null;
     conviction?: string | null;
     exchangeRate: number;
     lastUpdated: string;
@@ -26,11 +28,12 @@ interface CacheData {
 // Predefined sector options
 const SECTOR_OPTIONS = [
   'Alternative Investments',
+  'Broad Market',
+  'Commodities',
   'Consumer Cyclical',
   'Consumer Defensive',
   'Cryptocurrency',
   'Energy',
-  'ETF',
   'Financial Services',
   'Healthcare',
   'Industrials',
@@ -39,6 +42,51 @@ const SECTOR_OPTIONS = [
   'Tech',
   'Telecommunications',
   'Utilities'
+];
+
+// Predefined subsector options
+const SUBSECTOR_OPTIONS = [
+  'AI',
+  'Aerospace',
+  'Altcoins',
+  'Asset Management',
+  'Banks',
+  'Battery Materials',
+  'Biotech',
+  'Bitcoin',
+  'Clean Technology',
+  'Cloud & SaaS',
+  'Consumer Electronics',
+  'Cybersecurity',
+  'Data Centers',
+  'Defense',
+  'E-Commerce',
+  'Electric Vehicles',
+  'Fintech',
+  'Fixed Income',
+  'Gaming',
+  'Gold',
+  'Health Insurance',
+  'Industrial Equipment',
+  'Insurance',
+  'Medical Devices',
+  'Mining',
+  'Natural Gas',
+  'Nuclear Power',
+  'Oil & Gas',
+  'Payments',
+  'Pharmaceuticals',
+  'Pipelines',
+  'Quantum Computing',
+  'Robotics / Automation',
+  'Search & Advertising',
+  'Semiconductors',
+  'Silver',
+  'Social Media',
+  'Space',
+  'Streaming / Media',
+  'Telehealth',
+  'Uranium',
 ];
 
 // Predefined conviction level options
@@ -57,6 +105,10 @@ const CacheManagement: React.FC = () => {
   const [refreshingPortfolio, setRefreshingPortfolio] = useState(false);
   const [editingSector, setEditingSector] = useState<string | null>(null);
   const [editSectorValue, setEditSectorValue] = useState<string>('');
+  const [editingSubsector, setEditingSubsector] = useState<string | null>(null);
+  const [editSubsectorValue, setEditSubsectorValue] = useState<string>('');
+  const [editingOtherSectors, setEditingOtherSectors] = useState<string | null>(null);
+  const [editOtherSectorsValue, setEditOtherSectorsValue] = useState<string[]>([]);
   const [editingConviction, setEditingConviction] = useState<string | null>(null);
   const [editConvictionValue, setEditConvictionValue] = useState<string>('');
 
@@ -189,6 +241,86 @@ const CacheManagement: React.FC = () => {
       setEditSectorValue('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update sector');
+    }
+  };
+
+  const startEditingSubsector = (symbol: string, currentSubsector?: string[] | string | null) => {
+    setEditingSubsector(symbol);
+    if (Array.isArray(currentSubsector)) {
+      setEditSubsectorValue(currentSubsector[0] || '');
+    } else if (typeof currentSubsector === 'string' && currentSubsector) {
+      setEditSubsectorValue(currentSubsector);
+    } else {
+      setEditSubsectorValue('');
+    }
+  };
+
+  const cancelEditingSubsector = () => {
+    setEditingSubsector(null);
+    setEditSubsectorValue('');
+  };
+
+  const saveSubsector = async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/portfolio/cache/${symbol}/subsector`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subsector: editSubsectorValue || null })
+      });
+
+      if (!response.ok) throw new Error('Failed to update subsector');
+
+      if (cacheData) {
+        setCacheData({
+          ...cacheData,
+          [symbol]: { ...cacheData[symbol], subsector: editSubsectorValue || null }
+        });
+      }
+
+      setEditingSubsector(null);
+      setEditSubsectorValue('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update subsector');
+    }
+  };
+
+  const startEditingOtherSectors = (symbol: string, current?: string[] | null) => {
+    setEditingOtherSectors(symbol);
+    setEditOtherSectorsValue(Array.isArray(current) ? current : []);
+  };
+
+  const cancelEditingOtherSectors = () => {
+    setEditingOtherSectors(null);
+    setEditOtherSectorsValue([]);
+  };
+
+  const toggleOtherSectorOption = (option: string) => {
+    setEditOtherSectorsValue(prev =>
+      prev.includes(option) ? prev.filter(s => s !== option) : [...prev, option]
+    );
+  };
+
+  const saveOtherSectors = async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/portfolio/cache/${symbol}/other-sectors`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otherSectors: editOtherSectorsValue.length > 0 ? editOtherSectorsValue : null })
+      });
+
+      if (!response.ok) throw new Error('Failed to update other sectors');
+
+      if (cacheData) {
+        setCacheData({
+          ...cacheData,
+          [symbol]: { ...cacheData[symbol], otherSectors: editOtherSectorsValue.length > 0 ? editOtherSectorsValue : null }
+        });
+      }
+
+      setEditingOtherSectors(null);
+      setEditOtherSectorsValue([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update other sectors');
     }
   };
 
@@ -617,31 +749,37 @@ const CacheManagement: React.FC = () => {
               <table style={{backgroundColor: 'white', width: '100%', tableLayout: 'fixed'}}>
                 <thead>
                   <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '7%'}}>
                       Symbol
                     </th>
-                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '18%'}}>
+                    <th className="text-left py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '13%'}}>
                       Company
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '9%'}}>
                       Sector
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '9%'}}>
+                      Subsector
+                    </th>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '9%'}}>
+                      Other Sectors
+                    </th>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '7%'}}>
                       Conviction
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '9%'}}>
                       USD Price
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '11%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
                       CAD Price
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '8%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '7%'}}>
                       FX Rate
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '18%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '16%'}}>
                       Last Updated
                     </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
+                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '9%'}}>
                       Actions
                     </th>
                   </tr>
@@ -763,6 +901,247 @@ const CacheManagement: React.FC = () => {
                             >
                               {entry?.sector || 'Not set'}
                             </div>
+                          )}
+                        </td>
+                        {/* Subsector column — single select */}
+                        <td className="py-3 px-6 text-center">
+                          {editingSubsector === symbol ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
+                              <div style={{
+                                maxHeight: '160px',
+                                overflowY: 'auto',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                backgroundColor: 'white',
+                                width: '100%',
+                                padding: '4px',
+                                textAlign: 'left'
+                              }}>
+                                <label style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '2px 4px',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  color: '#9ca3af',
+                                  borderRadius: '3px',
+                                  backgroundColor: editSubsectorValue === '' ? '#eff6ff' : 'transparent'
+                                }}>
+                                  <input
+                                    type="radio"
+                                    name={`subsector-${symbol}`}
+                                    checked={editSubsectorValue === ''}
+                                    onChange={() => setEditSubsectorValue('')}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  None
+                                </label>
+                                {SUBSECTOR_OPTIONS.map(option => (
+                                  <label key={option} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    padding: '2px 4px',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    color: '#374151',
+                                    borderRadius: '3px',
+                                    backgroundColor: editSubsectorValue === option ? '#eff6ff' : 'transparent'
+                                  }}>
+                                    <input
+                                      type="radio"
+                                      name={`subsector-${symbol}`}
+                                      checked={editSubsectorValue === option}
+                                      onChange={() => setEditSubsectorValue(option)}
+                                      style={{ cursor: 'pointer' }}
+                                    />
+                                    {option}
+                                  </label>
+                                ))}
+                              </div>
+                              <div style={{ display: 'flex', gap: '4px', width: '100%' }}>
+                                <button
+                                  onClick={() => saveSubsector(symbol)}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: 'white',
+                                    backgroundColor: '#10b981',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={cancelEditingSubsector}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: '#6b7280',
+                                    backgroundColor: '#f3f4f6',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            (() => {
+                              const rawSub = entry?.subsector;
+                              const displayText = Array.isArray(rawSub) ? rawSub[0] || null : (rawSub as string | null) || null;
+                              return (
+                                <div
+                                  onClick={() => startEditingSubsector(symbol, entry?.subsector)}
+                                  style={{
+                                    cursor: 'pointer',
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: displayText ? '#374151' : '#9ca3af',
+                                    backgroundColor: displayText ? '#f3f4f6' : '#fafafa',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '6px',
+                                    display: 'inline-block',
+                                    maxWidth: '100%',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all 0.2s'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                                    e.currentTarget.style.borderColor = '#d1d5db';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = displayText ? '#f3f4f6' : '#fafafa';
+                                    e.currentTarget.style.borderColor = '#e5e7eb';
+                                  }}
+                                  title={displayText || 'Click to edit subsector'}
+                                >
+                                  {displayText || 'Not set'}
+                                </div>
+                              );
+                            })()
+                          )}
+                        </td>
+                        {/* Other Sectors column — multi select */}
+                        <td className="py-3 px-6 text-center">
+                          {editingOtherSectors === symbol ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
+                              <div style={{
+                                maxHeight: '160px',
+                                overflowY: 'auto',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                backgroundColor: 'white',
+                                width: '100%',
+                                padding: '4px',
+                                textAlign: 'left'
+                              }}>
+                                {SECTOR_OPTIONS.map(option => (
+                                  <label key={option} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    padding: '2px 4px',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    color: '#374151',
+                                    borderRadius: '3px',
+                                    backgroundColor: editOtherSectorsValue.includes(option) ? '#eff6ff' : 'transparent'
+                                  }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={editOtherSectorsValue.includes(option)}
+                                      onChange={() => toggleOtherSectorOption(option)}
+                                      style={{ cursor: 'pointer' }}
+                                    />
+                                    {option}
+                                  </label>
+                                ))}
+                              </div>
+                              <div style={{ display: 'flex', gap: '4px', width: '100%' }}>
+                                <button
+                                  onClick={() => saveOtherSectors(symbol)}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: 'white',
+                                    backgroundColor: '#10b981',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={cancelEditingOtherSectors}
+                                  style={{
+                                    flex: 1,
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: '#6b7280',
+                                    backgroundColor: '#f3f4f6',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            (() => {
+                              const others = entry?.otherSectors;
+                              const displayText = Array.isArray(others) && others.length > 0 ? others.join(', ') : null;
+                              return (
+                                <div
+                                  onClick={() => startEditingOtherSectors(symbol, entry?.otherSectors)}
+                                  style={{
+                                    cursor: 'pointer',
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    color: displayText ? '#374151' : '#9ca3af',
+                                    backgroundColor: displayText ? '#f3f4f6' : '#fafafa',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '6px',
+                                    display: 'inline-block',
+                                    maxWidth: '100%',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all 0.2s'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                                    e.currentTarget.style.borderColor = '#d1d5db';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = displayText ? '#f3f4f6' : '#fafafa';
+                                    e.currentTarget.style.borderColor = '#e5e7eb';
+                                  }}
+                                  title={displayText || 'Click to edit other sectors'}
+                                >
+                                  {displayText || 'Not set'}
+                                </div>
+                              );
+                            })()
                           )}
                         </td>
                         {/* Conviction column with edit functionality */}
