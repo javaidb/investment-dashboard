@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
-  Tooltip
+  Tooltip,
 } from 'recharts';
 import CompanyIcon from './CompanyIcon';
 import { useIcons } from '../hooks/useIcons';
@@ -15,6 +15,7 @@ interface Holding {
   type: string;
   companyName?: string;
   sector?: string;
+  subsector?: string | string[] | null;
   currentValue?: number;
 }
 
@@ -22,7 +23,11 @@ interface SectorPieChartProps {
   holdings: Holding[];
 }
 
+const HUE_PALETTE = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#F97316','#84CC16','#EC4899','#6366F1','#FBBF24','#a78bfa'];
+
 const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
+  const [selectedSector, setSelectedSector] = useState<string | null>(null);
+
   // Fetch icons for all holdings
   const symbolsForIcons = holdings.map(holding => ({
     symbol: holding.symbol,
@@ -163,6 +168,8 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
                     dataKey="value"
                     startAngle={90}
                     endAngle={-270}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(data: any) => setSelectedSector(data.sector)}
                     label={(props) => {
                       const { cx, cy, midAngle, outerRadius, percent, index } = props;
 
@@ -230,7 +237,13 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
                 </h5>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {sectorChartData.map((sector) => (
-                    <div key={sector.sector} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div
+                      key={sector.sector}
+                      onClick={() => setSelectedSector(sector.sector)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', padding: '2px 4px', borderRadius: '4px', transition: 'background 0.15s' }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#e5e7eb')}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ width: '12px', height: '12px', backgroundColor: sectorColors[sector.sector] || '#9CA3AF', borderRadius: '3px' }}></div>
                         <span style={{ fontSize: '11px', color: '#374151' }}>{sector.sector}</span>
@@ -277,7 +290,10 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
                     return b.value - a.value;
                   })
                   .map((asset) => {
-                    const sector = holdings.find(h => h.symbol === asset.symbol)?.sector || 'Unknown';
+                    const holding = holdings.find(h => h.symbol === asset.symbol);
+                    const sector = holding?.sector || 'Unknown';
+                    const rawSub = holding?.subsector;
+                    const subsector = Array.isArray(rawSub) ? rawSub[0] : rawSub;
                     const sectorColor = sectorColors[sector] || '#9CA3AF';
 
                     return (
@@ -308,7 +324,7 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
                             {asset.symbol}
                           </p>
                           <p style={{ fontSize: '11px', margin: 0, color: '#6b7280' }}>
-                            {sector}
+                            {sector}{subsector ? ` / ${subsector}` : ''}
                           </p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
@@ -327,6 +343,91 @@ const SectorPieChart: React.FC<SectorPieChartProps> = ({ holdings }) => {
           </div>
         )}
       </div>
+
+      {/* Sector drilldown modal */}
+      {selectedSector && (() => {
+        const sectorHoldings = holdings.filter(h =>
+          h.sector === selectedSector && (h.quantity ?? 0) > 0.001 && (h.currentValue ?? 0) > 0
+        );
+        const sectorTotal = sectorHoldings.reduce((s, h) => s + (h.currentValue ?? 0), 0);
+
+        // Group by subsector
+        const subsectorMap: Record<string, number> = {};
+        for (const h of sectorHoldings) {
+          const sub = (Array.isArray(h.subsector) ? h.subsector[0] : h.subsector) || 'Other';
+          subsectorMap[sub] = (subsectorMap[sub] ?? 0) + (h.currentValue ?? 0);
+        }
+        const subsectorData = Object.entries(subsectorMap)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value);
+
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setSelectedSector(null)}
+          >
+            <div
+              style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '480px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#111827', margin: 0 }}>{selectedSector}</h3>
+                  <p style={{ fontSize: '13px', color: '#6b7280', margin: '2px 0 0' }}>
+                    {sectorHoldings.length} position{sectorHoldings.length !== 1 ? 's' : ''} · {formatCurrency(sectorTotal)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedSector(null)}
+                  style={{ border: 'none', background: '#f3f4f6', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '16px', color: '#6b7280' }}
+                >✕</button>
+              </div>
+
+              {subsectorData.length > 0 ? (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <PieChart width={220} height={220}>
+                      <Pie data={subsectorData} cx={110} cy={110} innerRadius={50} outerRadius={95} dataKey="value" startAngle={90} endAngle={-270}>
+                        {subsectorData.map((_, i) => <Cell key={i} fill={HUE_PALETTE[i % HUE_PALETTE.length]} />)}
+                      </Pie>
+                      <Tooltip content={({ active, payload }: any) => {
+                        if (active && payload?.length) {
+                          const d = payload[0].payload;
+                          return (
+                            <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}>
+                              <strong>{d.name}</strong><br />
+                              {formatCurrency(d.value)} · {sectorTotal > 0 ? ((d.value / sectorTotal) * 100).toFixed(1) : 0}%
+                            </div>
+                          );
+                        }
+                        return null;
+                      }} />
+                    </PieChart>
+                  </div>
+                  <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+                    {subsectorData.map((s, i) => (
+                      <div key={s.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', backgroundColor: '#f9fafb', borderRadius: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '10px', height: '10px', borderRadius: '3px', backgroundColor: HUE_PALETTE[i % HUE_PALETTE.length], flexShrink: 0 }} />
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: '#111827' }}>{s.name}</span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '13px', color: '#374151' }}>{formatCurrency(s.value)}</span>
+                          <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '6px' }}>
+                            {sectorTotal > 0 ? ((s.value / sectorTotal) * 100).toFixed(1) : 0}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: '14px', padding: '24px 0' }}>No active positions</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
