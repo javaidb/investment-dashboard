@@ -134,6 +134,15 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
     return `${percent.toFixed(1)}%`;
   };
 
+  const targetAllocations: {[key: string]: number} = {
+    'Crypto': 10,
+    'Stock': 40
+  };
+  const etfIndexTarget = 50;
+  const etfIndexCombinedPct = totalValue > 0
+    ? (((categoryTotals['ETF'] || 0) + (categoryTotals['Index Fund'] || 0)) / totalValue) * 100
+    : 0;
+
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -340,7 +349,7 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
             </h4>
             <div style={{ marginBottom: '12px', textAlign: 'center' }}>
               <p style={{ fontSize: '12px', color: '#6b7280', margin: '2px 0' }}>
-                <span style={{ fontWeight: '600' }}>Target:</span> Crypto 15% • ETF/Index 50% • Stock 35%
+                <span style={{ fontWeight: '600' }}>Target:</span> Crypto 10% • ETF/Index 50% • Stock 40%
               </p>
             </div>
             <ResponsiveContainer width="100%" height={550}>
@@ -355,9 +364,9 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
                 {/* Background: Target Allocation (semi-transparent, slightly larger radius) */}
                 <Pie
                   data={[
-                    { category: 'Crypto', value: 15, label: '15%' },
+                    { category: 'Crypto', value: 10, label: '10%' },
                     { category: 'ETF + Index Fund', value: 50, label: '50%' },
-                    { category: 'Stock', value: 35, label: '35%' }
+                    { category: 'Stock', value: 40, label: '40%' }
                   ]}
                   cx="50%"
                   cy="50%"
@@ -370,9 +379,9 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
                   endAngle={-270}
                 >
                   {[
-                    { category: 'Crypto', value: 15 },
+                    { category: 'Crypto', value: 10 },
                     { category: 'ETF + Index Fund', value: 50 },
-                    { category: 'Stock', value: 35 }
+                    { category: 'Stock', value: 40 }
                   ].map((entry, index) => (
                     <Cell
                       key={`target-cell-${index}`}
@@ -455,13 +464,37 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
                   }}>
                     {formatCurrency(value)}
                   </p>
-                  <p style={{
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    margin: 0
-                  }}>
-                    {formatPercent(value)}
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <p style={{
+                      fontSize: '13px',
+                      color: '#6b7280',
+                      margin: 0
+                    }}>
+                      {formatPercent(value)}
+                    </p>
+                    {(() => {
+                      const currentPct = totalValue > 0 ? (value / totalValue) * 100 : 0;
+                      let target: number | null = null;
+                      let comparePct = currentPct;
+                      let targetLabel = '';
+                      if (category === 'ETF' || category === 'Index Fund') {
+                        target = etfIndexTarget;
+                        comparePct = etfIndexCombinedPct;
+                        targetLabel = `${etfIndexTarget}% (combined)`;
+                      } else if (targetAllocations[category] !== undefined) {
+                        target = targetAllocations[category];
+                        targetLabel = `${target}%`;
+                      }
+                      if (target === null) return null;
+                      const isAbove = comparePct > target;
+                      const color = isAbove ? '#EF4444' : '#10B981';
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '2px', color, fontSize: '12px', fontWeight: '600' }}>
+                          {isAbove ? '▲' : '▼'} {targetLabel}
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </div>
               ))}
             </div>
