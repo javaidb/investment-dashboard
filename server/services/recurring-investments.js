@@ -6,6 +6,51 @@ const axios = require('axios');
 const CONFIG_PATH = path.join(__dirname, '../data/recurring-investments.json');
 
 /**
+ * Returns true for Scotiabank/Fundserv fund codes (e.g. BNS397, BNS381)
+ * These are fetched from Globe and Mail Barchart proxy, not Yahoo Finance.
+ */
+function isCanadianFundCode(symbol) {
+  return /^[A-Z]{2,4}\d{3,4}$/.test(symbol);
+}
+
+/**
+ * Fetch historical NAV data for a Canadian mutual fund code via Globe and Mail Barchart proxy.
+ * Returns array of { date, close } sorted ascending. Prices are already in CAD.
+ */
+async function fetchCanadianFundHistory(symbol, startDate) {
+  const ticker = symbol.includes('.') ? symbol : `${symbol}.CF`;
+  const startStr = startDate.toISOString().slice(0, 10).replace(/-/g, '');
+  const url = `https://globeandmail.pl.barchart.com/proxies/timeseries/queryeod.ashx`;
+  const response = await axios.get(url, {
+    params: { symbol: ticker, startDate: startStr, maxrecords: 2000, order: 'asc' },
+    timeout: 20000,
+  });
+  // Parse CSV: symbol,date,open,high,low,close,volume
+  const lines = response.data.trim().split('\n').filter(l => l && !l.startsWith('symbol'));
+  return lines.map(line => {
+    const [, date, , , , close] = line.split(',');
+    return { date: date.trim(), close: parseFloat(close) };
+  }).filter(d => d.close > 0);
+}
+
+const { fetchYahooChart } = require('../utils/yahoo-finance');
+
+/**
+ * Thin wrapper around fetchYahooChart that returns the shape expected by
+ * calculateInvestmentMetrics: { timestamps, closes, isCAD, resolvedSymbol }
+ */
+async function fetchYahooWithFallback(symbol, period1, period2) {
+  const fetched = await fetchYahooChart(symbol, { period1, period2, interval: '1d' }, 15000);
+  if (!fetched) return null;
+  const result = fetched.data.chart.result[0];
+  const closes = result.indicators.quote[0].close || [];
+  const isCAD = fetched.resolvedSymbol.endsWith('.TO')
+    || fetched.resolvedSymbol.endsWith('.V')
+    || fetched.resolvedSymbol.endsWith('.CN');
+  return { timestamps: result.timestamp || [], closes, isCAD, resolvedSymbol: fetched.resolvedSymbol };
+}
+
+/**
  * Load recurring investments configuration
  */
 async function loadConfig() {
@@ -29,6 +74,33 @@ async function saveConfig(config) {
     console.error('Error saving recurring investments config:', error);
     return false;
   }
+}
+
+/**
+ * Clean contribution calculator with no hardcoded symbol overrides.
+ * Used for investments that have contributionSegments defined.
+ */
+function calculateContributionsClean(startDate, endDate, frequency, dayOfWeek, amount) {
+  const start = new Date(startDate);
+  const end   = new Date(endDate);
+  if (start > end) return [];
+
+  const dayMap = {
+    'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+    'Thursday': 4, 'Friday': 5, 'Saturday': 6
+  };
+  const targetDay = dayMap[dayOfWeek] ?? 1; // Default Monday
+
+  let currentDate = new Date(start);
+  while (currentDate.getDay() !== targetDay) currentDate.setDate(currentDate.getDate() + 1);
+
+  const intervalDays = frequency === 'weekly' ? 7 : frequency === 'biweekly' ? 14 : 30;
+  const contributions = [];
+  while (currentDate <= end) {
+    contributions.push({ date: new Date(currentDate), amount });
+    currentDate.setDate(currentDate.getDate() + intervalDays);
+  }
+  return contributions;
 }
 
 /**
@@ -79,9 +151,9 @@ function calculateContributions(startDate, endDate, frequency, dayOfWeek, recurr
 
   // Define amount changes for specific symbols
   const amountChanges = {
-    'QQQ': { before: 400, after: 152 },      // NASDAQ Index Fund
-    'XIU.TO': { before: 175, after: 152 },   // Canadian Equity Index Fund
-    'XEF.TO': { before: 25, after: 25 }      // International Equity (unchanged)
+    'BNS397': { before: 400, after: 152 },   // NASDAQ Index Fund
+    'BNS381': { before: 175, after: 152 },   // Canadian Equity Index Fund
+    'BNS387': { before: 25,  after: 25  },   // International Equity (unchanged)
   };
 
   // Generate all contribution dates with appropriate amounts
@@ -115,7 +187,7 @@ function calculateContributions(startDate, endDate, frequency, dayOfWeek, recurr
   }
 
   // Add special January 9, 2026 manual purchase for NASDAQ and Canadian Equity only
-  if (symbol === 'QQQ' || symbol === 'XIU.TO') {
+  if (symbol === 'BNS397' || symbol === 'BNS381') {
     if (specialPurchaseDate >= start && specialPurchaseDate <= end) {
       // Insert the special purchase in chronological order
       const specialContribution = {
@@ -143,7 +215,7 @@ function calculateContributions(startDate, endDate, frequency, dayOfWeek, recurr
       }
     }
   }
-  // For XEF.TO (International Equity), the entire week of Jan 9-10 was skipped
+  // For BNS387 (International Equity), the entire week of Jan 9-10 was skipped
   // It will resume on Jan 17, 2026 at the regular $25/week rate
 
   return contributions;
@@ -168,14 +240,32 @@ async function calculateInvestmentMetrics(investment) {
   }
 
   const today = new Date();
-  const contributions = calculateContributions(
-    investment.initialDate,
-    today,
-    investment.frequency,
-    investment.dayOfWeek,
-    investment.recurringAmount,
-    investment.symbol
-  );
+  let contributions;
+  if (investment.contributionSegments && investment.contributionSegments.length > 0) {
+    // Multi-segment mode: compute per-segment contributions without hardcoded overrides
+    contributions = [];
+    for (const seg of investment.contributionSegments) {
+      const segEnd = new Date(Math.min(new Date(seg.untilDate).getTime(), today.getTime()))
+        .toISOString().slice(0, 10);
+      const segContribs = calculateContributionsClean(
+        seg.startDate, segEnd,
+        seg.frequency || investment.frequency,
+        seg.dayOfWeek || investment.dayOfWeek,
+        seg.amount
+      );
+      contributions.push(...segContribs);
+    }
+    contributions.sort((a, b) => a.date - b.date);
+  } else {
+    contributions = calculateContributions(
+      investment.initialDate,
+      today,
+      investment.frequency,
+      investment.dayOfWeek,
+      investment.recurringAmount,
+      investment.symbol
+    );
+  }
 
   const contributionCount = contributions.length;
   const recurringInvested = contributions.reduce((sum, contrib) => sum + contrib.amount, 0);
@@ -196,68 +286,52 @@ async function calculateInvestmentMetrics(investment) {
   let currentValue = 0;
 
   try {
-    // Get initial purchase date and add contributions
-    const purchaseDates = [new Date(investment.initialDate), ...contributions.map(c => c.date)];
-    const purchaseAmounts = [investment.initialAmount, ...contributions.map(c => c.amount)];
-
-    // Fetch historical prices for the entire date range
+    const purchaseDates   = [new Date(investment.initialDate), ...contributions.map(c => c.date)];
+    const purchaseAmounts = [investment.initialAmount,         ...contributions.map(c => c.amount)];
     const startDate = new Date(investment.initialDate);
-    const endDate = new Date();
-    const period1 = Math.floor(startDate.getTime() / 1000);
-    const period2 = Math.floor(endDate.getTime() / 1000);
 
-    const yahooResponse = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${investment.symbol}`, {
-      params: {
-        period1: period1,
-        period2: period2,
-        interval: '1d'
-      },
-      timeout: 15000
-    });
+    // Build a date → price map from historical data
+    const priceByDate = {};
 
-    if (yahooResponse.data && yahooResponse.data.chart && yahooResponse.data.chart.result) {
-      const result = yahooResponse.data.chart.result[0];
-      const timestamps = result.timestamp || [];
-      const quotes = result.indicators.quote[0];
-      const closePrices = quotes.close || [];
-
-      // Get current price (most recent)
-      const latestPriceUSD = closePrices[closePrices.length - 1];
-      currentPrice = latestPriceUSD * usdToCAD;
-
-      // For each purchase date, find the closest historical price and calculate shares bought
-      for (let i = 0; i < purchaseDates.length; i++) {
-        const purchaseDate = purchaseDates[i];
-        const purchaseAmount = purchaseAmounts[i];
-        const purchaseTimestamp = Math.floor(purchaseDate.getTime() / 1000);
-
-        // Find the closest timestamp in historical data
-        let closestIndex = 0;
-        let minDiff = Math.abs(timestamps[0] - purchaseTimestamp);
-
-        for (let j = 1; j < timestamps.length; j++) {
-          const diff = Math.abs(timestamps[j] - purchaseTimestamp);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closestIndex = j;
+    if (isCanadianFundCode(investment.symbol)) {
+      // Canadian mutual fund — fetch from Globe and Mail Barchart proxy (prices already in CAD)
+      const rows = await fetchCanadianFundHistory(investment.symbol, startDate);
+      for (const row of rows) priceByDate[row.date] = row.close;
+      if (rows.length > 0) currentPrice = rows[rows.length - 1].close;
+    } else {
+      // Exchange-traded security — fetch from Yahoo Finance
+      // For Canadian equities (TSX/TSXV), prices are already in CAD; US equities need USD→CAD conversion
+      const period1 = Math.floor(startDate.getTime() / 1000);
+      const period2 = Math.floor(new Date().getTime() / 1000);
+      const yahoo = await fetchYahooWithFallback(investment.symbol, period1, period2);
+      if (yahoo) {
+        const { timestamps, closes, isCAD } = yahoo;
+        const multiplier = isCAD ? 1 : usdToCAD;
+        for (let i = 0; i < timestamps.length; i++) {
+          if (closes[i] != null) {
+            const d = new Date(timestamps[i] * 1000).toISOString().slice(0, 10);
+            priceByDate[d] = closes[i] * multiplier;
           }
         }
-
-        // Get the price on that date and calculate shares purchased
-        const historicalPriceUSD = closePrices[closestIndex];
-        if (historicalPriceUSD && historicalPriceUSD > 0) {
-          const historicalPriceCAD = historicalPriceUSD * usdToCAD;
-          const sharesPurchased = purchaseAmount / historicalPriceCAD;
-          totalShares += sharesPurchased;
-        }
+        const lastClose = closes.filter(c => c != null).pop();
+        if (lastClose) currentPrice = lastClose * multiplier;
       }
-
-      // Calculate current value based on actual shares owned
-      currentValue = totalShares * currentPrice;
     }
+
+    // For each purchase, find the closest available price date and calculate shares
+    const sortedDates = Object.keys(priceByDate).sort();
+    for (let i = 0; i < purchaseDates.length; i++) {
+      const target = purchaseDates[i].toISOString().slice(0, 10);
+      // Find closest date on or before target
+      let closest = sortedDates.filter(d => d <= target).pop()
+        ?? sortedDates[0];
+      const price = priceByDate[closest];
+      if (price && price > 0) totalShares += purchaseAmounts[i] / price;
+    }
+
+    currentValue = totalShares * currentPrice;
   } catch (error) {
     console.error(`Error fetching historical prices for ${investment.symbol}:`, error.message);
-    // Fallback to simple estimation if historical data fails
     currentPrice = 0;
     currentValue = 0;
   }
@@ -386,7 +460,11 @@ async function deleteRecurringInvestment(id) {
 module.exports = {
   loadConfig,
   saveConfig,
+  isCanadianFundCode,
+  fetchCanadianFundHistory,
+  fetchYahooWithFallback,
   calculateContributions,
+  calculateContributionsClean,
   calculateInvestmentMetrics,
   getAllRecurringInvestments,
   updateRecurringInvestment,
