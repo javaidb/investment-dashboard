@@ -17,6 +17,7 @@ import Icons from './components/Icons';
 import NotFound from './pages/NotFound';
 import IconTest from './components/IconTest';
 import Tax from './pages/Tax';
+import Fib from './pages/Fib';
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
             <Route path="/cache" element={<CacheManagement />} />
             <Route path="/icons-test" element={<IconTest />} />
             <Route path="/tax" element={<Tax />} />
+            <Route path="/fib" element={<Fib />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
