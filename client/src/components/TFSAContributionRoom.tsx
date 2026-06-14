@@ -160,11 +160,12 @@ const TODAY_WEEK = currentWeekIndex();
 interface ChartPoint {
   weekIndex: number; year: number; week: number;
   room: number; annualLimit: number; isYearStart: boolean;
-  deposited: number | null; recurring: number | null; planTotal: number | null;
+  depositedQT: number | null; depositedWS: number | null;
+  recurring: number | null; planTotal: number | null;
 }
 
 function generateBaseData() {
-  const data: Omit<ChartPoint, 'deposited' | 'recurring' | 'planTotal'>[] = [];
+  const data: Omit<ChartPoint, 'depositedQT' | 'depositedWS' | 'recurring' | 'planTotal'>[] = [];
   tfsaYearlyData.forEach((entry, i) => {
     for (let week = 0; week < WEEKS_PER_YEAR; week++) {
       data.push({
@@ -198,7 +199,7 @@ const selectStyle: React.CSSProperties = {
 const CustomTooltip: React.FC<{ active?: boolean; payload?: any[] }> = ({ active, payload }) => {
   if (!active || !payload || !payload.length) return null;
   const d: ChartPoint = payload[0].payload;
-  const totalIn = (d.deposited ?? 0) + (d.recurring ?? 0) + (d.planTotal ?? 0);
+  const totalIn = (d.depositedQT ?? 0) + (d.depositedWS ?? 0) + (d.recurring ?? 0) + (d.planTotal ?? 0);
   return (
     <div style={{
       background: '#1e293b', border: '1px solid #334155', borderRadius: '8px',
@@ -206,9 +207,10 @@ const CustomTooltip: React.FC<{ active?: boolean; payload?: any[] }> = ({ active
     }}>
       <div style={{ fontWeight: 700, marginBottom: '4px', color: '#e2e8f0' }}>{d.year} &mdash; Week {d.week}</div>
       <div style={{ color: '#93c5fd' }}>Room:&nbsp;<strong>{fmt(d.room)}</strong></div>
-      {d.deposited != null && <div style={{ color: '#34d399' }}>Questrade:&nbsp;<strong>{fmt(d.deposited)}</strong></div>}
+      {d.depositedQT != null && <div style={{ color: '#34d399' }}>Questrade:&nbsp;<strong>{fmt(d.depositedQT)}</strong></div>}
+      {d.depositedWS != null && <div style={{ color: '#e2e8f0' }}>Wealthsimple:&nbsp;<strong>{fmt(d.depositedWS)}</strong></div>}
       {d.recurring != null && <div style={{ color: '#f87171' }}>Bank transfers:&nbsp;<strong>{fmt(d.recurring)}</strong></div>}
-      {d.planTotal != null && d.planTotal > 0 && <div style={{ color: '#e2e8f0' }}>Custom plans:&nbsp;<strong>{fmt(d.planTotal)}</strong></div>}
+      {d.planTotal != null && d.planTotal > 0 && <div style={{ color: '#a78bfa' }}>Custom plans:&nbsp;<strong>{fmt(d.planTotal)}</strong></div>}
       {totalIn > 0 && (
         <>
           <div style={{ borderTop: '1px solid #334155', margin: '4px 0' }} />
@@ -227,8 +229,10 @@ interface WeeklyDeposit { weekIndex: number; weeklyTotal: number; cumulative: nu
 const STORAGE_KEY = 'tfsa-custom-plans';
 
 const TFSAContributionRoom: React.FC = () => {
-  const [depositsByWeek, setDepositsByWeek] = useState<Map<number, number>>(new Map());
-  const [totalDeposited, setTotalDeposited] = useState(0);
+  const [qtDepositsByWeek, setQtDepositsByWeek] = useState<Map<number, number>>(new Map());
+  const [wsDepositsByWeek, setWsDepositsByWeek] = useState<Map<number, number>>(new Map());
+  const [totalQT, setTotalQT] = useState(0);
+  const [totalWS, setTotalWS] = useState(0);
   const [loadingDeposits, setLoadingDeposits] = useState(true);
 
   const [plans, setPlans] = useState<RecurringPlan[]>(() => {
@@ -244,11 +248,19 @@ const TFSAContributionRoom: React.FC = () => {
   useEffect(() => {
     fetch('/api/tax/questrade-deposits')
       .then(r => r.json())
-      .then((data: { weeklyDeposits: WeeklyDeposit[]; total: number }) => {
-        const map = new Map<number, number>();
-        for (const w of data.weeklyDeposits) map.set(w.weekIndex, w.cumulative);
-        setDepositsByWeek(map);
-        setTotalDeposited(data.total);
+      .then((data: {
+        weeklyDepositsQuestrade: WeeklyDeposit[]; totalQuestrade: number;
+        weeklyDepositsWealthsimple: WeeklyDeposit[]; totalWealthsimple: number;
+      }) => {
+        const qtMap = new Map<number, number>();
+        for (const w of data.weeklyDepositsQuestrade) qtMap.set(w.weekIndex, w.cumulative);
+        setQtDepositsByWeek(qtMap);
+        setTotalQT(data.totalQuestrade);
+
+        const wsMap = new Map<number, number>();
+        for (const w of data.weeklyDepositsWealthsimple) wsMap.set(w.weekIndex, w.cumulative);
+        setWsDepositsByWeek(wsMap);
+        setTotalWS(data.totalWealthsimple);
       })
       .catch(err => console.error('Failed to load deposit data:', err))
       .finally(() => setLoadingDeposits(false));
@@ -265,21 +277,26 @@ const TFSAContributionRoom: React.FC = () => {
   }, []);
 
   const chartData: ChartPoint[] = useMemo(() => {
-    let lastQuestrade = 0;
+    let lastQT = 0;
+    let lastWS = 0;
     return baseData.map(pt => {
-      const dep = depositsByWeek.get(pt.weekIndex);
-      if (dep !== undefined) lastQuestrade = dep;
+      const qt = qtDepositsByWeek.get(pt.weekIndex);
+      if (qt !== undefined) lastQT = qt;
+      const ws = wsDepositsByWeek.get(pt.weekIndex);
+      if (ws !== undefined) lastWS = ws;
       const planTotal = plans.reduce((s, p) => s + computePlanAtWeek(p, pt.weekIndex), 0);
       const recurringTotal = computeTfsaPlannerTotal(tfsaSegments, pt.weekIndex);
       return {
         ...pt,
-        deposited: lastQuestrade > 0 ? lastQuestrade : null,
+        depositedQT: lastQT > 0 ? lastQT : null,
+        depositedWS: lastWS > 0 ? lastWS : null,
         recurring: recurringTotal > 0 ? recurringTotal : null,
         planTotal: planTotal > 0 ? planTotal : null,
       };
     });
-  }, [depositsByWeek, plans, tfsaSegments]);
+  }, [qtDepositsByWeek, wsDepositsByWeek, plans, tfsaSegments]);
 
+  const totalDeposited = totalQT + totalWS;
   const totalRecurring = computeTfsaPlannerTotal(tfsaSegments, TODAY_WEEK);
   const totalCustom     = plans.reduce((s, p) => s + computePlanAtWeek(p, TODAY_WEEK), 0);
   const totalContributed = totalDeposited + totalRecurring + totalCustom;
@@ -347,7 +364,7 @@ const TFSAContributionRoom: React.FC = () => {
       <div style={{ marginBottom: '20px' }}>
         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#f1f5f9' }}>TFSA Contribution Room</h2>
         <p style={{ margin: '4px 0 0', fontSize: '0.875rem', color: '#64748b' }}>
-          Room vs. Questrade deposits + recurring plans · 52 weekly points per year
+          Room vs. TFSA deposits (Questrade + Wealthsimple) + recurring plans · 52 weekly points per year
         </p>
       </div>
 
@@ -355,9 +372,10 @@ const TFSAContributionRoom: React.FC = () => {
       <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
         {[
           { label: 'Total Room (2026)',          value: fmt(totalRoom),         color: '#93c5fd' },
-          { label: 'Questrade deposits',         value: loadingDeposits ? '…' : fmt(totalDeposited), color: '#34d399' },
+          { label: 'Questrade deposits',         value: loadingDeposits ? '…' : fmt(totalQT), color: '#34d399' },
+          { label: 'Wealthsimple deposits',      value: loadingDeposits ? '…' : fmt(totalWS), color: '#e2e8f0' },
           { label: 'Recurring bank transfers',   value: fmt(totalRecurring),    color: '#f87171' },
-          { label: 'Custom plans (to date)',     value: fmt(totalCustom),       color: '#e2e8f0' },
+          { label: 'Custom plans (to date)',     value: fmt(totalCustom),       color: '#a78bfa' },
           { label: 'Total contributed',          value: fmt(totalContributed),  color: '#cbd5e1' },
           { label: 'Remaining room',             value: fmt(totalRoom - totalContributed), color: '#f59e0b' },
         ].map(({ label, value, color }) => (
@@ -502,13 +520,17 @@ const TFSAContributionRoom: React.FC = () => {
               <stop offset="5%"  stopColor="#10b981" stopOpacity={0.55} />
               <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}  />
             </linearGradient>
+            <linearGradient id="wsDepositGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor="#ffffff" stopOpacity={0.35} />
+              <stop offset="95%" stopColor="#ffffff" stopOpacity={0.05} />
+            </linearGradient>
             <linearGradient id="recurringGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#ef4444" stopOpacity={0.6}  />
               <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1}  />
             </linearGradient>
             <linearGradient id="planGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#ffffff" stopOpacity={0.35} />
-              <stop offset="95%" stopColor="#ffffff" stopOpacity={0.05} />
+              <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.55} />
+              <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.1}  />
             </linearGradient>
           </defs>
 
@@ -526,9 +548,14 @@ const TFSAContributionRoom: React.FC = () => {
             dot={false} activeDot={{ r: 4, fill: '#60a5fa', stroke: '#1e40af', strokeWidth: 2 }}
             isAnimationActive={false} />
 
-          <Area name="Questrade deposits" type="monotone" dataKey="deposited"
+          <Area name="Questrade deposits" type="monotone" dataKey="depositedQT"
             stackId="contributions" stroke="#10b981" fill="url(#depositGrad)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: '#34d399', stroke: '#065f46', strokeWidth: 2 }}
+            connectNulls={false} isAnimationActive={false} />
+
+          <Area name="Wealthsimple deposits" type="monotone" dataKey="depositedWS"
+            stackId="contributions" stroke="#ffffff" fill="url(#wsDepositGrad)" strokeWidth={2}
+            dot={false} activeDot={{ r: 4, fill: '#ffffff', stroke: '#94a3b8', strokeWidth: 2 }}
             connectNulls={false} isAnimationActive={false} />
 
           <Area name="Recurring bank transfers" type="monotone" dataKey="recurring"
@@ -537,8 +564,8 @@ const TFSAContributionRoom: React.FC = () => {
             connectNulls={false} isAnimationActive={false} />
 
           <Area name="Custom plans" type="monotone" dataKey="planTotal"
-            stackId="contributions" stroke="#ffffff" fill="url(#planGrad)" strokeWidth={2}
-            dot={false} activeDot={{ r: 4, fill: '#ffffff', stroke: '#94a3b8', strokeWidth: 2 }}
+            stackId="contributions" stroke="#8b5cf6" fill="url(#planGrad)" strokeWidth={2}
+            dot={false} activeDot={{ r: 4, fill: '#a78bfa', stroke: '#4c1d95', strokeWidth: 2 }}
             connectNulls={false} isAnimationActive={false} />
 
           <ReferenceLine x={TODAY_WEEK} stroke="#a855f7" strokeWidth={2} strokeDasharray="4 3"
