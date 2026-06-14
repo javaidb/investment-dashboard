@@ -23,6 +23,8 @@ const portfolioValueRoutes = require('./routes/portfolio-value');
 const rebalancingStrategiesRoutes = require('./routes/rebalancing-strategies');
 const rebalancingRecommendationsRoutes = require('./routes/rebalancing-recommendations');
 const taxRoutes = require('./routes/tax');
+const screenerRoutes = require('./routes/screener');
+const fibonacciRoutes = require('./routes/fibonacci');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
@@ -101,10 +103,24 @@ app.use('/api/portfolio-value', portfolioValueRoutes);
 app.use('/api/strategies', rebalancingStrategiesRoutes);
 app.use('/api/rebalancing-recommendations', rebalancingRecommendationsRoutes);
 app.use('/api/tax', taxRoutes);
+app.use('/api/screener', screenerRoutes);
+app.use('/api/fibonacci', fibonacciRoutes);
 
 // Watchlist endpoint - expose all tracked symbols (active, inactive, custom)
 app.get('/api/watchlist', (req, res) => {
   res.json(watchlistCache.getWatchlist());
+});
+
+// Reload watchlist cache from disk
+app.post('/api/watchlist/reload', (req, res) => {
+  const stats = watchlistCache.reloadCache();
+  res.json({ success: true, stats });
+});
+
+// Reload holdings cache from disk
+app.post('/api/holdings-cache/reload', (req, res) => {
+  const count = holdingsCache.reloadFromDisk();
+  res.json({ success: true, entries: count });
 });
 
 // Health check endpoint
