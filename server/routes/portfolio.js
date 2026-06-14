@@ -8,6 +8,15 @@ const holdingsCache = require('../cache');
 const historicalDataCache = require('../historical-cache');
 const watchlistCache = require('../watchlist-cache');
 const fileTracker = require('../file-tracker');
+const { fetchYahooChart } = require('../utils/yahoo-finance');
+// Lazy-required to avoid circular dependency at module load time
+let _getFundamentals = null;
+function getFundamentalsLazy(symbol) {
+  if (!_getFundamentals) {
+    _getFundamentals = require('./rebalancing-recommendations').getFundamentals;
+  }
+  return _getFundamentals(symbol);
+}
 const router = express.Router();
 
 // Configure multer for file uploads
@@ -46,16 +55,20 @@ const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
 const MASTER_PORTFOLIO_ID = 'master-portfolio';
 
 // Normalize symbol by removing exchange suffix (e.g., ABC.TO -> ABC)
-// Special case: XEQT should always keep .TO suffix (XEQT -> XEQT.TO, XEQT.TO -> XEQT.TO)
+// Some symbols share a ticker with a US stock and must always use the .TO suffix
+// to avoid resolving to the wrong company (e.g. CCO = Cameco on TSX, but
+// Clear Channel Outdoor on NYSE).
+const FORCE_TO_SYMBOLS = new Set(['XEQT', 'CCO']);
+
 function normalizeSymbol(symbol) {
   if (!symbol) return symbol;
 
   // Get the base symbol (before any dot)
   const baseSymbol = symbol.split('.')[0].toUpperCase();
 
-  // Special case: XEQT should always have .TO suffix
-  if (baseSymbol === 'XEQT') {
-    return 'XEQT.TO';
+  // Force .TO suffix for known ambiguous Canadian tickers
+  if (FORCE_TO_SYMBOLS.has(baseSymbol)) {
+    return baseSymbol + '.TO';
   }
 
   // For other symbols, remove exchange suffix
@@ -193,6 +206,20 @@ function loadPortfolios() {
     console.warn('⚠️ Could not load portfolios from file:', error.message);
   }
   return new Map();
+}
+
+// Load just the file registry from the portfolio file
+function loadPortfolioFileRegistry() {
+  try {
+    if (fs.existsSync(PORTFOLIO_FILE)) {
+      const data = fs.readFileSync(PORTFOLIO_FILE, 'utf8');
+      const portfolioData = JSON.parse(data);
+      return portfolioData.fileRegistry || {};
+    }
+  } catch (error) {
+    console.warn('⚠️ Could not load file registry:', error.message);
+  }
+  return {};
 }
 
 // Save master portfolio to file with file registry
@@ -758,9 +785,11 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
             const unrealizedPnL = currentValue - totalInvestedCAD;
             const totalPnL = unrealizedPnL + realizedPnLCAD;
-            // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-            const totalPnLPercent = totalAmountInvestedCAD > 0 ? (totalPnL / totalAmountInvestedCAD) * 100 : 0;
-            
+            const amountSoldCAD = holding.currency === 'USD' ? (Number(holding.amountSold) || 0) * exchangeRate : (Number(holding.amountSold) || 0);
+            const netInvestedCAD = totalAmountInvestedCAD - amountSoldCAD;
+            const pnlDenominator = (totalPnL >= 0 && netInvestedCAD > 0) ? netInvestedCAD : totalAmountInvestedCAD;
+            const totalPnLPercent = pnlDenominator > 0 ? (totalPnL / pnlDenominator) * 100 : 0;
+
             return {
               ...holding,
               companyName: cachedData.companyName || holding.symbol,
@@ -789,10 +818,11 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
               const currentValue = cadPrice * (holding.quantity || 0);
               const unrealizedPnL = currentValue - (holding.totalInvested || 0);
               const totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-              // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-              const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-                (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
-              
+              const totalAmtInv1 = holding.totalAmountInvested || holding.totalInvested || 0;
+              const netInvested1 = totalAmtInv1 - (Number(holding.amountSold) || 0);
+              const pnlDenominator1 = (totalPnL >= 0 && netInvested1 > 0) ? netInvested1 : totalAmtInv1;
+              const totalPnLPercent = pnlDenominator1 > 0 ? (totalPnL / pnlDenominator1) * 100 : 0;
+
               return {
                 ...holding,
                 companyName: companyName,
@@ -925,7 +955,6 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
           // If no cache or needs update, fetch from Yahoo Finance
           try {
             console.log(`🌐 Fetching fresh historical data for ${rawSymbol}`);
-            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${rawSymbol}`;
             const params = {
               period1: startTimestamp,
               period2: endTimestamp,
@@ -933,10 +962,8 @@ router.get('/:portfolioId/monthly', autoReprocessMiddleware, async (req, res) =>
               includePrePost: false
             };
 
-            const response = await axios.get(yahooUrl, { 
-              params,
-              timeout: 8000 
-            });
+            const fetched = await fetchYahooChart(rawSymbol, params, 8000);
+            const response = fetched ? { data: fetched.data } : { data: {} };
 
             if (response.data.chart?.result?.[0]) {
               const result = response.data.chart.result[0];
@@ -1396,6 +1423,25 @@ router.get('/insights', async (req, res) => {
       };
     });
 
+    // Attach first-buy metadata to each position
+    const firstBuyBySymbol = {};
+    masterPortfolio.trades.forEach(t => {
+      if (t.action === 'buy') {
+        const existing = firstBuyBySymbol[t.symbol];
+        if (!existing || new Date(t.date) < new Date(existing.date)) {
+          firstBuyBySymbol[t.symbol] = t;
+        }
+      }
+    });
+    positions.forEach(p => {
+      const first = firstBuyBySymbol[p.symbol];
+      if (first) {
+        p.firstBuyDate = first.date;
+        p.firstBuyPrice = first.price;
+        p.holdingDays = Math.floor((Date.now() - new Date(first.date).getTime()) / 86400000);
+      }
+    });
+
     // Calculate win/loss stats from realized trades
     const winLossStats = calculateWinLossStats(masterPortfolio.trades);
 
@@ -1410,6 +1456,9 @@ router.get('/insights', async (req, res) => {
 
     // Calculate time-based insights
     const timeBasedInsights = calculateTimeBasedInsights(masterPortfolio.trades);
+
+    // Calculate account placement analysis (async — fetches dividend yields from Finnhub)
+    const accountPlacements = await calculateAccountPlacements(masterPortfolio.trades, positions);
 
     // Fetch recurring investments data
     let recurringInvestments = [];
@@ -1428,7 +1477,8 @@ router.get('/insights', async (req, res) => {
       taxLossHarvesting,
       portfolioHealth,
       timeBasedInsights,
-      recurringInvestments
+      recurringInvestments,
+      accountPlacements
     });
   } catch (error) {
     console.error('Error fetching insights:', error);
@@ -1512,9 +1562,10 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
             const currentValue = cadPrice * (Number(holding.quantity) || 0);
             const unrealizedPnL = currentValue - totalInvestedCAD;
             const totalPnL = unrealizedPnL + realizedPnLCAD;
-            // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-            const totalPnLPercent = totalAmountInvestedCAD > 0 ?
-              (totalPnL / totalAmountInvestedCAD) * 100 : 0;
+            const amountSoldCAD2 = holding.currency === 'USD' ? (Number(holding.amountSold) || 0) * exchangeRate : (Number(holding.amountSold) || 0);
+            const netInvestedCAD2 = totalAmountInvestedCAD - amountSoldCAD2;
+            const pnlDenominator2 = (totalPnL >= 0 && netInvestedCAD2 > 0) ? netInvestedCAD2 : totalAmountInvestedCAD;
+            const totalPnLPercent = pnlDenominator2 > 0 ? (totalPnL / pnlDenominator2) * 100 : 0;
 
             console.log(`💰 Using cached data for ${holding.symbol}: $${cadPrice.toFixed(2)} CAD (age: ${cachedData.fetchedAt ? Math.round((Date.now() - new Date(cachedData.fetchedAt).getTime()) / 1000 / 60) : 'unknown'} min)`);
 
@@ -1522,6 +1573,7 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
               ...holding,
               companyName: cachedData.companyName || holding.symbol,
               sector: cachedData.sector || holding.sector || null, // Use sector from cache, fallback to holding
+              subsector: cachedData.subsector || null,
               currentPrice: cadPrice,
               currentValue: currentValue,
               unrealizedPnL: unrealizedPnL,
@@ -1553,9 +1605,10 @@ router.get('/:portfolioId', autoReprocessMiddleware, async (req, res) => {
               const currentValue = cadPrice * (holding.quantity || 0);
               const unrealizedPnL = currentValue - totalInvestedCAD;
               const totalPnL = unrealizedPnL + realizedPnLCAD;
-              // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-              const totalPnLPercent = totalAmountInvestedCAD > 0 ?
-                (totalPnL / totalAmountInvestedCAD) * 100 : 0;
+              const amountSoldCAD3 = holding.currency === 'USD' ? (Number(holding.amountSold) || 0) * exchangeRate : (Number(holding.amountSold) || 0);
+              const netInvestedCAD3 = totalAmountInvestedCAD - amountSoldCAD3;
+              const pnlDenominator3 = (totalPnL >= 0 && netInvestedCAD3 > 0) ? netInvestedCAD3 : totalAmountInvestedCAD;
+              const totalPnLPercent = pnlDenominator3 > 0 ? (totalPnL / pnlDenominator3) * 100 : 0;
 
               return {
                 ...holding,
@@ -1727,18 +1780,21 @@ router.get('/:portfolioId/cached', async (req, res) => {
         // If no price data, unrealized P&L is negative cost basis (total loss)
         const unrealizedPnL = currentValue - totalInvestedCAD;
         const totalPnL = unrealizedPnL + realizedPnLCAD;
+        const amountSoldCAD5 = holding.currency === 'USD' ? (Number(holding.amountSold) || 0) * exchangeRate : (Number(holding.amountSold) || 0);
+        const netInvestedCAD5 = totalAmountInvestedCAD - amountSoldCAD5;
+        const pnlDenominator5 = (totalPnL >= 0 && netInvestedCAD5 > 0) ? netInvestedCAD5 : totalAmountInvestedCAD;
 
         return {
           ...holding,
           currentPrice: currentPrice,
           currentValue: currentValue,
           unrealizedPnL: unrealizedPnL,
+          realizedPnL: realizedPnLCAD,
           totalPnL: totalPnL,
-          // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-          totalPnLPercent: totalAmountInvestedCAD > 0 ?
-            (totalPnL / totalAmountInvestedCAD) * 100 : 0,
+          totalPnLPercent: pnlDenominator5 > 0 ? (totalPnL / pnlDenominator5) * 100 : 0,
           companyName: cachedHolding.companyName || holding.companyName || symbol,
           sector: cachedHolding.sector || holding.sector || null,
+          subsector: cachedHolding.subsector || null,
           cacheUsed: true,
           cacheTimestamp: cachedHolding.lastUpdated || cachedHolding.fetchedAt
         };
@@ -1753,24 +1809,48 @@ router.get('/:portfolioId/cached', async (req, res) => {
         const currentValue = 0;
         const unrealizedPnL = -totalInvestedCAD;
         const totalPnL = unrealizedPnL + realizedPnLCAD;
-        const totalAmountInvestedCAD = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
+        const totalAmountInvestedCAD6 = holding.currency === 'USD' ? (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0) * exchangeRate : (Number(holding.totalAmountInvested) || Number(holding.totalInvested) || 0);
+        const amountSoldCAD6 = holding.currency === 'USD' ? (Number(holding.amountSold) || 0) * exchangeRate : (Number(holding.amountSold) || 0);
+        const netInvestedCAD6 = totalAmountInvestedCAD6 - amountSoldCAD6;
+        const pnlDenominator6 = (totalPnL >= 0 && netInvestedCAD6 > 0) ? netInvestedCAD6 : totalAmountInvestedCAD6;
 
         return {
           ...holding,
           currentPrice: null,
           currentValue: currentValue,
           unrealizedPnL: unrealizedPnL,
+          realizedPnL: realizedPnLCAD,
           totalPnL: totalPnL,
-          totalPnLPercent: totalAmountInvestedCAD > 0 ?
-            (totalPnL / totalAmountInvestedCAD) * 100 : 0,
+          totalPnLPercent: pnlDenominator6 > 0 ? (totalPnL / pnlDenominator6) * 100 : 0,
           cacheUsed: false
         };
       }
     });
 
+    // Enrich trades with folder information from file registry
+    const fileRegistry = loadPortfolioFileRegistry();
+    const enrichedTrades = portfolio.trades ? portfolio.trades.map(trade => {
+      // If trade already has folder, keep it
+      if (trade.folder) {
+        return trade;
+      }
+
+      // Otherwise, look up folder from file registry using sourceFile
+      if (trade.sourceFile && fileRegistry[trade.sourceFile]) {
+        return {
+          ...trade,
+          folder: fileRegistry[trade.sourceFile].folder
+        };
+      }
+
+      // No folder info available
+      return trade;
+    }) : [];
+
     const response = {
       ...portfolio,
       holdings: holdingsWithCachedPrices,
+      trades: enrichedTrades,
       cached: true,
       message: 'Data retrieved from cache only, no API calls made'
     };
@@ -2014,10 +2094,10 @@ async function cacheStockPricesFromHoldings(holdings) {
         console.log(`📈 Fetching fresh price for ${rawSymbol} (${holding.type})...`);
 
         if (holding.type === 's') {
-          // Fetch stock price from Yahoo Finance (use rawSymbol which may have .TO suffix)
-          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${rawSymbol}`;
-          const response = await axios.get(yahooUrl, { timeout: 8000 });
-          
+          // Fetch stock price from Yahoo Finance with Canadian exchange fallback
+          const fetched = await fetchYahooChart(rawSymbol, {}, 8000);
+          const response = fetched ? { data: fetched.data } : { data: {} };
+
           if (response.data?.chart?.result?.[0]) {
             const result = response.data.chart.result[0];
             const meta = result.meta;
@@ -2212,7 +2292,10 @@ async function processTrades(trades) {
         totalAmountSold += adjustedTotal;
 
         holding.totalInvested = 0;
-        // Note: We keep averagePrice for reference, even though quantity is 0
+        // Reset buy accumulators so a future rebuy starts with a fresh average price
+        holding.totalBuyShares = 0;
+        holding.totalBuyAmount = 0;
+        holding.averagePrice = 0;
         // realizedPnL will be calculated AFTER all trades are processed
       } else {
         holding.quantity -= trade.quantity;
@@ -2222,7 +2305,14 @@ async function processTrades(trades) {
         // Recalculate cost basis for remaining shares using the SAME average price
         holding.totalInvested = holding.quantity * holding.averagePrice;
 
-        // Note: averagePrice stays the same - it's the average of ALL buys
+        // If fully sold out, reset buy accumulators so a future rebuy starts fresh
+        if (holding.quantity < 1e-9) {
+          holding.quantity = 0;
+          holding.totalInvested = 0;
+          holding.totalBuyShares = 0;
+          holding.totalBuyAmount = 0;
+          holding.averagePrice = 0;
+        }
         // realizedPnL will be calculated AFTER all trades are processed
       }
     }
@@ -2329,10 +2419,10 @@ async function getCurrentPrices(holdings) {
             throw new Error('No price data returned from CoinGecko');
           }
         } else if (holding.type === 's') {
-          // Fetch stock price from Yahoo Finance
-          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${holding.symbol}`;
-          const stockResponse = await axios.get(yahooUrl, { timeout: 8000 });
-          
+          // Fetch stock price from Yahoo Finance with Canadian exchange fallback
+          const fetched = await fetchYahooChart(holding.symbol, {}, 8000);
+          const stockResponse = fetched ? { data: fetched.data } : { data: {} };
+
           if (stockResponse.data?.chart?.result?.[0]) {
             const result = stockResponse.data.chart.result[0];
             const meta = result.meta;
@@ -2417,9 +2507,10 @@ async function getCurrentPrices(holdings) {
         currentValue = cadPrice * (holding.quantity || 0);
         unrealizedPnL = currentValue - (holding.totalInvested || 0);
         totalPnL = unrealizedPnL + (holding.realizedPnL || 0);
-        // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-        totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-          (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
+        const totalAmtInv7 = holding.totalAmountInvested || holding.totalInvested || 0;
+        const netInvested7 = totalAmtInv7 - (Number(holding.amountSold) || 0);
+        const pnlDenominator7 = (totalPnL >= 0 && netInvested7 > 0) ? netInvested7 : totalAmtInv7;
+        totalPnLPercent = pnlDenominator7 > 0 ? (totalPnL / pnlDenominator7) * 100 : 0;
       }
 
       // Get sector from cache if available
@@ -2430,6 +2521,7 @@ async function getCurrentPrices(holdings) {
         ...holding,
         companyName: companyName,
         sector: sector, // Include sector from cache
+        subsector: cachedData?.subsector || null,
         currentPrice: cadPrice, // Store CAD price for display
         currentValue: currentValue,
         unrealizedPnL: unrealizedPnL,
@@ -2627,6 +2719,20 @@ function processWealthsimpleActivitiesRow(row, filename) {
     parsedDate = new Date(); // Use current date as fallback
   }
 
+  // Extract account type from column if present, otherwise fall back to filename keyword
+  const rawAccountType = (row.account_type || '').trim();
+  let accountType = 'Non-Reg';
+  if (/tfsa/i.test(rawAccountType)) accountType = 'TFSA';
+  else if (/rrsp/i.test(rawAccountType)) accountType = 'RRSP';
+  else if (/fhsa/i.test(rawAccountType)) accountType = 'FHSA';
+  else {
+    // Fall back to filename keyword
+    const lc = filename.toLowerCase();
+    if (lc.includes('tfsa')) accountType = 'TFSA';
+    else if (lc.includes('rrsp')) accountType = 'RRSP';
+    else if (lc.includes('fhsa')) accountType = 'FHSA';
+  }
+
   return {
     symbol: symbol, // Already uppercased by normalizeSymbol
     date: parsedDate,
@@ -2635,7 +2741,8 @@ function processWealthsimpleActivitiesRow(row, filename) {
     price: unitPrice, // Price per share in CAD
     total: netCashAmount, // Total amount in CAD
     type: 's', // Wealthsimple is for stocks
-    currency: row.currency || 'CAD'
+    currency: row.currency || 'CAD',
+    accountType
   };
 }
 
@@ -2742,6 +2849,7 @@ function processQuestradeRow(row, filename) {
   const quantity = row['Quantity'] || row['quantity'];
   const price = row['Price'] || row['price'];
   const currency = row['Currency'] || row['currency'];
+  const rawAccountType = (row['Account Type'] || row['account type'] || '').trim();
 
   if (!transactionDate || !action || !symbol || !quantity || !price || !currency ||
       transactionDate.trim() === '' || action.trim() === '' || symbol.trim() === '' ||
@@ -2780,6 +2888,12 @@ function processQuestradeRow(row, filename) {
   // Determine currency - Questrade shows USD or CAD
   const tradeCurrency = currency.trim().toUpperCase();
 
+  // Normalize Questrade account type string → canonical label
+  let accountType = 'Non-Reg';
+  if (/tfsa/i.test(rawAccountType)) accountType = 'TFSA';
+  else if (/rrsp/i.test(rawAccountType)) accountType = 'RRSP';
+  else if (/fhsa/i.test(rawAccountType)) accountType = 'FHSA';
+
   return {
     symbol: normalizeSymbol(symbolUpper),
     date: parsedDate,
@@ -2788,7 +2902,8 @@ function processQuestradeRow(row, filename) {
     price: priceNum, // Price per share in original currency
     total: totalAmount, // Total amount in original currency
     type: isCrypto ? 'c' : 's', // 's' for stock, 'c' for crypto
-    currency: tradeCurrency // USD or CAD
+    currency: tradeCurrency, // USD or CAD
+    accountType // 'TFSA' | 'RRSP' | 'FHSA' | 'Non-Reg'
   };
 }
 
@@ -3259,6 +3374,69 @@ router.put('/cache/:symbol/sector', (req, res) => {
   }
 });
 
+// Update subsector for a symbol in cache
+router.put('/cache/:symbol/subsector', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { subsector } = req.body;
+
+    console.log(`🏷️ Updating subsector for ${symbol} to: ${subsector || 'null'}`);
+
+    const cached = holdingsCache.cache.get(symbol);
+    if (!cached) {
+      return res.status(404).json({ error: `Symbol ${symbol} not found in cache` });
+    }
+
+    // Normalize to single string or null
+    cached.subsector = (typeof subsector === 'string' && subsector)
+      ? subsector
+      : (Array.isArray(subsector) && subsector.length > 0 ? subsector[0] : null);
+    holdingsCache.cache.set(symbol, cached);
+    holdingsCache.saveCache();
+
+    res.json({
+      success: true,
+      symbol: symbol,
+      subsector: cached.subsector,
+      message: `Updated subsector for ${symbol}`
+    });
+
+  } catch (error) {
+    console.error('Subsector update error:', error);
+    res.status(500).json({ error: 'Failed to update subsector' });
+  }
+});
+
+// Update other sectors for a symbol in cache
+router.put('/cache/:symbol/other-sectors', (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const { otherSectors } = req.body;
+
+    console.log(`🏷️ Updating other sectors for ${symbol} to: ${otherSectors || 'null'}`);
+
+    const cached = holdingsCache.cache.get(symbol);
+    if (!cached) {
+      return res.status(404).json({ error: `Symbol ${symbol} not found in cache` });
+    }
+
+    cached.otherSectors = Array.isArray(otherSectors) && otherSectors.length > 0 ? otherSectors : null;
+    holdingsCache.cache.set(symbol, cached);
+    holdingsCache.saveCache();
+
+    res.json({
+      success: true,
+      symbol,
+      otherSectors: cached.otherSectors,
+      message: `Updated other sectors for ${symbol}`
+    });
+
+  } catch (error) {
+    console.error('Other sectors update error:', error);
+    res.status(500).json({ error: 'Failed to update other sectors' });
+  }
+});
+
 // Update conviction level for a symbol in cache
 router.put('/cache/:symbol/conviction', (req, res) => {
   try {
@@ -3606,6 +3784,7 @@ async function processUploadedFiles(req, res) {
                 // Include price, total, and counter to handle identical trades in same file
                 tradeCopy.id = `${fileInfo.name}-${tradeCopy.date}-${tradeCopy.symbol}-${tradeCopy.action}-${tradeCopy.quantity}-${tradeCopy.price}-${tradeCopy.total}-${tradeCounter}`;
                 tradeCopy.sourceFile = fileInfo.name; // Track source file
+                tradeCopy.folder = fileType; // Track source folder (wealthsimple, questrade, crypto)
                 trades.push(tradeCopy);
                 tradeCounter++; // Increment counter for next trade
               }
@@ -3858,7 +4037,6 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
             const endTimestamp = Math.floor(Date.now() / 1000);
             const startTimestamp = endTimestamp - (90 * 24 * 60 * 60); // 90 days ago
 
-            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
             const params = {
               period1: startTimestamp,
               period2: endTimestamp,
@@ -3866,10 +4044,8 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
               includePrePost: false
             };
 
-            const response = await axios.get(yahooUrl, {
-              params,
-              timeout: 8000
-            });
+            const fetched = await fetchYahooChart(symbol, params, 8000);
+            const response = fetched ? { data: fetched.data } : { data: {} };
 
             if (response.data.chart?.result?.[0]) {
               const result = response.data.chart.result[0];
@@ -3935,9 +4111,12 @@ router.get('/:portfolioId/risk-metrics', async (req, res) => {
           totalInvested: holding.totalInvested,
           currentValue: currentValue,
           totalPnL: totalPnL,
-          // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-          totalPnLPercent: (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-            (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0,
+          totalPnLPercent: (() => {
+            const totalAmtInv8 = holding.totalAmountInvested || holding.totalInvested || 0;
+            const netInvested8 = totalAmtInv8 - (Number(holding.amountSold) || 0);
+            const denom8 = (totalPnL >= 0 && netInvested8 > 0) ? netInvested8 : totalAmtInv8;
+            return denom8 > 0 ? (totalPnL / denom8) * 100 : 0;
+          })(),
           ...riskMetrics
         };
 
@@ -4581,7 +4760,280 @@ function calculateTimeBasedInsights(trades) {
   };
 }
 
+// ── Account Placement Analysis ────────────────────────────────────────────────
+
+function getAccountTypeFromTrade(trade, questradeAccountLookup) {
+  // Questrade rows carry an explicit accountType field when freshly parsed — use it first
+  if (trade.accountType) return trade.accountType;
+  // Wealthsimple filenames contain the account type (e.g. "TFSA-monthly-...")
+  const sourceFile = trade.sourceFile || '';
+  const lc = sourceFile.toLowerCase();
+  if (lc.includes('tfsa')) return 'TFSA';
+  if (lc.includes('rrsp')) return 'RRSP';
+  if (lc.includes('fhsa')) return 'FHSA';
+  // Fall back to the runtime CSV lookup for older cached Questrade trades
+  if (questradeAccountLookup && trade.symbol && trade.date) {
+    const dateKey = new Date(trade.date).toISOString().substring(0, 10); // YYYY-MM-DD
+    const key = `${sourceFile}|${trade.symbol}|${dateKey}|${trade.action}|${trade.quantity}`;
+    const found = questradeAccountLookup.get(key);
+    if (found) return found;
+  }
+  return 'Non-Reg';
+}
+
+// Build a lookup from raw CSV files so older cached trades (without accountType) get
+// the correct account type without requiring a cache clear.
+// Key: "filename|symbol|YYYY-MM-DD|action|quantity"  Value: 'TFSA'|'RRSP'|'FHSA'|'Non-Reg'
+function buildAccountTypeLookup() {
+  const lookup = new Map();
+
+  // ── Questrade files ────────────────────────────────────────────────────────
+  const questradeDir = path.join(__dirname, '../uploads/questrade');
+  if (fs.existsSync(questradeDir)) {
+    for (const filename of fs.readdirSync(questradeDir).filter(f => f.toLowerCase().endsWith('.csv'))) {
+      try {
+        const lines = fs.readFileSync(path.join(questradeDir, filename), 'utf8').split('\n');
+        if (lines.length < 2) continue;
+        const header = lines[0].split(',').map(h => h.trim());
+        const col = {};
+        header.forEach((h, i) => { col[h] = i; });
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          // Account Type is last col, Activity Type is second-last — avoids splitting on Description commas
+          const last = line.lastIndexOf(',');
+          const secondLast = line.lastIndexOf(',', last - 1);
+          const rawAccountType = line.substring(last + 1).trim();
+          if (line.substring(secondLast + 1, last).trim() !== 'Trades') continue;
+
+          const parts = line.split(',');
+          const symbol = (parts[col['Symbol']] || '').trim();
+          const transactionDate = (parts[col['Transaction Date']] || '').trim();
+          const action = (parts[col['Action']] || '').trim().toLowerCase();
+          const quantity = (parts[col['Quantity']] || '').trim();
+          if (!symbol || !transactionDate || !action || !quantity) continue;
+
+          let accountType = 'Non-Reg';
+          if (/tfsa/i.test(rawAccountType)) accountType = 'TFSA';
+          else if (/rrsp/i.test(rawAccountType)) accountType = 'RRSP';
+          else if (/fhsa/i.test(rawAccountType)) accountType = 'FHSA';
+
+          const normQty = String(parseFloat(quantity)); // "1.00000" → "1", "0.5" → "0.5"
+          lookup.set(`${filename}|${symbol}|${transactionDate.substring(0, 10)}|${action}|${normQty}`, accountType);
+        }
+      } catch (e) {
+        console.warn(`buildAccountTypeLookup (questrade): could not read ${filename}:`, e.message);
+      }
+    }
+  }
+
+  // ── Wealthsimple activities-export files (have account_type column) ────────
+  const wsDir = path.join(__dirname, '../uploads/wealthsimple');
+  if (fs.existsSync(wsDir)) {
+    const activityFiles = fs.readdirSync(wsDir)
+      .filter(f => f.toLowerCase().endsWith('.csv') && f.toLowerCase().startsWith('activities-'));
+    for (const filename of activityFiles) {
+      try {
+        const lines = fs.readFileSync(path.join(wsDir, filename), 'utf8').split('\n');
+        if (lines.length < 2) continue;
+        const header = lines[0].split(',').map(h => h.trim());
+        const col = {};
+        header.forEach((h, i) => { col[h] = i; });
+
+        // Only process if account_type column exists
+        if (col['account_type'] == null) continue;
+
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].trim().split(',');
+          if (parts.length < 5) continue;
+          if ((parts[col['activity_type']] || '').trim().toUpperCase() !== 'TRADE') continue;
+
+          const rawAccountType = (parts[col['account_type']] || '').trim();
+          const symbol = (parts[col['symbol']] || '').trim();
+          const transactionDate = (parts[col['transaction_date']] || '').trim();
+          const subType = (parts[col['activity_sub_type']] || '').trim().toLowerCase(); // buy/sell
+          const quantity = (parts[col['quantity']] || '').trim();
+          if (!symbol || !transactionDate || !subType || !quantity) continue;
+
+          let accountType = 'Non-Reg';
+          if (/tfsa/i.test(rawAccountType)) accountType = 'TFSA';
+          else if (/rrsp/i.test(rawAccountType)) accountType = 'RRSP';
+          else if (/fhsa/i.test(rawAccountType)) accountType = 'FHSA';
+
+          const normQty = String(parseFloat(quantity));
+          lookup.set(`${filename}|${symbol}|${transactionDate.substring(0, 10)}|${subType}|${normQty}`, accountType);
+        }
+      } catch (e) {
+        console.warn(`buildAccountTypeLookup (wealthsimple): could not read ${filename}:`, e.message);
+      }
+    }
+  }
+
+  return lookup;
+}
+
+function getExchangeFromSymbol(symbol, type) {
+  if (type === 'c') return 'Crypto';
+  if (symbol.endsWith('.TO') || symbol.endsWith('.V') || symbol.endsWith('.CN')) return 'TSX';
+  return 'NYSE';
+}
+
+// Canadian stocks where eligible dividends + dividend tax credit favour non-reg over TFSA
+// Known high-dividend Canadian stocks (eligible dividend tax credit benefits)
+const HIGH_DIVIDEND_TSX = new Set([
+  'BNS.TO', 'TD.TO', 'RY.TO', 'BMO.TO', 'CM.TO', 'NA.TO',
+  'BCE.TO', 'T.TO', 'ENB.TO', 'TRP.TO', 'FTS.TO', 'EMA.TO',
+  'PPL.TO', 'KEY.TO', 'ALA.TO', 'MFC.TO', 'SLF.TO', 'GWO.TO',
+  'H.TO', 'AQN.TO', 'CPX.TO', 'NPI.TO', 'BIP.UN.TO', 'BAM.A.TO'
+]);
+
+// Dividend yield threshold: below this % → growth-oriented → TFSA preferred for NYSE stocks
+const DIVIDEND_YIELD_TFSA_THRESHOLD = 1.0; // %
+
+function getAccountRecommendation(symbol, exchange, dividendYield) {
+  if (exchange === 'Crypto') {
+    return {
+      account: 'Non-Reg',
+      reason: 'Crypto is not eligible for registered accounts — non-reg is the only option.'
+    };
+  }
+  if (exchange === 'TSX') {
+    if (HIGH_DIVIDEND_TSX.has(symbol)) {
+      return {
+        account: 'Non-Reg',
+        reason: 'High-dividend Canadian stock — eligible dividends qualify for the Canadian dividend tax credit in non-reg, which often beats TFSA after tax.'
+      };
+    }
+    return {
+      account: 'TFSA',
+      reason: 'Canadian growth stock — TFSA gives tax-free capital gains with no foreign withholding drag.'
+    };
+  }
+  // NYSE / US stocks — use actual dividend yield to decide
+  const yieldKnown = dividendYield != null;
+  const isLowDividend = !yieldKnown || dividendYield < DIVIDEND_YIELD_TFSA_THRESHOLD;
+  if (isLowDividend) {
+    const yieldNote = yieldKnown
+      ? `(yield ${dividendYield.toFixed(2)}% < ${DIVIDEND_YIELD_TFSA_THRESHOLD}%)`
+      : '(no dividend data — assuming growth-oriented)';
+    return {
+      account: 'TFSA',
+      reason: `Low/no dividend US stock ${yieldNote} — capital gains dominate, 15% withholding drag is minimal. TFSA tax-free growth wins out.`
+    };
+  }
+  return {
+    account: 'RRSP',
+    reason: `Dividend-paying US stock (yield ${dividendYield.toFixed(2)}%) — Canada-US tax treaty eliminates the 15% withholding tax inside an RRSP. Unrecoverable in a TFSA.`
+  };
+}
+
+function getPlacementStatus(currentAccount, recommendedAccount, exchange) {
+  // FHSA is treaty-protected like RRSP for US content and registered like TFSA for Canadian
+  if (currentAccount === 'FHSA') {
+    if (exchange === 'NYSE' && recommendedAccount === 'RRSP') return 'ok';
+    if (exchange === 'TSX' && recommendedAccount === 'TFSA') return 'ok';
+    if (exchange === 'Crypto') return 'misplaced';
+    return 'ok';
+  }
+  if (currentAccount === recommendedAccount) return 'ok';
+  // Canadian stock in TFSA is acceptable (just not optimal for high-dividend names)
+  if (exchange === 'TSX' && currentAccount === 'TFSA') return 'ok';
+  // Canadian stock in RRSP wastes treaty space
+  if (exchange === 'TSX' && currentAccount === 'RRSP') return 'suboptimal';
+  // US stock in TFSA: withholding drag is unrecoverable
+  if (exchange === 'NYSE' && currentAccount === 'TFSA') return 'suboptimal';
+  // US stock in Non-Reg: taxed fully on dividends + no treaty
+  if (exchange === 'NYSE' && currentAccount === 'Non-Reg') return 'suboptimal';
+  return 'suboptimal';
+}
+
+async function calculateAccountPlacements(trades, positions) {
+  // Build symbol → type map
+  const symbolType = {};
+  trades.forEach(t => {
+    if (!symbolType[t.symbol]) symbolType[t.symbol] = t.type || 's';
+  });
+
+  // Build runtime lookup for older cached trades (Questrade + WS activities) that lack accountType
+  const questradeAccountLookup = buildAccountTypeLookup();
+
+  // Accumulate net shares per (symbol, account)
+  const sharesMap = {};
+  trades.forEach(trade => {
+    const account = getAccountTypeFromTrade(trade, questradeAccountLookup);
+    const key = `${trade.symbol}|${account}`;
+    if (!sharesMap[key]) sharesMap[key] = { symbol: trade.symbol, account, shares: 0 };
+    if (trade.action === 'buy') sharesMap[key].shares += trade.quantity;
+    else if (trade.action === 'sell') sharesMap[key].shares -= trade.quantity;
+  });
+
+  // Build price lookup from aggregated positions
+  const priceLookup = {};
+  positions.forEach(p => { priceLookup[p.symbol] = p.currentPrice || 0; });
+
+  // Compute total net shares per symbol across all accounts.
+  // If a symbol is net-flat (buy in one account, sell miscategorised to another),
+  // exclude ALL its per-account entries so it doesn't appear as a phantom holding.
+  const symbolNetShares = {};
+  for (const e of Object.values(sharesMap)) {
+    symbolNetShares[e.symbol] = (symbolNetShares[e.symbol] || 0) + e.shares;
+  }
+
+  // Pre-fetch dividend yields for all active NYSE symbols (Finnhub, 24h cached)
+  const activeEntries = Object.values(sharesMap).filter(
+    e => e.shares > 0.01 && symbolNetShares[e.symbol] > 0.01
+  );
+  const nyseSymbols = [...new Set(
+    activeEntries
+      .filter(e => getExchangeFromSymbol(e.symbol, symbolType[e.symbol] || 's') === 'NYSE')
+      .map(e => e.symbol)
+  )];
+  const dividendYieldMap = {};
+  await Promise.allSettled(
+    nyseSymbols.map(async sym => {
+      try {
+        const fundamentals = await getFundamentalsLazy(sym);
+        if (fundamentals?.dividendYield != null) dividendYieldMap[sym] = fundamentals.dividendYield;
+      } catch (_) {}
+    })
+  );
+
+  const results = [];
+  for (const entry of activeEntries) {
+    const type = symbolType[entry.symbol] || 's';
+    const exchange = getExchangeFromSymbol(entry.symbol, type);
+    const dividendYield = dividendYieldMap[entry.symbol] ?? null;
+    const { account: recommended, reason } = getAccountRecommendation(entry.symbol, exchange, dividendYield);
+    const status = getPlacementStatus(entry.account, recommended, exchange);
+    const marketValue = (priceLookup[entry.symbol] || 0) * entry.shares;
+
+    results.push({
+      symbol: entry.symbol,
+      exchange,
+      currentAccount: entry.account,
+      recommendedAccount: recommended,
+      reason,
+      status,
+      shares: Math.round(entry.shares * 10000) / 10000,
+      marketValue,
+      dividendYield
+    });
+  }
+
+  // Sort: misplaced → suboptimal → ok, then by market value desc within each group
+  const statusOrder = { misplaced: 0, suboptimal: 1, ok: 2 };
+  results.sort((a, b) => {
+    const sd = statusOrder[a.status] - statusOrder[b.status];
+    return sd !== 0 ? sd : b.marketValue - a.marketValue;
+  });
+
+  return results;
+}
+
+// ── End Account Placement Analysis ────────────────────────────────────────────
+
 module.exports = router;
 
 // Export the cache function for startup initialization
-module.exports.cacheStockPricesFromHoldings = cacheStockPricesFromHoldings; 
+module.exports.cacheStockPricesFromHoldings = cacheStockPricesFromHoldings;
