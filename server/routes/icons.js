@@ -10,6 +10,8 @@ const router = express.Router();
 const ICONS_DIR = path.join(__dirname, '..', 'data', 'icons');
 const ICONS_CACHE_FILE = path.join(__dirname, '..', 'data', 'cache', 'icons-cache.json');
 const ASSET_MAPPING_FILE = path.join(__dirname, '..', 'data', 'cache', 'asset-icon-mapping.json');
+// Permanent assignments — stored OUTSIDE the cache dir so cache clears never touch it
+const PERMANENT_ICONS_FILE = path.join(__dirname, '..', 'data', 'permanent-icons.json');
 const TEMPLATE_ICON_PATH = path.join(ICONS_DIR, 'template.png');
 
 // Ensure directories exist
@@ -44,6 +46,109 @@ const ICON_SOURCES = [
     cryptoOnly: true
   }
 ];
+
+// Seed assignments baked into the source as a fallback baseline.
+// Anything assigned via the UI is saved to permanent-icons.json and takes precedence.
+const SEED_ICONS = {
+  // Crypto
+  'BTC_c':      'btc.png',
+  'ETH_c':      'ETH.png',
+  'SOL_c':      'SOL.png',
+  'DOGE_c':     'doge.png',
+  'TRUMP_c':    'trump_cry.png',
+  'ZEC_c':      'ZEC.png',
+  // Stocks
+  'AAPL_s':     'aapl.png',
+  'ABAT_s':     'ABAT.png',
+  'ACHR_s':     'ACHR.png',
+  'ADUR_s':     'ADUR.png',
+  'AEP_s':      'AEP.png',
+  'AMD_s':      'AMD.png',
+  'AMZN_s':     'amzn.png',
+  'ASTS_s':     'ASTS.png',
+  'AVGO_s':     'AVGO.png',
+  'BB_s':       'BB.png',
+  'BBAI_s':     'BBAI.png',
+  'CCO.TO_s':   'CCO.png',
+  'CEG_s':      'CEG.png',
+  'CVX_s':      'CVX.png',
+  'DRAM_s':     'DRAM.jpg',
+  'ENB_s':      'ENB.png',
+  'GLD_s':      'GLD.png',
+  'GOOG_s':     'googl.png',
+  'GOOGL_s':    'googl.png',
+  'HIMS_s':     'HIMS.png',
+  'HIVE_s':     'HIVE.png',
+  'HWM_s':      'HWM.png',
+  'IBIT_s':     'iShares_BlackRock.png',
+  'INTC_s':     'INTC.png',
+  'IREN_s':     'IREN.png',
+  'LITE_s':     'LITE.png',
+  'LULU_s':     'LULU.png',
+  'META_s':     'META.png',
+  'MSFT_s':     'msft.png',
+  'MSTR_s':     'mstr.png',
+  'NKE_s':      'NKE.png',
+  'NOW_s':      'NOW.png',
+  'NVDA_s':     'nvda.png',
+  'NVO_s':      'NVO.png',
+  'NXE_s':      'NXE.png',
+  'ONDS_s':     'ONDS.png',
+  'ORCL_s':     'ORCL.png',
+  'OSCR_s':     'OSCR.png',
+  'OTEX_s':     'OTEX.png',
+  'OXY_s':      'OXY.png',
+  'PLTR_s':     'PLTR.png',
+  'PNG_s':      'PNG.png',
+  'PYPL_s':     'PYPL.png',
+  'QIMC_s':     'QIMC.png',
+  'QS_s':       'QS.png',
+  'RIVN_s':     'rivian.png',
+  'SLV_s':      'SLV.png',
+  'SOFI_s':     'SOFI.png',
+  'SSYS_s':     'SSYS.png',
+  'STE_s':      'STE.png',
+  'TE_s':       'TE.png',
+  'TEM_s':      'TEM.png',
+  'TNZ_s':      'TNZ.png',
+  'TOU_s':      'TOU.png',
+  'TSLA_s':     'TSLA.png',
+  'TSM_s':      'TSM.png',
+  'UNH_s':      'UNH.png',
+  'UUUU_s':     'UUUU.png',
+  'VOO_s':      'vanguard_voo.png',
+  'WS_s':       'WS.png',
+  'XOM_s':      'XOM.png',
+  'ZETA_s':     'ZETA.png',
+  'ZVRA_s':     'ZVRA.png',
+};
+
+// In-memory permanent icon store: seed + anything saved via the UI
+let permanentIcons = { ...SEED_ICONS };
+
+async function loadPermanentIcons() {
+  try {
+    const data = await fs.readFile(PERMANENT_ICONS_FILE, 'utf8');
+    const saved = JSON.parse(data);
+    // UI assignments override seeds
+    permanentIcons = { ...SEED_ICONS, ...saved };
+  } catch {
+    // File doesn't exist yet — start from seeds, save immediately
+    permanentIcons = { ...SEED_ICONS };
+    await savePermanentIcons();
+  }
+}
+
+async function savePermanentIcons() {
+  try {
+    await fs.writeFile(PERMANENT_ICONS_FILE, JSON.stringify(permanentIcons, null, 2));
+  } catch (error) {
+    console.error('Error saving permanent icons:', error);
+  }
+}
+
+// Call once at startup
+loadPermanentIcons();
 
 // Company domain mapping for common stocks
 const COMPANY_DOMAINS = {
@@ -122,7 +227,11 @@ async function loadAssetMapping() {
     const data = await fs.readFile(ASSET_MAPPING_FILE, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    // Create default mapping if file doesn't exist
+    if (error.code !== 'ENOENT') {
+      // File exists but couldn't be parsed — do NOT overwrite, log and return empty in-memory default
+      console.error('⚠️ Could not parse asset-icon mapping file (will NOT overwrite):', error.message);
+    }
+    // File doesn't exist yet — return a blank default but only save it the first time
     const defaultMapping = {
       nextId: 1,
       mappings: {},
@@ -133,7 +242,9 @@ async function loadAssetMapping() {
         version: "1.0"
       }
     };
-    await saveAssetMapping(defaultMapping);
+    if (error.code === 'ENOENT') {
+      await saveAssetMapping(defaultMapping);
+    }
     return defaultMapping;
   }
 }
@@ -151,12 +262,37 @@ async function saveAssetMapping(mapping) {
 async function getOrAssignIconId(symbol, type = 's') {
   const mapping = await loadAssetMapping();
   const key = `${symbol.toUpperCase()}_${type}`;
-  
+
+  // Permanent assignments always win — apply them to the mapping if not already set
+  if (permanentIcons[key]) {
+    const hardcodedFile = permanentIcons[key];
+    if (!mapping.mappings[key]) {
+      // New entry: create it with the hardcoded file
+      const newId = mapping.nextId;
+      mapping.mappings[key] = {
+        id: newId,
+        symbol: symbol.toUpperCase(),
+        type: type,
+        filename: hardcodedFile,
+        created: new Date().toISOString(),
+        source: 'hardcoded'
+      };
+      mapping.nextId = newId + 1;
+      await saveAssetMapping(mapping);
+    } else if (mapping.mappings[key].filename !== hardcodedFile) {
+      // Entry exists but was reset to template — fix it silently
+      mapping.mappings[key].filename = hardcodedFile;
+      mapping.mappings[key].source = 'hardcoded';
+      await saveAssetMapping(mapping);
+    }
+    return mapping.mappings[key];
+  }
+
   if (mapping.mappings[key]) {
     return mapping.mappings[key];
   }
-  
-  // Assign new entry pointing to shared template — user assigns a real icon later via the Icons tab
+
+  // Brand-new symbol: assign template and let user pick an icon later
   const newId = mapping.nextId;
   mapping.mappings[key] = {
     id: newId,
@@ -223,8 +359,40 @@ async function downloadImage(url, timeout = 10000) {
 // Fetch icon for a symbol using local template system
 async function fetchIcon(symbol, type = 's') {
   const cacheKey = getCacheKey(symbol, type);
+  const mappingKey = `${symbol.toUpperCase()}_${type}`;
   const cache = await loadIconsCache();
-  
+
+  // If a permanent assignment exists and the cache disagrees, self-heal the cache entry
+  if (permanentIcons[mappingKey]) {
+    const expected = permanentIcons[mappingKey];
+    const cached = cache[cacheKey];
+    if (cached && cached.filename === expected) {
+      // Cache is correct — check file exists then return
+      try {
+        await fs.access(path.join(ICONS_DIR, expected));
+        return cached;
+      } catch {
+        // File missing on disk — fall through to rebuild
+      }
+    }
+    // Cache is wrong or missing — rebuild it from the hardcoded assignment
+    const iconMapping = await getOrAssignIconId(symbol, type);
+    const iconData = {
+      symbol,
+      type,
+      filename: iconMapping.filename,
+      source: 'hardcoded',
+      contentType: 'image/png',
+      size: 0,
+      timestamp: Date.now(),
+      url: `/api/icons/image/${iconMapping.filename}`,
+      id: iconMapping.id
+    };
+    cache[cacheKey] = iconData;
+    await saveIconsCache(cache);
+    return iconData;
+  }
+
   // Check if we have a cached icon that's still valid
   if (cache[cacheKey] && cache[cacheKey].filename && !cache[cacheKey].failed) {
     const iconPath = path.join(ICONS_DIR, cache[cacheKey].filename);
@@ -595,10 +763,14 @@ router.put('/update', async (req, res) => {
     if (mapping.mappings[mappingKey]) {
       mapping.mappings[mappingKey].filename = filename;
     }
-    
+
+    // Persist permanently so it survives any future cache/mapping reset
+    permanentIcons[mappingKey] = filename;
+
     await saveIconsCache(cache);
     await saveAssetMapping(mapping);
-    
+    await savePermanentIcons();
+
     res.json({
       success: true,
       message: 'Icon mapping updated successfully'
@@ -651,10 +823,20 @@ router.post('/upload', async (req, res) => {
           return res.status(404).json({ error: 'Symbol not found in cache' });
         }
 
-        // Generate unique filename
+        // Generate filename based on symbol, e.g. MSFT.png, MSFT1.png, MSFT2.png
         const ext = path.extname(file.originalname) || '.png';
-        const hash = crypto.randomBytes(16).toString('hex');
-        const newFilename = `${hash}${ext}`;
+        const symbol = cache[symbolKey].symbol;
+        let newFilename = `${symbol}${ext}`;
+        let counter = 1;
+        while (true) {
+          try {
+            await fs.access(path.join(ICONS_DIR, newFilename));
+            newFilename = `${symbol}${counter}${ext}`;
+            counter++;
+          } catch {
+            break; // filename is free
+          }
+        }
         const newFilePath = path.join(ICONS_DIR, newFilename);
 
         // Save file
@@ -672,10 +854,14 @@ router.post('/upload', async (req, res) => {
         if (mapping.mappings[mappingKey]) {
           mapping.mappings[mappingKey].filename = newFilename;
         }
-        
+
+        // Persist permanently so it survives any future cache/mapping reset
+        permanentIcons[mappingKey] = newFilename;
+
         await saveIconsCache(cache);
         await saveAssetMapping(mapping);
-        
+        await savePermanentIcons();
+
         res.json({
           success: true,
           message: 'Icon uploaded successfully',
