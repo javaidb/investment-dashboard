@@ -28,6 +28,7 @@ interface Holding {
   currency: string; // 'CAD' for Canadian dollars
   companyName?: string;
   sector?: string; // Sector/industry classification
+  subsector?: string | string[] | null;
   currentPrice?: number; // Now in CAD
   currentValue?: number; // Now in CAD
   unrealizedPnL?: number; // Now in CAD
@@ -168,6 +169,7 @@ const PortfolioSummary: React.FC = () => {
   const [monthlyChanges, setMonthlyChanges] = useState<{[symbol: string]: number[]}>({});
   const [quarterlyChanges, setQuarterlyChanges] = useState<{[symbol: string]: number}>({});
   const [positionHistory, setPositionHistory] = useState<{[symbol: string]: number}>({});
+  const [showInactiveHoldings, setShowInactiveHoldings] = useState(true);
   // Calculate total capital from portfolio net value
   const totalCapital = summary ? (summary.currentTotalValue || 0) : 0;
   
@@ -579,9 +581,10 @@ const PortfolioSummary: React.FC = () => {
           console.log(`💰 ${symbol}: API unrealizedPnL=${holding.unrealizedPnL}, calculated=${unrealizedPnL}, using=${unrealizedPnL === holding.unrealizedPnL ? 'API' : 'calculated'}`);
           console.log(`   currentValue=${currentValue}, totalInvested=${holding.totalInvested}, diff=${currentValue && holding.totalInvested ? currentValue - holding.totalInvested : 'N/A'}`);
         }
-        // Use totalAmountInvested for accurate P&L percentage (total ever invested, not just current position)
-        const totalPnLPercent = (holding.totalAmountInvested || holding.totalInvested || 0) > 0 ?
-          (totalPnL / (holding.totalAmountInvested || holding.totalInvested)) * 100 : 0;
+        const totalAmtInvested = holding.totalAmountInvested || holding.totalInvested || 0;
+        const netInvested = totalAmtInvested - (holding.amountSold || 0);
+        const pnlDenominator = (totalPnL >= 0 && netInvested > 0) ? netInvested : totalAmtInvested;
+        const totalPnLPercent = pnlDenominator > 0 ? (totalPnL / pnlDenominator) * 100 : 0;
         
         const weeklyChange = weeklyChanges[symbol];
         const dailyChange = dailyChanges[symbol];
@@ -601,6 +604,7 @@ const PortfolioSummary: React.FC = () => {
           currency: holding.currency || 'CAD',
           companyName: holding.companyName || cachedPrice?.companyName || symbol || 'UNKNOWN',
           sector: holding.sector || cachedPrice?.sector || null,
+          subsector: holding.subsector || cachedPrice?.subsector || null,
           currentPrice: currentPrice,
           currentValue: currentValue,
           unrealizedPnL: unrealizedPnL,
@@ -688,8 +692,9 @@ const PortfolioSummary: React.FC = () => {
       const totalAmountSold = safeHoldings.reduce((sum: number, h: Holding) =>
         sum + (h.amountSold || 0), 0);
       const tradingTotalPnL = totalUnrealizedPnL + totalRealizedPnL;
-      const tradingTotalPnLPercent = totalAmountInvested > 0 ?
-        (tradingTotalPnL / totalAmountInvested) * 100 : 0;
+      const tradingNetInvested = totalAmountInvested - totalAmountSold;
+      const tradingPnlDenominator = (tradingTotalPnL >= 0 && tradingNetInvested > 0) ? tradingNetInvested : totalAmountInvested;
+      const tradingTotalPnLPercent = tradingPnlDenominator > 0 ? (tradingTotalPnL / tradingPnlDenominator) * 100 : 0;
 
       // Add recurring investments totals if available
       const recurringTotals = recurringInvestments?.totals || {
@@ -702,8 +707,9 @@ const PortfolioSummary: React.FC = () => {
       const combinedCurrentValue = currentTotalValue + recurringTotals.currentValue;
       const combinedTotalInvested = totalAmountInvested + recurringTotals.totalInvested;
       const combinedTotalPnL = (totalUnrealizedPnL + totalRealizedPnL) + recurringTotals.profitLoss;
-      const combinedTotalPnLPercent = combinedTotalInvested > 0 ?
-        (combinedTotalPnL / combinedTotalInvested) * 100 : 0;
+      const combinedNetInvested = combinedTotalInvested - totalAmountSold;
+      const combinedPnlDenominator = (combinedTotalPnL >= 0 && combinedNetInvested > 0) ? combinedNetInvested : combinedTotalInvested;
+      const combinedTotalPnLPercent = combinedPnlDenominator > 0 ? (combinedTotalPnL / combinedPnlDenominator) * 100 : 0;
 
       // Calculate combined unrealized P&L (trading unrealized + recurring unrealized)
       // recurringTotals.profitLoss is unrealized since there are no sales in recurring investments
@@ -1358,6 +1364,7 @@ const PortfolioSummary: React.FC = () => {
               acc[category] = {
                 count: 0,
                 totalInvested: 0,
+                totalAmountInvested: 0,
                 currentValue: 0,
                 totalPnL: 0,
                 unrealizedPnL: 0,
@@ -1369,6 +1376,7 @@ const PortfolioSummary: React.FC = () => {
 
             acc[category].count += 1;
             acc[category].totalInvested += holding.totalInvested || 0;
+            acc[category].totalAmountInvested += holding.totalAmountInvested || holding.totalInvested || 0;
             acc[category].currentValue += holding.currentValue || 0;
             acc[category].totalPnL += holding.totalPnL || 0;
             acc[category].unrealizedPnL += holding.unrealizedPnL || 0;
@@ -1377,13 +1385,14 @@ const PortfolioSummary: React.FC = () => {
             acc[category].holdings.push(holding);
 
             return acc;
-          }, {} as {[key: string]: {count: number, totalInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
+          }, {} as {[key: string]: {count: number, totalInvested: number, totalAmountInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
 
           // Add recurring investments as Index Fund category
           if (recurringInvestments?.totals) {
             holdingsByType['Index Fund'] = {
               count: recurringInvestments.investments?.length || 0,
               totalInvested: recurringInvestments.totals.totalInvested,
+              totalAmountInvested: recurringInvestments.totals.totalInvested,
               currentValue: recurringInvestments.totals.currentValue,
               totalPnL: recurringInvestments.totals.profitLoss,
               unrealizedPnL: recurringInvestments.totals.profitLoss, // All P&L is unrealized for recurring investments
@@ -1570,7 +1579,11 @@ const PortfolioSummary: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {sortedCategories.map(([category, data], index) => {
-                      const pnlPercent = data.totalInvested > 0 ? (data.totalPnL / data.totalInvested) * 100 : 0;
+                      const catNetInvested = data.totalAmountInvested - data.totalAmountSold;
+                      const catPnlDenominator = (data.totalPnL >= 0 && catNetInvested > 0) ? catNetInvested : data.totalAmountInvested;
+                      const pnlPercent = catPnlDenominator > 0 ? (data.totalPnL / catPnlDenominator) * 100 : 0;
+                      const unrealizedPercent = catPnlDenominator > 0 ? (data.unrealizedPnL / catPnlDenominator) * 100 : 0;
+                      const realizedPercent = catPnlDenominator > 0 ? (data.realizedPnL / catPnlDenominator) * 100 : 0;
                       const portfolioPercent = totalCapital > 0 ? (data.currentValue / totalCapital) * 100 : 0;
                       const changes = calculateCategoryChanges(data);
 
@@ -1652,17 +1665,45 @@ const PortfolioSummary: React.FC = () => {
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              backgroundColor: pnlPercent >= 0 ? '#f0fdf4' : '#fef2f2',
-                              color: pnlPercent >= 0 ? '#166534' : '#dc2626',
-                              border: `1px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {formatPercentage(pnlPercent)}
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                              <div style={{
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                padding: '6px 12px',
+                                borderRadius: '16px',
+                                backgroundColor: pnlPercent >= 0 ? '#f0fdf4' : '#fef2f2',
+                                color: pnlPercent >= 0 ? '#166534' : '#dc2626',
+                                border: `1px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                                width: 'fit-content'
+                              }}>
+                                {formatPercentage(pnlPercent)}
+                              </div>
+                              <div style={{display: 'flex', gap: '4px', flexWrap: 'nowrap'}}>
+                                <div style={{
+                                  fontSize: '11px',
+                                  fontWeight: '500',
+                                  padding: '2px 6px',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#eff6ff',
+                                  color: '#1d4ed8',
+                                  border: '1px solid #bfdbfe',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  U: {formatPercentage(unrealizedPercent)}
+                                </div>
+                                <div style={{
+                                  fontSize: '11px',
+                                  fontWeight: '500',
+                                  padding: '2px 6px',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#faf5ff',
+                                  color: '#7c3aed',
+                                  border: '1px solid #e9d5ff',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  R: {formatPercentage(realizedPercent)}
+                                </div>
+                              </div>
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
@@ -1830,6 +1871,7 @@ const PortfolioSummary: React.FC = () => {
                 count: 0,
                 activeCount: 0,
                 totalInvested: 0,
+                totalAmountInvested: 0,
                 currentValue: 0,
                 totalPnL: 0,
                 unrealizedPnL: 0,
@@ -1852,6 +1894,7 @@ const PortfolioSummary: React.FC = () => {
             }
 
             acc[sector].totalInvested += holding.totalInvested || 0;
+            acc[sector].totalAmountInvested += holding.totalAmountInvested || holding.totalInvested || 0;
             acc[sector].currentValue += holding.currentValue || 0;
             acc[sector].totalPnL += holding.totalPnL || 0;
             acc[sector].unrealizedPnL += holding.unrealizedPnL || 0;
@@ -1860,7 +1903,7 @@ const PortfolioSummary: React.FC = () => {
             acc[sector].holdings.push(holding);
 
             return acc;
-          }, {} as {[key: string]: {count: number, activeCount: number, totalInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
+          }, {} as {[key: string]: {count: number, activeCount: number, totalInvested: number, totalAmountInvested: number, currentValue: number, totalPnL: number, unrealizedPnL: number, realizedPnL: number, totalAmountSold: number, holdings: Holding[]}});
 
           // Debug: Log Tech sector details
           if (holdingsBySector['Tech']) {
@@ -2036,7 +2079,11 @@ const PortfolioSummary: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {sortedSectors.map(([sector, data], index) => {
-                      const pnlPercent = data.totalInvested > 0 ? (data.totalPnL / data.totalInvested) * 100 : 0;
+                      const sectorNetInvested = data.totalAmountInvested - data.totalAmountSold;
+                      const sectorPnlDenominator = (data.totalPnL >= 0 && sectorNetInvested > 0) ? sectorNetInvested : data.totalAmountInvested;
+                      const pnlPercent = sectorPnlDenominator > 0 ? (data.totalPnL / sectorPnlDenominator) * 100 : 0;
+                      const unrealizedPercent = sectorPnlDenominator > 0 ? (data.unrealizedPnL / sectorPnlDenominator) * 100 : 0;
+                      const realizedPercent = sectorPnlDenominator > 0 ? (data.realizedPnL / sectorPnlDenominator) * 100 : 0;
                       const portfolioPercent = totalCapital > 0 ? (data.currentValue / totalCapital) * 100 : 0;
                       const changes = calculateSectorChanges(data);
                       const sectorColor = sectorColors[sector] || sectorColors['Other'];
@@ -2114,18 +2161,46 @@ const PortfolioSummary: React.FC = () => {
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '700',
-                              backgroundColor: pnlPercent >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: pnlPercent >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`
-                            }}>
-                              {formatPercentage(pnlPercent)}
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                              <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '6px 12px',
+                                borderRadius: '16px',
+                                fontSize: '14px',
+                                fontWeight: '700',
+                                backgroundColor: pnlPercent >= 0 ? '#dcfce7' : '#fef2f2',
+                                color: pnlPercent >= 0 ? '#166534' : '#dc2626',
+                                border: `2px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                              }}>
+                                {formatPercentage(pnlPercent)}
+                              </div>
+                              <div style={{display: 'flex', gap: '4px', flexWrap: 'nowrap'}}>
+                                <div style={{
+                                  fontSize: '11px',
+                                  fontWeight: '500',
+                                  padding: '2px 6px',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#eff6ff',
+                                  color: '#1d4ed8',
+                                  border: '1px solid #bfdbfe',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  U: {formatPercentage(unrealizedPercent)}
+                                </div>
+                                <div style={{
+                                  fontSize: '11px',
+                                  fontWeight: '500',
+                                  padding: '2px 6px',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#faf5ff',
+                                  color: '#7c3aed',
+                                  border: '1px solid #e9d5ff',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  R: {formatPercentage(realizedPercent)}
+                                </div>
+                              </div>
                             </div>
                           </td>
                           <td className="py-4 px-6" style={{padding: '20px 24px'}}>
@@ -2362,15 +2437,43 @@ const PortfolioSummary: React.FC = () => {
                   fontWeight: 'bold',
                   color: '#111827'
                 }}>Active Trading Holdings</h3>
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: '#6b7280',
-                  backgroundColor: 'white',
-                  padding: '6px 12px',
-                  borderRadius: '20px',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
-                }}>{holdings.length} assets</div>
+                <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                  <button
+                    onClick={() => setShowInactiveHoldings(prev => !prev)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: showInactiveHoldings ? '#6b7280' : '#7c3aed',
+                      backgroundColor: showInactiveHoldings ? '#f3f4f6' : '#f3e8ff',
+                      border: `1px solid ${showInactiveHoldings ? '#d1d5db' : '#c4b5fd'}`,
+                      padding: '5px 12px',
+                      borderRadius: '20px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span style={{
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      backgroundColor: showInactiveHoldings ? '#9ca3af' : '#7c3aed'
+                    }} />
+                    {showInactiveHoldings ? 'Hide' : 'Show'} inactive ({holdings.filter(h => h.quantity <= 0.01).length})
+                  </button>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#6b7280',
+                    backgroundColor: 'white',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                  }}>{showInactiveHoldings ? holdings.length : holdings.filter(h => h.quantity > 0.01).length} assets</div>
+                </div>
               </div>
               <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
                 <label style={{
@@ -2460,7 +2563,7 @@ const PortfolioSummary: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {holdings.map((holding, index) => (
+                  {holdings.filter(h => showInactiveHoldings || h.quantity > 0.01).map((holding, index) => (
                     <tr key={holding.symbol} style={{
                       backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
                       borderBottom: '1px solid #f3f4f6',
@@ -2646,116 +2749,141 @@ const PortfolioSummary: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-4 px-6" style={{padding: '10px 12px'}}>
-                        <div style={{display: 'flex', gap: '6px', alignItems: 'stretch'}}>
-                          {/* Total P&L - Left side */}
-                          <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            padding: '6px 10px',
-                            borderRadius: '8px',
-                            backgroundColor: (holding.totalPnL && holding.totalPnL >= 0) ? '#dcfce7' : '#fef2f2',
-                            border: `1px solid ${(holding.totalPnL && holding.totalPnL >= 0) ? '#bbf7d0' : '#fecaca'}`,
-                            minWidth: '110px'
-                          }}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              marginBottom: '1px'
-                            }}>
+                        {(() => {
+                          const totalAmtInvested = holding.totalAmountInvested || holding.totalInvested || 0;
+                          const netInvested = totalAmtInvested - (holding.amountSold || 0);
+                          const pnlDenominator = ((holding.totalPnL || 0) >= 0 && netInvested > 0) ? netInvested : totalAmtInvested;
+                          const unrealizedPct = pnlDenominator > 0 ? ((holding.unrealizedPnL || 0) / pnlDenominator) * 100 : 0;
+                          const realizedPct = pnlDenominator > 0 ? ((holding.realizedPnL || 0) / pnlDenominator) * 100 : 0;
+                          return (
+                            <div style={{display: 'flex', gap: '6px', alignItems: 'stretch'}}>
+                              {/* Total P&L - Left side */}
                               <div style={{
-                                fontSize: '9px',
-                                fontWeight: '600',
-                                color: '#6b7280',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.3px'
-                              }}>Total</div>
-                              {(holding.totalPnL && holding.totalPnL >= 0) ? (
-                                <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#166534" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#dc2626" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                            </div>
-                            <div style={{
-                              fontSize: '14px',
-                              fontWeight: '700',
-                              color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
-                              lineHeight: '1.2'
-                            }}>
-                              {formatCurrency(holding.totalPnL)}
-                            </div>
-                            <div style={{
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
-                              lineHeight: '1.2'
-                            }}>
-                              {formatPercentage(holding.totalPnLPercent)}
-                            </div>
-                          </div>
-
-                          {/* Unrealized & Realized - Right side stacked */}
-                          <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '3px',
-                            justifyContent: 'center'
-                          }}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: '#f9fafb',
-                              border: '1px solid #e5e7eb'
-                            }}>
-                              <div style={{
-                                fontSize: '8px',
-                                fontWeight: '600',
-                                color: '#9ca3af',
-                                textTransform: 'uppercase',
-                                whiteSpace: 'nowrap'
-                              }}>Unr:</div>
-                              <div style={{
-                                fontSize: '10px',
-                                fontWeight: '600',
-                                color: (holding.unrealizedPnL && holding.unrealizedPnL >= 0) ? '#059669' : '#dc2626'
+                                display: 'flex',
+                                flexDirection: 'column',
+                                padding: '6px 10px',
+                                borderRadius: '8px',
+                                backgroundColor: (holding.totalPnL && holding.totalPnL >= 0) ? '#dcfce7' : '#fef2f2',
+                                border: `1px solid ${(holding.totalPnL && holding.totalPnL >= 0) ? '#bbf7d0' : '#fecaca'}`,
+                                minWidth: '110px'
                               }}>
-                                {formatCurrency(holding.unrealizedPnL)}
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  marginBottom: '1px'
+                                }}>
+                                  <div style={{
+                                    fontSize: '9px',
+                                    fontWeight: '600',
+                                    color: '#6b7280',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.3px'
+                                  }}>Total</div>
+                                  {(holding.totalPnL && holding.totalPnL >= 0) ? (
+                                    <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#166534" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                    </svg>
+                                  ) : (
+                                    <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#dc2626" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                                    </svg>
+                                  )}
+                                </div>
+                                <div style={{
+                                  fontSize: '14px',
+                                  fontWeight: '700',
+                                  color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
+                                  lineHeight: '1.2'
+                                }}>
+                                  {formatCurrency(holding.totalPnL)}
+                                </div>
+                                <div style={{
+                                  fontSize: '11px',
+                                  fontWeight: '600',
+                                  color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
+                                  lineHeight: '1.2'
+                                }}>
+                                  {formatPercentage(holding.totalPnLPercent)}
+                                </div>
+                              </div>
+
+                              {/* Unrealized & Realized - Right side stacked */}
+                              <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '3px',
+                                justifyContent: 'center'
+                              }}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#eff6ff',
+                                  border: '1px solid #bfdbfe'
+                                }}>
+                                  <div style={{
+                                    fontSize: '8px',
+                                    fontWeight: '600',
+                                    color: '#6b7280',
+                                    textTransform: 'uppercase',
+                                    whiteSpace: 'nowrap'
+                                  }}>U:</div>
+                                  <div style={{
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    color: (holding.unrealizedPnL && holding.unrealizedPnL >= 0) ? '#059669' : '#dc2626'
+                                  }}>
+                                    {formatCurrency(holding.unrealizedPnL)}
+                                  </div>
+                                  <div style={{
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    color: '#1d4ed8',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {formatPercentage(unrealizedPct)}
+                                  </div>
+                                </div>
+
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#faf5ff',
+                                  border: '1px solid #e9d5ff'
+                                }}>
+                                  <div style={{
+                                    fontSize: '8px',
+                                    fontWeight: '600',
+                                    color: '#6b7280',
+                                    textTransform: 'uppercase',
+                                    whiteSpace: 'nowrap'
+                                  }}>R:</div>
+                                  <div style={{
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    color: (holding.realizedPnL && holding.realizedPnL >= 0) ? '#059669' : '#dc2626'
+                                  }}>
+                                    {formatCurrency(holding.realizedPnL)}
+                                  </div>
+                                  <div style={{
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    color: '#7c3aed',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {formatPercentage(realizedPct)}
+                                  </div>
+                                </div>
                               </div>
                             </div>
-
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: '#f9fafb',
-                              border: '1px solid #e5e7eb'
-                            }}>
-                              <div style={{
-                                fontSize: '8px',
-                                fontWeight: '600',
-                                color: '#9ca3af',
-                                textTransform: 'uppercase',
-                                whiteSpace: 'nowrap'
-                              }}>Rea:</div>
-                              <div style={{
-                                fontSize: '10px',
-                                fontWeight: '600',
-                                color: (holding.realizedPnL && holding.realizedPnL >= 0) ? '#059669' : '#dc2626'
-                              }}>
-                                {formatCurrency(holding.realizedPnL)}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-4 px-6" style={{padding: '20px 24px'}}>
                         {Array.isArray(holding.dailyChangePercent) ? (
