@@ -14,6 +14,7 @@ interface Holding {
   currency: string;
   companyName?: string;
   sector?: string;
+  subsector?: string | string[] | null;
   currentPrice?: number;
   currentValue?: number;
   unrealizedPnL?: number;
