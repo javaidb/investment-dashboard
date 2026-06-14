@@ -4,6 +4,8 @@ const pnlCache = require('../pnl-cache');
 const pnlCalculator = require('../pnl-calculator');
 const fs = require('fs');
 const path = require('path');
+const historicalDataCache = require('../historical-cache');
+const { isCanadianFundCode, fetchCanadianFundHistory } = require('../services/recurring-investments');
 
 // File-based storage for portfolio data (same as portfolio.js)
 const PORTFOLIO_FILE = path.join(__dirname, '../data/cache', 'portfolios.json');
@@ -133,6 +135,24 @@ router.post('/fetch-historical/:portfolioId', async (req, res) => {
     // Fetch historical data for each symbol
     for (const symbol of symbols) {
       try {
+        // Canadian Fundserv codes (e.g. BNS397) must be fetched via Barchart, not Yahoo Finance
+        if (isCanadianFundCode(symbol)) {
+          console.log(`Fetching historical data for ${symbol} (Canadian fund via Barchart)`);
+          const startDate = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000);
+          const rows = await fetchCanadianFundHistory(symbol, startDate);
+          if (rows.length > 0) {
+            const points = rows.map(r => ({ date: r.date, open: r.close, high: r.close, low: r.close, close: r.close, volume: 0 }));
+            historicalDataCache.set(symbol, points, { symbol, currency: 'CAD' });
+            results.fetched++;
+            results.symbols.push({ symbol, success: true });
+            console.log(`✅ Fetched ${symbol} (${rows.length} points)`);
+          } else {
+            results.failed++;
+            results.symbols.push({ symbol, success: false, error: 'No data from Barchart' });
+          }
+          continue;
+        }
+
         const trade = portfolio.trades.find(t => t.symbol === symbol);
         const isStock = trade.type === 's';
         const endpoint = isStock ? `/api/historical/stock/${symbol}` : `/api/historical/crypto/${symbol}`;
