@@ -11,8 +11,56 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine
+  ReferenceLine,
+  Customized
 } from 'recharts';
+
+const CandlestickLayerBase: React.FC<any> = ({ xAxisMap, yAxisMap, yAxisId = 0, chartData }) => {
+  if (!chartData || !xAxisMap || !yAxisMap) return null;
+  const xAxis = Object.values(xAxisMap)[0] as any;
+  const yAxis = (yAxisMap[yAxisId] ?? Object.values(yAxisMap)[0]) as any;
+  if (!xAxis?.scale || !yAxis?.scale) return null;
+
+  const sc = xAxis.scale;
+  // ComposedChart with Line/Area uses scalePoint (bandwidth=0); Bar uses scaleBand (bandwidth>0)
+  const isBand = typeof sc.bandwidth === 'function' && sc.bandwidth() > 0;
+  const step = isBand ? sc.bandwidth() : (typeof sc.step === 'function' ? sc.step() : 10);
+  const candleWidth = Math.max(2, Math.min(14, step * 0.65));
+
+  return (
+    <g>
+      {(chartData as any[]).map((point, index) => {
+        if (point.candleOpen === undefined || point.candleClose === undefined) return null;
+        const xRaw = sc(point.date);
+        if (xRaw === undefined || xRaw === null) return null;
+        // scalePoint returns center; scaleBand returns left edge
+        const xCenter = isBand ? xRaw + step / 2 : xRaw;
+        const openY = yAxis.scale(point.candleOpen);
+        const closeY = yAxis.scale(point.candleClose);
+        if (openY === undefined || closeY === undefined) return null;
+        const isUp = point.candleClose >= point.candleOpen;
+        const color = isUp ? '#10b981' : '#ef4444';
+        const borderColor = isUp ? '#059669' : '#dc2626';
+        const bodyTop = Math.min(openY, closeY);
+        const bodyHeight = Math.max(1, Math.abs(closeY - openY));
+        return (
+          <g key={`candle-${index}`}>
+            <rect
+              x={xCenter - candleWidth / 2}
+              y={bodyTop}
+              width={candleWidth}
+              height={bodyHeight}
+              fill={color}
+              fillOpacity={0.85}
+              stroke={borderColor}
+              strokeWidth={1}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+};
 
 interface Transaction {
   action: 'buy' | 'sell';
@@ -66,6 +114,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
   const [error, setError] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<'totalPnL' | 'marketValueAndShares'>('totalPnL');
   const [dateRange, setDateRange] = useState<DateRange>('ALL');
+  const [chartType, setChartType] = useState<'line' | 'candle'>('line');
 
   useEffect(() => {
     fetchPnLData();
@@ -264,7 +313,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
   // Prepare chart data - add transaction markers and split positive/negative for area fills
   // Use null instead of 0 to avoid drawing flat lines at the x-axis
-  const chartData = filteredRecords.map(record => ({
+  const chartData = filteredRecords.map((record, index) => ({
     ...record,
     hasTransaction: record.transactions && record.transactions.length > 0,
     totalPnLPositive: record.totalPnL > 0 ? record.totalPnL : null,
@@ -291,7 +340,9 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
     // Profit area: when MV > CB, fill from CB to MV (array format)
     // Loss area: when MV < CB, fill from MV to CB (array format)
     profitAreaRange: record.marketValue > record.costBasis ? [record.costBasis, record.marketValue] : null,
-    lossAreaRange: record.marketValue < record.costBasis ? [record.marketValue, record.costBasis] : null
+    lossAreaRange: record.marketValue < record.costBasis ? [record.marketValue, record.costBasis] : null,
+    candleOpen: index > 0 ? filteredRecords[index - 1].totalPnL : record.totalPnL,
+    candleClose: record.totalPnL
   }));
 
   // Calculate Y-axis domain for price chart (cap at 1.5x max price)
@@ -425,6 +476,31 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
           </button>
         </div>
 
+        {/* Chart Type Toggle - only for P&L Analysis tab */}
+        {selectedMetric === 'totalPnL' && (
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', justifyContent: 'center' }}>
+            {(['line', 'candle'] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => setChartType(type)}
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  border: chartType === type ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  backgroundColor: chartType === type ? '#eef2ff' : 'white',
+                  color: chartType === type ? '#4f46e5' : '#6b7280'
+                }}
+              >
+                {type === 'line' ? 'Line' : 'Candle'}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Charts */}
         {selectedMetric === 'totalPnL' ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
@@ -465,36 +541,56 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                   <Legend />
                   <ReferenceLine yAxisId="left" y={0} stroke="#9ca3af" strokeDasharray="3 3" />
 
-                  {/* Total P&L area fills */}
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="totalPnLPositive"
-                    stroke="none"
-                    fill="url(#colorGreenArea)"
-                    isAnimationActive={false}
-                  />
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="totalPnLNegative"
-                    stroke="none"
-                    fill="url(#colorRedArea)"
-                    isAnimationActive={false}
-                  />
-
-                  {/* Total P&L line - solid dark grey */}
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="totalPnL"
-                    stroke="#4b5563"
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={false}
-                    isAnimationActive={false}
-                    name="Total P&L"
-                  />
+                  {chartType === 'line' ? (
+                  <>
+                    {/* Total P&L area fills */}
+                    <Area
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="totalPnLPositive"
+                      stroke="none"
+                      fill="url(#colorGreenArea)"
+                      isAnimationActive={false}
+                    />
+                    <Area
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="totalPnLNegative"
+                      stroke="none"
+                      fill="url(#colorRedArea)"
+                      isAnimationActive={false}
+                    />
+                    {/* Total P&L line - solid dark grey */}
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="totalPnL"
+                      stroke="#4b5563"
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 4, fill: '#4b5563' }}
+                      isAnimationActive={false}
+                      name="Total P&L"
+                    />
+                  </>
+                ) : (
+                  <>
+                    {/* Invisible line for tooltip + legend */}
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="totalPnL"
+                      stroke="transparent"
+                      strokeWidth={0}
+                      dot={false}
+                      activeDot={{ r: 3, fill: '#4b5563' }}
+                      isAnimationActive={false}
+                      name="Total P&L"
+                    />
+                    {/* Candlestick layer */}
+                    <Customized component={CandlestickLayerBase} yAxisId="left" chartData={chartData} />
+                  </>
+                )}
 
                   {/* Transaction dots */}
                   <Line
