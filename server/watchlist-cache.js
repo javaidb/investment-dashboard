@@ -204,6 +204,12 @@ class WatchlistCache {
     return false;
   }
 
+  // Reload cache from disk
+  reloadCache() {
+    this.loadCache();
+    return this.getStats();
+  }
+
   // Get statistics
   getStats() {
     return {
