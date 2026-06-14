@@ -50,6 +50,12 @@ class HoldingsCache {
     }
   }
 
+  // Reload cache from disk into memory
+  reloadFromDisk() {
+    this.loadCache();
+    return this.cache.size;
+  }
+
   // Get cached holding data (never expires - persistent cache)
   get(symbol) {
     return this.cache.get(symbol) || null;
@@ -65,6 +71,8 @@ class HoldingsCache {
       cadPrice: data.cadPrice,
       companyName: data.companyName,
       sector: data.sector || existing?.sector || null, // Preserve existing sector if not provided
+      subsector: data.subsector !== undefined ? data.subsector : (existing?.subsector || null), // Preserve existing subsector
+      otherSectors: data.otherSectors !== undefined ? data.otherSectors : (existing?.otherSectors || null), // Preserve existing other sectors
       conviction: data.conviction !== undefined ? data.conviction : (existing?.conviction || null), // Preserve existing conviction
       exchangeRate: data.exchangeRate,
       lastUpdated: new Date().toISOString(),
@@ -96,6 +104,12 @@ class HoldingsCache {
     const existing = this.cache.get(symbol);
     if (existing && existing.sector && !data.sector) {
       data.sector = existing.sector;
+    }
+    if (existing && existing.subsector !== undefined && data.subsector === undefined) {
+      data.subsector = existing.subsector;
+    }
+    if (existing && existing.otherSectors !== undefined && data.otherSectors === undefined) {
+      data.otherSectors = existing.otherSectors;
     }
     if (existing && existing.conviction !== undefined && data.conviction === undefined) {
       data.conviction = existing.conviction;
