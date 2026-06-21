@@ -25,6 +25,9 @@ const rebalancingRecommendationsRoutes = require('./routes/rebalancing-recommend
 const taxRoutes = require('./routes/tax');
 const screenerRoutes = require('./routes/screener');
 const fibonacciRoutes = require('./routes/fibonacci');
+const earningsRoutes = require('./routes/earnings');
+const marketRoutes = require('./routes/market');
+const analystRoutes = require('./routes/analyst');
 
 // Import cache for startup initialization
 const holdingsCache = require('./cache');
@@ -105,6 +108,9 @@ app.use('/api/rebalancing-recommendations', rebalancingRecommendationsRoutes);
 app.use('/api/tax', taxRoutes);
 app.use('/api/screener', screenerRoutes);
 app.use('/api/fibonacci', fibonacciRoutes);
+app.use('/api/earnings', earningsRoutes);
+app.use('/api/market', marketRoutes);
+app.use('/api/analyst', analystRoutes);
 
 // Watchlist endpoint - expose all tracked symbols (active, inactive, custom)
 app.get('/api/watchlist', (req, res) => {
