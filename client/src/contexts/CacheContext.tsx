@@ -28,9 +28,9 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadCacheData = async (forceRefresh = false) => {
+  const loadCacheData = async (forceRefresh = false, silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       setError(null);
 
       console.log(`🔄 CacheProvider: Loading cache data... ${forceRefresh ? '(force refresh)' : '(cache-first)'}`);
@@ -107,7 +107,7 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       
       setError(errorMessage);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -117,6 +117,12 @@ export const CacheProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     loadCacheData();
+  }, []);
+
+  // Background refresh every 60s — same cadence as the price cache freshness buttons in the sidebar
+  useEffect(() => {
+    const id = setInterval(() => loadCacheData(false, true), 60_000);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
