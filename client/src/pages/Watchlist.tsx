@@ -229,133 +229,123 @@ const Watchlist: React.FC = () => {
   }, [activePortfolio, weeklyChanges, watchlistData, cachedPrices]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{ background: '#0a0c10', minHeight: '100%' }}>
       {/* Header Section */}
-      <div className="dashboard-header">
-        <div className="dashboard-header-content">
-          <h1 className="dashboard-title">Watchlist</h1>
-          <p className="dashboard-subtitle">Monitor your portfolio performance, asset allocation, and custom tracked symbols</p>
+      <div style={{ background: '#10141c', borderBottom: '1px solid #1e2535', padding: '12px 20px' }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
+          Watchlist
+        </div>
+        <div style={{ fontSize: '11px', color: '#4a5568', marginTop: '2px', fontFamily: "'IBM Plex Mono', monospace" }}>
+          Portfolio performance · Asset allocation · Custom tracked symbols
         </div>
       </div>
 
       {/* Main Content */}
-      <div style={{ padding: '1rem 0.5rem' }}>
-        <div style={{ maxWidth: '2000px', margin: '0 auto' }}>
-          <div style={{ marginBottom: '1rem' }}>
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
-            {/* Watchlists Section */}
-            <Watchlists />
+        {/* Watchlists Section */}
+        <Watchlists />
 
-            {/* Holdings Chart */}
-            {holdings.length > 0 && (
-              <div style={{
-                backgroundColor: 'white',
-                borderRadius: '16px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-                border: '1px solid #e5e7eb',
-                overflow: 'hidden',
-                width: '100%',
-                marginBottom: '24px'
-              }}>
-                <HoldingsChartWrapper />
-              </div>
-            )}
-
-            {/* Below 200-Week MA Section */}
-            {holdings.length > 0 && (
-              <Below200WeekMA holdings={holdings} />
-            )}
-
-            {/* Chart Toggles */}
-            {holdings.length > 0 && (
-              <div style={{
-                backgroundColor: 'white',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px -2px rgba(0, 0, 0, 0.1)',
-                border: '1px solid #e5e7eb',
-                padding: '16px 20px',
-                marginBottom: '20px',
-                display: 'flex',
-                gap: '12px',
-                alignItems: 'center',
-                flexWrap: 'wrap'
-              }}>
-                <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginRight: '8px' }}>
-                  Show in charts:
-                </span>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={showInactive}
-                    onChange={(e) => setShowInactive(e.target.checked)}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                  />
-                  <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                    Inactive holdings ({watchlistData?.inactive?.length || 0})
-                  </span>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={showCustom}
-                    onChange={(e) => setShowCustom(e.target.checked)}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                  />
-                  <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                    Custom symbols ({watchlistData?.custom?.length || 0})
-                  </span>
-                </label>
-              </div>
-            )}
-
-            {/* Profit/Loss Bar Chart */}
-            {holdings.length > 0 && (
-              <div style={{ marginBottom: '24px' }}>
-                <ProfitLossBarChart
-                  holdings={holdings.filter(h => {
-                    const category = (h as any).category || 'active';
-                    if (category === 'active') return true;
-                    if (category === 'inactive') return showInactive;
-                    if (category === 'custom') return showCustom;
-                    return true;
-                  })}
-                />
-              </div>
-            )}
-
-            {/* Price Offset Bar Chart */}
-            {holdings.length > 0 && (
-              <div style={{ marginBottom: '24px' }}>
-                <PriceOffsetBarChart
-                  holdings={holdings.filter(h => {
-                    const category = (h as any).category || 'active';
-                    if (category === 'active') return true;
-                    if (category === 'inactive') return showInactive;
-                    if (category === 'custom') return showCustom;
-                    return true;
-                  })}
-                />
-              </div>
-            )}
-
-            {/* Empty State */}
-            {holdings.length === 0 && !isLoading && (
-              <div className="card text-center py-12">
-                <p className="text-gray-500">No holdings data available</p>
-                <p className="text-sm text-gray-400 mt-2">Upload portfolio data to see your watchlist</p>
-              </div>
-            )}
-
-            {/* Loading State */}
-            {isLoading && (
-              <div className="card text-center py-12">
-                <div className="loading-spinner mx-auto mb-4"></div>
-                <p className="text-gray-500">Loading watchlist...</p>
-              </div>
-            )}
-
+        {/* Holdings Chart */}
+        {holdings.length > 0 && (
+          <div style={{
+            backgroundColor: '#10141c',
+            borderRadius: '8px',
+            border: '1px solid #1e2535',
+            overflow: 'hidden',
+            width: '100%',
+          }}>
+            <HoldingsChartWrapper />
           </div>
-        </div>
+        )}
+
+        {/* Below 200-Week MA Section */}
+        {holdings.length > 0 && (
+          <Below200WeekMA holdings={holdings} />
+        )}
+
+        {/* Chart Toggles */}
+        {holdings.length > 0 && (
+          <div style={{
+            backgroundColor: '#10141c',
+            borderRadius: '8px',
+            border: '1px solid #1e2535',
+            padding: '14px 18px',
+            display: 'flex',
+            gap: '16px',
+            alignItems: 'center',
+            flexWrap: 'wrap' as const
+          }}>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginRight: '4px' }}>
+              Show in charts
+            </span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#475569' }}
+              />
+              <span style={{ fontSize: '13px', color: '#64748b' }}>
+                Inactive holdings ({watchlistData?.inactive?.length || 0})
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={showCustom}
+                onChange={(e) => setShowCustom(e.target.checked)}
+                style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#3b82f6' }}
+              />
+              <span style={{ fontSize: '13px', color: '#64748b' }}>
+                Custom symbols ({watchlistData?.custom?.length || 0})
+              </span>
+            </label>
+          </div>
+        )}
+
+        {/* Profit/Loss Bar Chart */}
+        {holdings.length > 0 && (
+          <ProfitLossBarChart
+            holdings={holdings.filter(h => {
+              const category = (h as any).category || 'active';
+              if (category === 'active') return true;
+              if (category === 'inactive') return showInactive;
+              if (category === 'custom') return showCustom;
+              return true;
+            })}
+          />
+        )}
+
+        {/* Price Offset Bar Chart */}
+        {holdings.length > 0 && (
+          <PriceOffsetBarChart
+            holdings={holdings.filter(h => {
+              const category = (h as any).category || 'active';
+              if (category === 'active') return true;
+              if (category === 'inactive') return showInactive;
+              if (category === 'custom') return showCustom;
+              return true;
+            })}
+          />
+        )}
+
+        {/* Empty State */}
+        {holdings.length === 0 && !isLoading && (
+          <div style={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', padding: '48px', textAlign: 'center' }}>
+            <p style={{ color: '#64748b', fontSize: '14px' }}>No holdings data available</p>
+            <p style={{ color: '#4a5568', fontSize: '12px', marginTop: '8px' }}>Upload portfolio data to see your watchlist</p>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoading && (
+          <div style={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', padding: '48px', textAlign: 'center' }}>
+            <div className="loading-spinner mx-auto mb-4"></div>
+            <p style={{ color: '#64748b', fontSize: '14px' }}>Loading watchlist...</p>
+          </div>
+        )}
+
       </div>
     </div>
   );
