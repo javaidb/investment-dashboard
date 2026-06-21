@@ -6,10 +6,8 @@ const MASTER_PORTFOLIO_ID = 'master-portfolio';
 
 const PnLTracker: React.FC = () => {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="dashboard-content">
-        <PortfolioPnLTracker portfolioId={MASTER_PORTFOLIO_ID} />
-      </div>
+    <div style={{ background: '#0a0c10', minHeight: '100%' }}>
+      <PortfolioPnLTracker portfolioId={MASTER_PORTFOLIO_ID} />
     </div>
   );
 };
