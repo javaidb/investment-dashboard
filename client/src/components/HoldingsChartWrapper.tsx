@@ -243,15 +243,13 @@ const HoldingsChartWrapper: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-4">
-          <h2 className="text-xl font-bold text-white">Holdings Analysis (Stocks & Crypto)</h2>
-          <p className="text-green-100 text-sm">Loading your holdings data from cache...</p>
+      <div style={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ background: '#10141c', borderBottom: '1px solid #1e2535', padding: '14px 18px' }}>
+          <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Holdings Analysis</h2>
+          <p style={{ fontSize: '11px', color: '#4a5568', marginTop: '2px', fontFamily: "'IBM Plex Mono', monospace" }}>Loading from cache...</p>
         </div>
-        <div className="p-6">
-          <div className="flex justify-center items-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-2 border-green-600 border-t-transparent"></div>
-          </div>
+        <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '128px' }}>
+          <div className="loading-spinner"></div>
         </div>
       </div>
     );
@@ -259,16 +257,14 @@ const HoldingsChartWrapper: React.FC = () => {
 
   if (cacheError || error) {
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-gradient-to-r from-red-600 to-pink-600 px-6 py-4">
-          <h2 className="text-xl font-bold text-white">Holdings Analysis (Stocks & Crypto)</h2>
-          <p className="text-red-100 text-sm">Error loading holdings data</p>
+      <div style={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ background: '#10141c', borderBottom: '1px solid #1e2535', padding: '14px 18px' }}>
+          <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Holdings Analysis</h2>
+          <p style={{ fontSize: '11px', color: '#f87171', marginTop: '2px', fontFamily: "'IBM Plex Mono', monospace" }}>Error loading holdings data</p>
         </div>
-        <div className="p-6">
-          <div className="text-center py-8">
-            {cacheError && <p className="text-red-600 text-sm mb-2">Cache Error: {cacheError}</p>}
-            {error && <p className="text-red-600 text-sm">Processing Error: {error}</p>}
-          </div>
+        <div style={{ padding: '24px', textAlign: 'center' }}>
+          {cacheError && <p style={{ color: '#f87171', fontSize: '12px', marginBottom: '8px', fontFamily: "'IBM Plex Mono', monospace" }}>Cache Error: {cacheError}</p>}
+          {error && <p style={{ color: '#f87171', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>Processing Error: {error}</p>}
         </div>
       </div>
     );
