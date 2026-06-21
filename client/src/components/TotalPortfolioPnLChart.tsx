@@ -88,17 +88,63 @@ interface TotalPortfolioPnLChartProps {
 
 type DateRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'ALL';
 
+interface BenchmarkPoint { date: string; returnPct: number; }
+
 const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfolioId }) => {
   const [portfolioData, setPortfolioData] = useState<TotalPortfolioPnLData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedView, setSelectedView] = useState<'timeline' | 'breakdown'>('timeline');
+  const [selectedView, setSelectedView] = useState<'timeline' | 'breakdown' | 'benchmark'>('timeline');
   const [dateRange, setDateRange] = useState<DateRange>('ALL');
   const [chartType, setChartType] = useState<'line' | 'candle'>('line');
+  const [benchmarkData, setBenchmarkData] = useState<{ spy: BenchmarkPoint[]; xiu: BenchmarkPoint[] } | null>(null);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
 
   useEffect(() => {
     fetchPortfolioPnLData();
   }, [portfolioId]);
+
+  useEffect(() => {
+    if (selectedView === 'benchmark' && !benchmarkData && portfolioData) {
+      fetchBenchmarkData();
+    }
+  // eslint-disable-next-line
+  }, [selectedView, portfolioData]);
+
+  const fetchBenchmarkData = async () => {
+    if (!portfolioData || benchmarkData) return;
+    setBenchmarkLoading(true);
+    try {
+      const [spyRes, xiuRes] = await Promise.all([
+        fetch('/api/historical/stock/SPY?period=max'),
+        fetch('/api/historical/stock/XIU.TO?period=max'),
+      ]);
+      const [spyRaw, xiuRaw] = await Promise.all([spyRes.json(), xiuRes.json()]);
+
+      const startDate = portfolioData.startDate;
+
+      const normalize = (prices: { date: string; close: number }[]): BenchmarkPoint[] => {
+        const filtered = (prices || [])
+          .filter(p => p.date >= startDate && p.close > 0)
+          .sort((a, b) => a.date.localeCompare(b.date));
+        if (filtered.length === 0) return [];
+        const basePrice = filtered[0].close;
+        return filtered.map(p => ({
+          date: p.date,
+          returnPct: ((p.close - basePrice) / basePrice) * 100,
+        }));
+      };
+
+      setBenchmarkData({
+        spy: normalize(spyRaw.data || []),
+        xiu: normalize(xiuRaw.data || []),
+      });
+    } catch (e) {
+      console.error('Benchmark data fetch failed:', e);
+    } finally {
+      setBenchmarkLoading(false);
+    }
+  };
 
   const fetchPortfolioPnLData = async () => {
     try {
@@ -201,19 +247,19 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
       const data = payload[0].payload as DailyPortfolioRecord;
 
       return (
-        <div className="bg-white p-4 border border-gray-300 rounded-lg shadow-lg">
-          <p className="font-semibold text-gray-800 mb-2">{formatDate(label)}</p>
-          <div className="space-y-1 text-sm">
-            <p className="text-gray-700">
+        <div style={{ backgroundColor: '#10141c', padding: '14px', border: '1px solid #1e2535', borderRadius: '8px' }}>
+          <p style={{ fontWeight: 700, color: '#cbd5e1', marginBottom: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px' }}>{formatDate(label)}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Total Value:</span> {formatCurrency(data.totalValue)}
             </p>
-            <p className="text-gray-700">
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Total Invested:</span> {formatCurrency(data.totalInvested)}
             </p>
-            <p className="text-gray-700">
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Assets:</span> {data.holdings ? Object.keys(data.holdings).length : 0}
             </p>
-            <div className="border-t border-gray-200 mt-2 pt-2">
+            <div style={{ borderTop: '1px solid #1e2535', marginTop: '8px', paddingTop: '8px' }}>
               <p className={`font-semibold ${data.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 Total P&L: {formatCurrency(data.totalPnL)} ({formatPercent(data.totalPnLPercent)})
               </p>
@@ -235,10 +281,10 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-lg shadow">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px', backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535' }}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading portfolio P&L data...</p>
+          <div className="loading-spinner" style={{ margin: '0 auto' }}></div>
+          <p style={{ marginTop: '16px', color: '#64748b', fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px' }}>Loading portfolio P&L data...</p>
         </div>
       </div>
     );
@@ -318,38 +364,37 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
 
   return (
     <div style={{
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e5e7eb',
+      backgroundColor: '#10141c',
+      borderRadius: '8px',
+      border: '1px solid #1e2535',
       overflow: 'hidden'
     }}>
       {/* Header */}
       <div style={{
-        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+        background: '#10141c',
         padding: '20px 24px',
-        borderBottom: '1px solid #e5e7eb',
+        borderBottom: '1px solid #1e2535',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+          <h2 style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', marginBottom: '4px', fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.12em', textTransform: 'uppercase' }}>
             Total Portfolio P&L
           </h2>
-          <p style={{ fontSize: '13px', color: '#6b7280' }}>
+          <p style={{ fontSize: '13px', color: '#64748b' }}>
             From {formatDate(portfolioData.startDate)} • {portfolioData.totalRecords} days tracked
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Current Portfolio</p>
-          <p style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>
+          <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Current Portfolio</p>
+          <p style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0' }}>
             {formatCurrency(latestRecord.totalValue)}
           </p>
           <p style={{
             fontSize: '20px',
             fontWeight: '700',
-            color: latestRecord.totalPnL >= 0 ? '#166534' : '#dc2626',
+            color: latestRecord.totalPnL >= 0 ? '#34d399' : '#f87171',
             marginTop: '4px'
           }}>
             {formatCurrency(latestRecord.totalPnL)}
@@ -357,7 +402,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
           <p style={{
             fontSize: '13px',
             fontWeight: '600',
-            color: latestRecord.totalPnLPercent >= 0 ? '#166534' : '#dc2626'
+            color: latestRecord.totalPnLPercent >= 0 ? '#34d399' : '#f87171'
           }}>
             {formatPercent(latestRecord.totalPnLPercent)}
           </p>
@@ -376,11 +421,11 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: '600',
-                border: dateRange === range ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                border: dateRange === range ? '2px solid rgba(79,70,229,0.5)' : '1px solid #1e2535',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
-                backgroundColor: dateRange === range ? '#eef2ff' : 'white',
-                color: dateRange === range ? '#4f46e5' : '#6b7280'
+                backgroundColor: dateRange === range ? 'rgba(79,70,229,0.15)' : 'rgba(30,37,53,0.6)',
+                color: dateRange === range ? '#818cf8' : '#64748b'
               }}
             >
               {range}
@@ -400,8 +445,8 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedView === 'timeline' ? '#4f46e5' : '#f3f4f6',
-              color: selectedView === 'timeline' ? 'white' : '#6b7280'
+              backgroundColor: selectedView === 'timeline' ? '#4f46e5' : 'rgba(30,37,53,0.6)',
+              color: selectedView === 'timeline' ? 'white' : '#64748b'
             }}
           >
             P&L Timeline
@@ -416,11 +461,27 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedView === 'breakdown' ? '#4f46e5' : '#f3f4f6',
-              color: selectedView === 'breakdown' ? 'white' : '#6b7280'
+              backgroundColor: selectedView === 'breakdown' ? '#4f46e5' : 'rgba(30,37,53,0.6)',
+              color: selectedView === 'breakdown' ? 'white' : '#64748b'
             }}
           >
             Asset Breakdown
+          </button>
+          <button
+            onClick={() => setSelectedView('benchmark')}
+            style={{
+              padding: '10px 18px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              border: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              backgroundColor: selectedView === 'benchmark' ? '#059669' : 'rgba(30,37,53,0.6)',
+              color: selectedView === 'benchmark' ? 'white' : '#64748b'
+            }}
+          >
+            vs Benchmark
           </button>
         </div>
 
@@ -436,11 +497,11 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                   borderRadius: '6px',
                   fontSize: '12px',
                   fontWeight: '600',
-                  border: chartType === type ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                  border: chartType === type ? '2px solid rgba(79,70,229,0.5)' : '1px solid #1e2535',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
-                  backgroundColor: chartType === type ? '#eef2ff' : 'white',
-                  color: chartType === type ? '#4f46e5' : '#6b7280'
+                  backgroundColor: chartType === type ? 'rgba(79,70,229,0.15)' : 'rgba(30,37,53,0.6)',
+                  color: chartType === type ? '#818cf8' : '#64748b'
                 }}
               >
                 {type === 'line' ? 'Line' : 'Candle'}
@@ -455,7 +516,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
 
           {/* Total P&L Chart */}
           <div>
-            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
               Total P&L
             </h3>
             <ResponsiveContainer width="100%" height={350}>
@@ -470,24 +531,26 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                     <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
                 <XAxis
                   dataKey="date"
                   tickFormatter={(value) => {
                     const date = new Date(value);
                     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                   }}
-                  stroke="#6b7280"
+                  stroke="#4a5568"
+                  tick={{ fill: '#64748b' }}
                   style={{ fontSize: '11px' }}
                 />
                 <YAxis
                   tickFormatter={(value) => formatCurrency(value)}
-                  stroke="#4b5563"
+                  stroke="#4a5568"
+                  tick={{ fill: '#64748b' }}
                   style={{ fontSize: '11px' }}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend />
-                <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+                <Legend wrapperStyle={{ color: '#64748b' }} />
+                <ReferenceLine y={0} stroke="#4a5568" strokeDasharray="3 3" />
 
                 {chartType === 'line' ? (
                   <>
@@ -510,10 +573,10 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                     <Line
                       type="monotone"
                       dataKey="totalPnL"
-                      stroke="#4b5563"
+                      stroke="#94a3b8"
                       strokeWidth={2.5}
                       dot={false}
-                      activeDot={{ r: 4, fill: '#4b5563' }}
+                      activeDot={{ r: 4, fill: '#94a3b8' }}
                       isAnimationActive={false}
                       name="Total P&L"
                     />
@@ -527,7 +590,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                       stroke="transparent"
                       strokeWidth={0}
                       dot={false}
-                      activeDot={{ r: 3, fill: '#4b5563' }}
+                      activeDot={{ r: 3, fill: '#94a3b8' }}
                       isAnimationActive={false}
                       name="Total P&L"
                     />
@@ -541,7 +604,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
 
           {/* Realized/Unrealized P&L Chart */}
           <div>
-            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
               Realized vs Unrealized P&L
             </h3>
             <ResponsiveContainer width="100%" height={350}>
@@ -556,24 +619,26 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                     <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
                 <XAxis
                   dataKey="date"
                   tickFormatter={(value) => {
                     const date = new Date(value);
                     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                   }}
-                  stroke="#6b7280"
+                  stroke="#4a5568"
+                  tick={{ fill: '#64748b' }}
                   style={{ fontSize: '11px' }}
                 />
                 <YAxis
                   tickFormatter={(value) => formatCurrency(value)}
-                  stroke="#8b5cf6"
+                  stroke="#4a5568"
+                  tick={{ fill: '#64748b' }}
                   style={{ fontSize: '11px' }}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend />
-                <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="3 3" />
+                <Legend wrapperStyle={{ color: '#64748b' }} />
+                <ReferenceLine y={0} stroke="#4a5568" strokeDasharray="3 3" />
 
                 {/* Unrealized P&L area fills */}
                 <Area
@@ -636,12 +701,145 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
           </div>
 
         </div>
+        ) : selectedView === 'benchmark' ? (
+          /* Benchmark Comparison View */
+          benchmarkLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '350px' }}>
+              <div style={{ textAlign: 'center', color: '#64748b' }}>
+                <div className="loading-spinner" style={{ margin: '0 auto 12px' }}></div>
+                Loading SPY and XIU.TO benchmark data...
+              </div>
+            </div>
+          ) : (
+            (() => {
+              // Build merged dataset: portfolio % return + SPY + XIU aligned by date
+              const portfolioReturns = getFilteredData(portfolioData.dailyRecords).map(r => ({
+                date: r.date,
+                portfolioReturn: r.totalPnLPercent,
+              }));
+
+              const spyMap = new Map((benchmarkData?.spy || []).map(p => [p.date, p.returnPct]));
+              const xiuMap = new Map((benchmarkData?.xiu || []).map(p => [p.date, p.returnPct]));
+
+              const mergedData = portfolioReturns.map(r => ({
+                date: r.date,
+                portfolioReturn: r.portfolioReturn,
+                spyReturn: spyMap.get(r.date) ?? null,
+                xiuReturn: xiuMap.get(r.date) ?? null,
+              }));
+
+              const latest = mergedData[mergedData.length - 1] || {};
+              const portfolioFinal = latest.portfolioReturn ?? 0;
+              const spyFinal = latest.spyReturn ?? null;
+              const xiuFinal = latest.xiuReturn ?? null;
+
+              return (
+                <div>
+                  {/* Summary badges */}
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Your Portfolio', value: portfolioFinal, color: '#4f46e5' },
+                      { label: 'SPY (S&P 500)', value: spyFinal, color: '#f59e0b' },
+                      { label: 'XIU.TO (TSX 60)', value: xiuFinal, color: '#06b6d4' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} style={{
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        border: `2px solid ${color}20`,
+                        backgroundColor: `${color}10`,
+                        textAlign: 'center',
+                        minWidth: '140px'
+                      }}>
+                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase' }}>{label}</div>
+                        <div style={{
+                          fontSize: '20px',
+                          fontWeight: '700',
+                          color: value === null ? '#4a5568' : value >= 0 ? '#34d399' : '#f87171',
+                          marginTop: '2px'
+                        }}>
+                          {value === null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <ResponsiveContainer width="100%" height={380}>
+                    <ComposedChart data={mergedData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(v) => {
+                          const d = new Date(v);
+                          return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                        }}
+                        stroke="#4a5568"
+                        tick={{ fill: '#64748b' }}
+                        style={{ fontSize: '11px' }}
+                      />
+                      <YAxis
+                        tickFormatter={(v) => `${v.toFixed(0)}%`}
+                        stroke="#4a5568"
+                        tick={{ fill: '#64748b' }}
+                        style={{ fontSize: '11px' }}
+                      />
+                      <Tooltip
+                        formatter={(value: any, name: string) => [
+                          value !== null ? `${(value as number).toFixed(2)}%` : '—',
+                          name
+                        ]}
+                        labelFormatter={(label) => formatDate(label)}
+                        contentStyle={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '6px', color: '#cbd5e1' }}
+                        labelStyle={{ color: '#94a3b8' }}
+                      />
+                      <Legend wrapperStyle={{ color: '#64748b' }} />
+                      <ReferenceLine y={0} stroke="#4a5568" strokeDasharray="3 3" />
+                      <Line
+                        type="monotone"
+                        dataKey="portfolioReturn"
+                        stroke="#4f46e5"
+                        strokeWidth={2.5}
+                        dot={false}
+                        name="Your Portfolio"
+                        isAnimationActive={false}
+                      />
+                      {(benchmarkData?.spy || []).length > 0 && (
+                        <Line
+                          type="monotone"
+                          dataKey="spyReturn"
+                          stroke="#f59e0b"
+                          strokeWidth={2}
+                          strokeDasharray="6 3"
+                          dot={false}
+                          name="SPY (S&P 500)"
+                          isAnimationActive={false}
+                        />
+                      )}
+                      {(benchmarkData?.xiu || []).length > 0 && (
+                        <Line
+                          type="monotone"
+                          dataKey="xiuReturn"
+                          stroke="#06b6d4"
+                          strokeWidth={2}
+                          strokeDasharray="4 2"
+                          dot={false}
+                          name="XIU.TO (TSX 60)"
+                          isAnimationActive={false}
+                        />
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                  <p style={{ textAlign: 'center', fontSize: '11px', color: '#4a5568', marginTop: '8px' }}>
+                    All returns normalized to 0% at your portfolio start date ({portfolioData.startDate})
+                  </p>
+                </div>
+              );
+            })()
+          )
         ) : (
           /* Asset Breakdown View - Pie Charts */
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             {/* Unrealized P&L Breakdown */}
             <div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
                 Unrealized P&L by Asset
               </h3>
               {renderPieChart('unrealized', latestRecord)}
@@ -649,7 +847,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
 
             {/* Realized P&L Breakdown */}
             <div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
                 Realized P&L by Asset
               </h3>
               {renderPieChart('realized', latestRecord)}
@@ -664,13 +862,13 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
           gap: '24px',
           marginTop: '24px',
           paddingTop: '24px',
-          borderTop: '1px solid #e5e7eb'
+          borderTop: '1px solid #1e2535'
         }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: '#111827',
+              color: '#e2e8f0',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -678,12 +876,12 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Total Value
             </div>
@@ -692,7 +890,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: '#111827',
+              color: '#e2e8f0',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -700,12 +898,12 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Total Invested
             </div>
@@ -714,7 +912,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: latestRecord.unrealizedPnL >= 0 ? '#166534' : '#dc2626',
+              color: latestRecord.unrealizedPnL >= 0 ? '#34d399' : '#f87171',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -722,12 +920,12 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Unrealized P&L
             </div>
@@ -736,7 +934,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: latestRecord.realizedPnL >= 0 ? '#166534' : '#dc2626',
+              color: latestRecord.realizedPnL >= 0 ? '#34d399' : '#f87171',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -744,12 +942,12 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Realized P&L
             </div>
@@ -762,7 +960,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
   // Helper function to render pie charts for positive/negative contributions
   function renderPieChart(type: 'unrealized' | 'realized', latestRecord: DailyPortfolioRecord) {
     if (!latestRecord.holdings) {
-      return <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>No holdings data available</div>;
+      return <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No holdings data available</div>;
     }
 
     // Get holdings data and separate into positive and negative P&L
@@ -808,16 +1006,16 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
           textAlign: 'center',
           marginBottom: '20px',
           padding: '16px',
-          backgroundColor: totalPnL >= 0 ? '#f0fdf4' : '#fef2f2',
+          backgroundColor: 'rgba(16,22,28,0.95)',
           borderRadius: '8px'
         }}>
-          <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: '600' }}>
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', fontWeight: '600' }}>
             Total {type === 'unrealized' ? 'Unrealized' : 'Realized'} P&L
           </div>
           <div style={{
             fontSize: '28px',
             fontWeight: '700',
-            color: totalPnL >= 0 ? '#166534' : '#dc2626',
+            color: totalPnL >= 0 ? '#34d399' : '#f87171',
             fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
           }}>
             {formatCurrency(totalPnL)}
@@ -828,7 +1026,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           {/* Positive Contributors Pie Chart */}
           <div>
-            <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#166534', marginBottom: '12px', textAlign: 'center' }}>
+            <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#34d399', marginBottom: '12px', textAlign: 'center' }}>
               Positive (+{formatCurrency(positiveData.reduce((sum, d) => sum + d.value, 0))})
             </h4>
             {positiveData.length > 0 ? (
@@ -874,8 +1072,8 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                         borderRadius: '2px',
                         flexShrink: 0
                       }} />
-                      <span style={{ color: '#374151', fontWeight: '500' }}>{entry.name}:</span>
-                      <span style={{ color: '#166534', fontWeight: '600', marginLeft: 'auto' }}>
+                      <span style={{ color: '#94a3b8', fontWeight: '500' }}>{entry.name}:</span>
+                      <span style={{ color: '#34d399', fontWeight: '600', marginLeft: 'auto' }}>
                         {formatCurrency(entry.value)}
                       </span>
                     </div>
@@ -883,7 +1081,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                 </div>
               </>
             ) : (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280', fontSize: '12px' }}>
+              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontSize: '12px' }}>
                 No positive contributors
               </div>
             )}
@@ -937,8 +1135,8 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                         borderRadius: '2px',
                         flexShrink: 0
                       }} />
-                      <span style={{ color: '#374151', fontWeight: '500' }}>{entry.name}:</span>
-                      <span style={{ color: '#dc2626', fontWeight: '600', marginLeft: 'auto' }}>
+                      <span style={{ color: '#94a3b8', fontWeight: '500' }}>{entry.name}:</span>
+                      <span style={{ color: '#f87171', fontWeight: '600', marginLeft: 'auto' }}>
                         {formatCurrency(-entry.value)}
                       </span>
                     </div>
@@ -946,7 +1144,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
                 </div>
               </>
             ) : (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280', fontSize: '12px' }}>
+              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontSize: '12px' }}>
                 No negative contributors
               </div>
             )}
@@ -954,7 +1152,7 @@ const TotalPortfolioPnLChart: React.FC<TotalPortfolioPnLChartProps> = ({ portfol
         </div>
 
         {positiveData.length === 0 && negativeData.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
             No {type} P&L data available
           </div>
         )}
