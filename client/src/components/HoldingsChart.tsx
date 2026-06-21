@@ -396,23 +396,21 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
 
   if (holdings.length === 0) {
     return (
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Holdings Analysis (Stocks & Crypto)</h2>
-          <p className="card-subtitle">No holdings available</p>
+      <div style={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2535' }}>
+          <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Holdings Analysis</h2>
+          <p style={{ fontSize: '11px', color: '#4a5568', marginTop: '2px', fontFamily: "'IBM Plex Mono', monospace" }}>No holdings available</p>
         </div>
-        <div className="card-body">
-          <div className="text-center py-8">
-            <p className="text-gray-500">No holdings data available to analyze</p>
-          </div>
+        <div style={{ padding: '16px', textAlign: 'center' }}>
+          <p style={{ color: '#4a5568', fontSize: '13px', padding: '24px 0', fontFamily: "'IBM Plex Mono', monospace" }}>No holdings data available to analyze</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="card">
-      <div className="card-header">
+    <div style={{ backgroundColor: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', overflow: 'hidden' }}>
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2535' }}>
         {/* First row: Dropdown and Title side by side */}
         <div style={{ 
           display: 'flex', 
@@ -420,15 +418,25 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
           gap: '1rem', 
           marginBottom: '1rem'
         }}>
-          <div className="search-container" style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }}>
             <select
               value={selectedHolding?.symbol || ''}
               onChange={(e) => {
                 const holding = sortedHoldings.find(h => h.symbol === e.target.value);
                 setSelectedHolding(holding || null);
               }}
-              className="search-input"
-              style={{ width: '16rem' }}
+              style={{
+                width: '16rem',
+                padding: '6px 10px',
+                background: '#0a0c10',
+                border: '1px solid #1e2535',
+                borderRadius: '4px',
+                color: '#cbd5e1',
+                fontSize: '13px',
+                fontFamily: "'IBM Plex Mono', monospace",
+                outline: 'none',
+                cursor: 'pointer'
+              }}
             >
               {sortedHoldings.map((holding) => (
                 <option key={holding.symbol} value={holding.symbol}>
@@ -437,17 +445,17 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
               ))}
             </select>
           </div>
-          
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {selectedHolding && (
               <div style={{
-                width: '12px',
-                height: '12px',
+                width: '10px',
+                height: '10px',
                 borderRadius: '50%',
                 backgroundColor: getAssetColor(selectedHolding)
               }}></div>
             )}
-            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#111827' }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '14px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.05em' }}>
               {selectedHolding?.symbol || 'Select Holding'}
             </div>
           </div>
@@ -466,127 +474,101 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               max={endDate || undefined}
-              style={{ width: '115px' }}
+              style={{ width: '115px', padding: '4px 8px', background: '#0a0c10', border: '1px solid #1e2535', borderRadius: '4px', color: '#94a3b8', fontSize: '11px', fontFamily: "'IBM Plex Mono', monospace", outline: 'none' }}
             />
-            <span className="text-gray-400 text-xs">to</span>
+            <span style={{ color: '#4a5568', fontSize: '11px', fontFamily: "'IBM Plex Mono', monospace" }}>to</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               min={startDate || undefined}
-              style={{ width: '115px' }}
+              style={{ width: '115px', padding: '4px 8px', background: '#0a0c10', border: '1px solid #1e2535', borderRadius: '4px', color: '#94a3b8', fontSize: '11px', fontFamily: "'IBM Plex Mono', monospace", outline: 'none' }}
             />
           </div>
-          
-          {/* Preset Buttons */}
-          <div className="time-range-buttons">
-            <button
-              onClick={() => setDateRangeWeeks(1)}
-              className="time-range-btn"
-            >
-              1W
-            </button>
-            <button
-              onClick={() => setDateRangePreset(1)}
-              className="time-range-btn"
-            >
-              1M
-            </button>
-            <button
-              onClick={() => setDateRangePreset(3)}
-              className="time-range-btn"
-            >
-              3M
-            </button>
-            <button
-              onClick={() => setDateRangePreset(6)}
-              className="time-range-btn"
-            >
-              6M
-            </button>
-            <button
-              onClick={() => setDateRangePreset(12)}
-              className="time-range-btn"
-            >
-              1Y
-            </button>
-            <button
-              onClick={() => setDateRangePreset(36)}
-              className="time-range-btn"
-            >
-              3Y
-            </button>
 
-            <button
-              onClick={resetDateRange}
-              className={`time-range-btn ${(!startDate && !endDate) ? 'active' : ''}`}
-            >
-              ALL
-            </button>
+          {/* Preset Buttons */}
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' as const }}>
+            {(['1W', '1M', '3M', '6M', '1Y', '3Y', 'ALL'] as const).map((label) => {
+              const isActive = label === 'ALL' && !startDate && !endDate;
+              const handleClick = () => {
+                if (label === '1W') setDateRangeWeeks(1);
+                else if (label === '1M') setDateRangePreset(1);
+                else if (label === '3M') setDateRangePreset(3);
+                else if (label === '6M') setDateRangePreset(6);
+                else if (label === '1Y') setDateRangePreset(12);
+                else if (label === '3Y') setDateRangePreset(36);
+                else resetDateRange();
+              };
+              return (
+                <button
+                  key={label}
+                  onClick={handleClick}
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    border: `1px solid ${isActive ? 'rgba(59,130,246,0.4)' : '#1e2535'}`,
+                    borderRadius: '4px',
+                    background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
+                    color: isActive ? '#60a5fa' : '#64748b',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s'
+                  }}
+                  onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'rgba(59,130,246,0.06)'; e.currentTarget.style.color = '#93c5fd'; } }}
+                  onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; } }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
           
           {(zoomStart !== null || zoomEnd !== null) && (
             <button
               onClick={resetZoom}
-              className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-all font-medium"
+              style={{ padding: '3px 10px', fontSize: '11px', fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", background: 'rgba(251,146,60,0.1)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)', borderRadius: '4px', cursor: 'pointer' }}
             >
               Reset Zoom
             </button>
           )}
 
           {/* 50-Week MA Toggle */}
-          <label style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            cursor: 'pointer',
-            marginLeft: 'auto'
-          }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', marginLeft: 'auto' }}>
             <input
               type="checkbox"
               checked={show50WeekMA}
               onChange={(e) => setShow50WeekMA(e.target.checked)}
-              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              style={{ width: '13px', height: '13px', cursor: 'pointer', accentColor: '#F59E0B' }}
             />
-            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: '500' }}>
-              50-Week MA
-            </span>
+            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace" }}>50W MA</span>
           </label>
 
           {/* 200-Week MA Toggle */}
-          <label style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            cursor: 'pointer'
-          }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={show200WeekMA}
               onChange={(e) => setShow200WeekMA(e.target.checked)}
-              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              style={{ width: '13px', height: '13px', cursor: 'pointer', accentColor: '#9333EA' }}
             />
-            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: '500' }}>
-              200-Week MA
-            </span>
+            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace" }}>200W MA</span>
           </label>
         </div>
       </div>
 
       {/* Chart */}
-      <div className="chart-container">
+      <div style={{ height: '24rem', marginBottom: '1.5rem', padding: '0 16px' }}>
         {isLoading ? (
-          <div className="chart-loading">
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div className="loading-spinner"></div>
           </div>
         ) : error ? (
-          <div className="chart-loading">
-            <div className="text-center">
-              <p className="text-red-500 mb-2">Failed to load chart data</p>
-              <p className="text-gray-500 text-sm">Please try again later</p>
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ color: '#f87171', marginBottom: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px' }}>Failed to load chart data</p>
+              <p style={{ color: '#4a5568', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>Please try again later</p>
             </div>
           </div>
         ) : (
@@ -608,28 +590,31 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
                   <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-              <XAxis 
-                dataKey="date" 
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
+              <XAxis
+                dataKey="date"
                 tickFormatter={formatXAxis}
-                stroke="#6B7280"
-                fontSize={12}
+                stroke="#4a5568"
+                tick={{ fill: '#64748b' }}
+                fontSize={11}
               />
-              <YAxis 
+              <YAxis
                 domain={['dataMin - 1', 'dataMax + 1']}
-                stroke="#6B7280"
-                fontSize={12}
+                stroke="#4a5568"
+                tick={{ fill: '#64748b' }}
+                fontSize={11}
                 tickFormatter={(value) => `$${value.toFixed(0)}`}
               />
-              <Tooltip 
+              <Tooltip
                 formatter={formatTooltip}
                 labelFormatter={(label) => new Date(label).toLocaleDateString()}
                 contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #E5E7EB',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  backgroundColor: '#10141c',
+                  border: '1px solid #1e2535',
+                  borderRadius: '6px',
+                  color: '#cbd5e1'
                 }}
+                labelStyle={{ color: '#94a3b8' }}
               />
               <Area
                 type="monotone"
@@ -699,35 +684,22 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ holdings, trades }) => {
 
       {/* Chart Info */}
       {filteredData && filteredData.length > 0 && (
-        <div className="chart-info">
-                      <div className="chart-info-item">
-              <div className="chart-info-label">Current Price</div>
-              <div className="chart-info-value">
-                ${filteredData[filteredData.length - 1]?.close?.toFixed(2)}
-              </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', padding: '0 16px 16px' }}>
+          {[
+            { label: 'Current Price', value: `$${filteredData[filteredData.length - 1]?.close?.toFixed(2)}`, color: '#e2e8f0' },
+            {
+              label: 'Change',
+              value: `${((filteredData[filteredData.length - 1]?.close - filteredData[0]?.close) / filteredData[0]?.close * 100).toFixed(2)}%`,
+              color: filteredData[filteredData.length - 1]?.close > filteredData[0]?.close ? '#34d399' : '#f87171'
+            },
+            { label: 'High', value: `$${Math.max(...filteredData.map((d: StockData) => d.high)).toFixed(2)}`, color: '#e2e8f0' },
+            { label: 'Low', value: `$${Math.min(...filteredData.map((d: StockData) => d.low)).toFixed(2)}`, color: '#e2e8f0' }
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ textAlign: 'center', padding: '10px', backgroundColor: 'rgba(30,37,53,0.5)', borderRadius: '6px', border: '1px solid #1e2535' }}>
+              <div style={{ color: '#4a5568', fontSize: '10px', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: '4px', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{label}</div>
+              <div style={{ fontWeight: 700, color, fontSize: '14px', fontFamily: "'IBM Plex Mono', monospace" }}>{value}</div>
             </div>
-            <div className="chart-info-item">
-              <div className="chart-info-label">Change</div>
-              <div className={`chart-info-value ${
-                filteredData[filteredData.length - 1]?.close > filteredData[0]?.close 
-                  ? 'positive' 
-                  : 'negative'
-              }`}>
-                {((filteredData[filteredData.length - 1]?.close - filteredData[0]?.close) / filteredData[0]?.close * 100).toFixed(2)}%
-              </div>
-            </div>
-            <div className="chart-info-item">
-              <div className="chart-info-label">High</div>
-              <div className="chart-info-value">
-                ${Math.max(...filteredData.map((d: StockData) => d.high)).toFixed(2)}
-              </div>
-            </div>
-            <div className="chart-info-item">
-              <div className="chart-info-label">Low</div>
-              <div className="chart-info-value">
-                ${Math.min(...filteredData.map((d: StockData) => d.low)).toFixed(2)}
-              </div>
-            </div>
+          ))}
         </div>
       )}
     </div>
