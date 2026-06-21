@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Save, RefreshCw, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { Upload, RefreshCw, AlertCircle, CheckCircle, X } from 'lucide-react';
 
 interface IconMapping {
   symbol: string;
@@ -19,6 +19,8 @@ interface AvailableIcon {
   url: string;
 }
 
+const mono = "'IBM Plex Mono', 'Courier New', monospace";
+
 const Icons: React.FC = () => {
   const [iconsCache, setIconsCache] = useState<IconsCache>({});
   const [availableIcons, setAvailableIcons] = useState<AvailableIcon[]>([]);
@@ -31,9 +33,7 @@ const Icons: React.FC = () => {
   const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    loadIconsData();
-  }, []);
+  useEffect(() => { loadIconsData(); }, []);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -46,18 +46,10 @@ const Icons: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Load icons cache directly from the cache file via a new endpoint
       const cacheResponse = await fetch('/api/icons/cache');
-      if (!cacheResponse.ok) {
-        throw new Error('Failed to load icons cache');
-      }
+      if (!cacheResponse.ok) throw new Error('Failed to load icons cache');
       const cacheData = await cacheResponse.json();
-      
-      // The cache data should already be in the correct format
       setIconsCache(cacheData.cache || {});
-
-      // Load available icons
       const iconsResponse = await fetch('/api/icons/available');
       if (iconsResponse.ok) {
         const iconsData = await iconsResponse.json();
@@ -74,23 +66,12 @@ const Icons: React.FC = () => {
     try {
       setSaving(symbolKey);
       setError(null);
-
       const response = await fetch('/api/icons/update', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          symbolKey,
-          filename: newFilename,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbolKey, filename: newFilename }),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to update icon mapping');
-      }
-
-      // Refresh the data
+      if (!response.ok) throw new Error('Failed to update icon mapping');
       await loadIconsData();
       setSuccess(`Updated icon for ${iconsCache[symbolKey]?.symbol}`);
       setTimeout(() => setSuccess(null), 3000);
@@ -105,21 +86,11 @@ const Icons: React.FC = () => {
     try {
       setUploadingFor(symbolKey);
       setError(null);
-
       const formData = new FormData();
       formData.append('icon', file);
       formData.append('symbolKey', symbolKey);
-
-      const response = await fetch('/api/icons/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload icon');
-      }
-
-      // Refresh the data
+      const response = await fetch('/api/icons/upload', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error('Failed to upload icon');
       await loadIconsData();
       setSuccess(`Uploaded new icon for ${iconsCache[symbolKey]?.symbol}`);
       setTimeout(() => setSuccess(null), 3000);
@@ -127,9 +98,7 @@ const Icons: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to upload icon');
     } finally {
       setUploadingFor(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -143,435 +112,191 @@ const Icons: React.FC = () => {
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     const symbolKey = event.target.dataset.symbolKey;
-    
     if (file && symbolKey) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        setError('Please select a valid image file');
-        return;
-      }
-      
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setError('File size must be less than 5MB');
-        return;
-      }
-
+      if (!file.type.startsWith('image/')) { setError('Please select a valid image file'); return; }
+      if (file.size > 5 * 1024 * 1024) { setError('File size must be less than 5MB'); return; }
       handleFileUpload(symbolKey, file);
     }
   };
 
-  const getTypeLabel = (type: 's' | 'c') => {
-    return type === 's' ? 'Stock' : 'Crypto';
+  const getTypeLabel = (type: 's' | 'c') => type === 's' ? 'Stock' : 'Crypto';
+
+  const btnSecondary: React.CSSProperties = {
+    padding: '7px 14px', fontSize: '12px', fontWeight: 500, fontFamily: mono,
+    color: '#94a3b8', backgroundColor: '#141820', border: '1px solid #1e2535',
+    borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
+    transition: 'all 0.15s',
+  };
+  const btnPrimary: React.CSSProperties = {
+    ...btnSecondary, color: '#00d4aa', border: '1px solid rgba(0,212,170,0.3)', backgroundColor: 'rgba(0,212,170,0.08)',
   };
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-center py-12">
-          <RefreshCw className="w-8 h-8 animate-spin text-blue-500 mr-3" />
-          <span className="text-lg text-gray-600">Loading icons...</span>
+      <div style={{ padding: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: mono, fontSize: '13px', color: '#64748b', marginBottom: '8px' }}>Loading icons…</div>
+          <RefreshCw style={{ width: '20px', height: '20px', color: '#00d4aa' }} className="animate-spin" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{ padding: '24px', minHeight: '100%' }}>
       {/* Header */}
-      <div className="dashboard-header">
-        <div className="dashboard-header-content">
-          <h1 className="dashboard-title">Icon Management</h1>
-          <p className="dashboard-subtitle">Manage symbol icons across your portfolio</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div>
+          <div style={{ fontFamily: mono, fontSize: '18px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.04em' }}>Icon Management</div>
+          <div style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', marginTop: '4px' }}>Manage symbol icons across your portfolio</div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', padding: '6px 12px', background: '#141820', border: '1px solid #1e2535', borderRadius: '4px' }}>
+            {Object.keys(iconsCache).length} symbols
+          </span>
+          <button style={btnSecondary} onClick={loadIconsData} disabled={loading}
+            onMouseEnter={e => { e.currentTarget.style.color = '#e2e8f0'; e.currentTarget.style.borderColor = '#2a3445'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = '#1e2535'; }}>
+            <RefreshCw style={{ width: '13px', height: '13px' }} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <button style={btnPrimary} onClick={() => fileInputRef.current?.click()} disabled={uploadingFor !== null}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.14)'; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.08)'; }}>
+            <Upload style={{ width: '13px', height: '13px' }} />
+            {uploadingFor ? 'Uploading…' : 'Upload New Icon'}
+          </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="dashboard-content">
-        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-          {/* Status Messages */}
-          {error && (
-            <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
-              <span className="text-red-700">{error}</span>
-              <button
-                onClick={() => setError(null)}
-                className="ml-auto text-red-500 hover:text-red-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+      {/* Error */}
+      {error && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <AlertCircle style={{ width: '14px', height: '14px', color: '#f87171', flexShrink: 0 }} />
+          <span style={{ fontFamily: mono, fontSize: '12px', color: '#f87171', flex: 1 }}>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: '2px' }}><X style={{ width: '13px', height: '13px' }} /></button>
+        </div>
+      )}
 
-          {success && (
-            <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center">
-              <CheckCircle className="w-5 h-5 text-green-500 mr-2" />
-              <span className="text-green-700">{success}</span>
-            </div>
-          )}
+      {/* Success */}
+      {success && (
+        <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '6px', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <CheckCircle style={{ width: '14px', height: '14px', color: '#4ade80', flexShrink: 0 }} />
+          <span style={{ fontFamily: mono, fontSize: '12px', color: '#4ade80' }}>{success}</span>
+        </div>
+      )}
 
-          {/* Actions Bar */}
-          <div className="mb-6 flex gap-3 items-center justify-between">
-            <div className="flex gap-3">
-              <button
-                onClick={loadIconsData}
-                disabled={loading}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: '#374151',
-                  backgroundColor: 'white',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  opacity: loading ? 0.6 : 1
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.backgroundColor = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#9ca3af';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'white';
-                  e.currentTarget.style.borderColor = '#d1d5db';
-                }}
-              >
-                <RefreshCw style={{ width: '16px', height: '16px' }} className={loading ? 'animate-spin' : ''} />
-                <span>Refresh</span>
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingFor !== null}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: 'white',
-                  backgroundColor: '#3b82f6',
-                  border: '1px solid #3b82f6',
-                  borderRadius: '8px',
-                  cursor: uploadingFor !== null ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  opacity: uploadingFor !== null ? 0.6 : 1
-                }}
-                onMouseEnter={(e) => {
-                  if (uploadingFor === null) {
-                    e.currentTarget.style.backgroundColor = '#2563eb';
-                    e.currentTarget.style.borderColor = '#2563eb';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#3b82f6';
-                  e.currentTarget.style.borderColor = '#3b82f6';
-                }}
-              >
-                <Upload style={{ width: '16px', height: '16px' }} />
-                <span>{uploadingFor ? 'Uploading...' : 'Upload New Icon'}</span>
-              </button>
-            </div>
-            <div style={{
-              fontSize: '14px',
-              color: '#6b7280',
-              backgroundColor: 'white',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              border: '1px solid #e5e7eb',
-              fontWeight: '500'
-            }}>
-              {Object.keys(iconsCache).length} symbols
-            </div>
+      {/* Table */}
+      {Object.keys(iconsCache).length > 0 && (
+        <div style={{ background: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e2535' }}>
+            <div style={{ fontFamily: mono, fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Symbol Icons</div>
           </div>
-
-          {/* Icons Table */}
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
-            overflow: 'hidden'
-          }}>
-            {/* Table Header */}
-            <div style={{
-              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-              padding: '20px 24px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <h3 style={{
-                fontSize: '20px',
-                fontWeight: 'bold',
-                color: '#111827'
-              }}>Symbol Icons</h3>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table style={{backgroundColor: 'white', width: '100%', tableLayout: 'fixed'}}>
-                <thead>
-                  <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                    <th className="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase" style={{width: '8%'}}>
-                      Icon
-                    </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
-                      Symbol
-                    </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '10%'}}>
-                      Type
-                    </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '22%'}}>
-                      Current Filename
-                    </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '38%'}}>
-                      Change Icon
-                    </th>
-                    <th className="text-center py-3 px-6 text-xs font-semibold text-gray-700 uppercase" style={{width: '12%'}}>
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {Object.entries(iconsCache)
-                    .sort(([, a], [, b]) => a.symbol.localeCompare(b.symbol))
-                    .map(([key, icon], index) => (
-                    <tr
-                      key={key}
-                      style={{
-                        backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
-                        transition: 'background-color 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb'}
-                    >
-                      {/* Icon Preview */}
-                      <td className="py-3 px-4 text-center">
-                        <div style={{
-                          width: '40px',
-                          height: '40px',
-                          margin: '0 auto',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: '#f9fafb',
-                          borderRadius: '8px',
-                          border: '1px solid #e5e7eb'
-                        }}>
-                          <img
-                            src={`${icon.url}?t=${Date.now()}`}
-                            alt={`${icon.symbol} icon`}
-                            style={{
-                              width: '32px',
-                              height: '32px',
-                              objectFit: 'contain'
-                            }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = '/api/icons/image/template.png';
-                            }}
-                          />
-                        </div>
-                      </td>
-
-                      {/* Symbol */}
-                      <td className="py-3 px-6 text-center">
-                        <div style={{
-                          fontSize: '15px',
-                          fontWeight: '600',
-                          color: '#111827'
-                        }}>
-                          {icon.symbol}
-                        </div>
-                      </td>
-
-                      {/* Type */}
-                      <td className="py-3 px-6 text-center">
-                        <span style={{
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          padding: '4px 12px',
-                          borderRadius: '12px',
-                          backgroundColor: icon.type === 'c' ? '#f3e8ff' : '#dbeafe',
-                          color: icon.type === 'c' ? '#7c3aed' : '#2563eb',
-                          border: `1px solid ${icon.type === 'c' ? '#c4b5fd' : '#93c5fd'}`,
-                          display: 'inline-block'
-                        }}>
-                          {getTypeLabel(icon.type)}
-                        </span>
-                      </td>
-
-                      {/* Current Filename */}
-                      <td className="py-3 px-6 text-center">
-                        <div style={{
-                          fontSize: '13px',
-                          color: '#6b7280',
-                          fontFamily: 'monospace',
-                          backgroundColor: '#f9fafb',
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          display: 'inline-block',
-                          maxWidth: '100%',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {icon.filename}
-                        </div>
-                      </td>
-
-                      {/* Icon Selector */}
-                      <td className="py-3 px-6">
-                        <div style={{ position: 'relative' }}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (pickerOpen === key) { setPickerOpen(null); return; }
-                              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                              const pickerWidth = 320;
-                              const pickerHeight = 300;
-                              let left = rect.left;
-                              let top = rect.bottom + 6;
-                              if (left + pickerWidth > window.innerWidth - 10) left = window.innerWidth - pickerWidth - 10;
-                              if (top + pickerHeight > window.innerHeight - 10) top = rect.top - pickerHeight - 6;
-                              setPickerPos({ top, left });
-                              setPickerOpen(key);
-                            }}
-                            disabled={saving === key}
-                            style={{
-                              padding: '4px 10px',
-                              fontSize: '12px',
-                              color: '#374151',
-                              backgroundColor: 'white',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '6px',
-                              cursor: saving === key ? 'not-allowed' : 'pointer',
-                              opacity: saving === key ? 0.5 : 1,
-                            }}
-                          >
-                            {saving === key ? (
-                              <span className="flex items-center gap-1">
-                                <RefreshCw style={{ width: '12px', height: '12px' }} className="animate-spin" />
-                                Saving...
-                              </span>
-                            ) : 'Change Icon'}
-                          </button>
-
-                          {pickerOpen === key && (
-                            <div onClick={(e) => e.stopPropagation()} style={{
-                              position: 'fixed',
-                              top: pickerPos.top,
-                              left: pickerPos.left,
-                              zIndex: 1000,
-                              backgroundColor: 'white',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '10px',
-                              boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
-                              padding: '10px',
-                              width: '320px',
-                              maxHeight: '300px',
-                              overflowY: 'auto',
-                              display: 'grid',
-                              gridTemplateColumns: 'repeat(6, 1fr)',
-                              gap: '6px',
-                            }}>
-                              {availableIcons.map((availableIcon) => (
-                                <button
-                                  key={availableIcon.filename}
-                                  title={availableIcon.filename}
-                                  onClick={() => {
-                                    handleIconChange(key, availableIcon.filename);
-                                    setPickerOpen(null);
-                                  }}
-                                  style={{
-                                    padding: '4px',
-                                    border: availableIcon.filename === icon.filename ? '2px solid #3b82f6' : '1px solid #e5e7eb',
-                                    borderRadius: '6px',
-                                    backgroundColor: availableIcon.filename === icon.filename ? '#eff6ff' : 'white',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  <img
-                                    src={availableIcon.url}
-                                    alt={availableIcon.filename}
-                                    style={{ width: '32px', height: '32px', objectFit: 'contain', display: 'block' }}
-                                    onError={(e) => { (e.target as HTMLImageElement).src = '/api/icons/image/template.png'; }}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Actions */}
-                      <td className="py-3 px-6 text-center">
-                        <button
-                          onClick={() => triggerFileUpload(key)}
-                          disabled={uploadingFor === key}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '13px',
-                            fontWeight: '500',
-                            color: '#374151',
-                            backgroundColor: 'white',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            cursor: uploadingFor === key ? 'not-allowed' : 'pointer',
-                            opacity: uploadingFor === key ? 0.5 : 1,
-                            transition: 'all 0.2s',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (uploadingFor !== key) {
-                              e.currentTarget.style.backgroundColor = '#f9fafb';
-                              e.currentTarget.style.borderColor = '#9ca3af';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'white';
-                            e.currentTarget.style.borderColor = '#d1d5db';
-                          }}
-                        >
-                          <Upload style={{ width: '14px', height: '14px' }} />
-                          {uploadingFor === key ? 'Uploading...' : 'Upload'}
-                        </button>
-                      </td>
-                    </tr>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #1e2535' }}>
+                  {[['Icon', '8%'], ['Symbol', '10%'], ['Type', '10%'], ['Current File', '22%'], ['Change Icon', '38%'], ['Actions', '12%']].map(([h, w]) => (
+                    <th key={h} style={{ padding: '10px 12px', fontFamily: mono, fontSize: '10px', fontWeight: 700, color: '#4a5568', letterSpacing: '0.12em', textTransform: 'uppercase', textAlign: 'center', background: '#0d111a', width: w }}>{h}</th>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(iconsCache)
+                  .sort(([, a], [, b]) => a.symbol.localeCompare(b.symbol))
+                  .map(([key, icon], index) => (
+                  <tr key={key}
+                    style={{ backgroundColor: index % 2 === 0 ? '#10141c' : '#0d111a', borderBottom: '1px solid #1e2535', transition: 'background 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.04)')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#10141c' : '#0d111a')}
+                  >
+                    {/* Icon preview */}
+                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#141820', borderRadius: '6px', border: '1px solid #1e2535' }}>
+                        <img src={`${icon.url}?t=${Date.now()}`} alt={`${icon.symbol} icon`} style={{ width: '28px', height: '28px', objectFit: 'contain' }}
+                          onError={e => { (e.target as HTMLImageElement).src = '/api/icons/image/template.png'; }} />
+                      </div>
+                    </td>
+                    {/* Symbol */}
+                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      <span style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color: '#e2e8f0' }}>{icon.symbol}</span>
+                    </td>
+                    {/* Type */}
+                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      <span style={{ fontFamily: mono, fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '4px', display: 'inline-block', background: icon.type === 'c' ? 'rgba(139,92,246,0.12)' : 'rgba(79,143,255,0.12)', color: icon.type === 'c' ? '#a78bfa' : '#60a5fa', border: `1px solid ${icon.type === 'c' ? 'rgba(139,92,246,0.3)' : 'rgba(79,143,255,0.3)'}` }}>
+                        {getTypeLabel(icon.type)}
+                      </span>
+                    </td>
+                    {/* Filename */}
+                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      <span style={{ fontFamily: mono, fontSize: '11px', color: '#64748b', background: '#141820', padding: '3px 8px', borderRadius: '4px', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {icon.filename}
+                      </span>
+                    </td>
+                    {/* Icon picker */}
+                    <td style={{ padding: '10px 12px' }}>
+                      <div style={{ position: 'relative' }}>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (pickerOpen === key) { setPickerOpen(null); return; }
+                            const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                            const pw = 320, ph = 300;
+                            let left = rect.left, top = rect.bottom + 6;
+                            if (left + pw > window.innerWidth - 10) left = window.innerWidth - pw - 10;
+                            if (top + ph > window.innerHeight - 10) top = rect.top - ph - 6;
+                            setPickerPos({ top, left });
+                            setPickerOpen(key);
+                          }}
+                          disabled={saving === key}
+                          style={{ padding: '5px 12px', fontFamily: mono, fontSize: '11px', color: '#94a3b8', background: '#141820', border: '1px solid #1e2535', borderRadius: '4px', cursor: saving === key ? 'not-allowed' : 'pointer', opacity: saving === key ? 0.5 : 1 }}
+                        >
+                          {saving === key ? (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <RefreshCw style={{ width: '11px', height: '11px' }} className="animate-spin" /> Saving…
+                            </span>
+                          ) : 'Change Icon'}
+                        </button>
+                        {pickerOpen === key && (
+                          <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: pickerPos.top, left: pickerPos.left, zIndex: 1000, background: '#10141c', border: '1px solid #1e2535', borderRadius: '8px', boxShadow: '0 12px 32px rgba(0,0,0,0.5)', padding: '10px', width: '320px', maxHeight: '300px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                            {availableIcons.map(ai => (
+                              <button key={ai.filename} title={ai.filename} onClick={() => { handleIconChange(key, ai.filename); setPickerOpen(null); }}
+                                style={{ padding: '4px', border: ai.filename === icon.filename ? '2px solid #00d4aa' : '1px solid #1e2535', borderRadius: '6px', background: ai.filename === icon.filename ? 'rgba(0,212,170,0.12)' : '#141820', cursor: 'pointer' }}>
+                                <img src={ai.url} alt={ai.filename} style={{ width: '32px', height: '32px', objectFit: 'contain', display: 'block' }}
+                                  onError={e => { (e.target as HTMLImageElement).src = '/api/icons/image/template.png'; }} />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    {/* Upload */}
+                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      <button onClick={() => triggerFileUpload(key)} disabled={uploadingFor === key}
+                        style={{ padding: '5px 10px', fontFamily: mono, fontSize: '11px', color: '#94a3b8', background: '#141820', border: '1px solid #1e2535', borderRadius: '4px', cursor: uploadingFor === key ? 'not-allowed' : 'pointer', opacity: uploadingFor === key ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s' }}
+                        onMouseEnter={e => { if (uploadingFor !== key) { e.currentTarget.style.color = '#e2e8f0'; e.currentTarget.style.borderColor = '#2a3445'; } }}
+                        onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = '#1e2535'; }}>
+                        <Upload style={{ width: '12px', height: '12px' }} />
+                        {uploadingFor === key ? 'Uploading…' : 'Upload'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          {/* Hidden File Input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileInputChange}
-            className="hidden"
-          />
-
-          {/* Empty State */}
-          {Object.keys(iconsCache).length === 0 && !loading && (
-            <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-              <div className="text-gray-400 mb-4">
-                <Upload className="w-12 h-12 mx-auto" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No icons found</h3>
-              <p className="text-gray-500">
-                Icons will appear here once you start using the investment dashboard.
-              </p>
-            </div>
-          )}
         </div>
-      </div>
+      )}
+
+      {/* Empty state */}
+      {Object.keys(iconsCache).length === 0 && !loading && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', background: '#10141c', border: '1px solid #1e2535', borderRadius: '8px' }}>
+          <Upload style={{ width: '40px', height: '40px', color: '#2a3445', margin: '0 auto 12px' }} />
+          <div style={{ fontFamily: mono, fontSize: '14px', color: '#4a5568', marginBottom: '6px' }}>No icons found</div>
+          <div style={{ fontFamily: mono, fontSize: '11px', color: '#2a3445' }}>Icons will appear here once you start using the investment dashboard.</div>
+        </div>
+      )}
+
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInputChange} className="hidden" />
     </div>
   );
 };
