@@ -358,44 +358,49 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
 
   if (holdings.length === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden p-6">
-        <p className="text-gray-500 text-center">No holdings data available</p>
+      <div style={{ backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535', padding: '24px' }}>
+        <p style={{ color: '#64748b', textAlign: 'center', fontSize: '14px' }}>No holdings data available</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+    <div style={{ backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535', overflow: 'hidden' }}>
       <div style={{
-        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-        padding: '20px 24px',
-        borderBottom: '1px solid #e5e7eb'
+        background: '#10141c',
+        padding: '16px 20px',
+        borderBottom: '1px solid #1e2535'
       }}>
         <h3 style={{
-          fontSize: '20px',
-          fontWeight: 'bold',
-          color: '#111827'
+          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+          fontSize: '11px',
+          fontWeight: 700,
+          color: '#94a3b8',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase' as const
         }}>Price Offset from 200-Day SMA</h3>
         <p style={{
-          fontSize: '14px',
-          color: '#6b7280',
-          marginTop: '4px'
+          fontSize: '11px',
+          color: '#4a5568',
+          marginTop: '3px',
+          fontFamily: "'IBM Plex Mono', monospace"
         }}>
-          Shows how much current price differs from 200-day simple moving average. Green = above SMA, Red = below SMA.
+          Green = above SMA · Red = below SMA · Grey = within ±5%
         </p>
       </div>
 
-      <div style={{ padding: '24px' }}>
+      <div style={{ padding: '20px' }}>
         <ResponsiveContainer width="100%" height={500}>
           <BarChart
             data={chartData}
             margin={{ top: 20, right: 20, left: 20, bottom: 20 }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
             <XAxis
               type="category"
               dataKey="symbol"
-              stroke="#6B7280"
+              stroke="#4a5568"
+              tick={{ fill: '#64748b' }}
               fontSize={12}
               fontWeight={600}
               angle={-45}
@@ -404,7 +409,8 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
             />
             <YAxis
               type="number"
-              stroke="#6B7280"
+              stroke="#4a5568"
+              tick={{ fill: '#64748b' }}
               fontSize={12}
               tickFormatter={(value) => formatPercent(value)}
               domain={['dataMin', 'dataMax']}
@@ -412,20 +418,20 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
             <Tooltip
               formatter={formatTooltip}
               contentStyle={{
-                backgroundColor: 'white',
-                border: '1px solid #E5E7EB',
-                borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                backgroundColor: '#10141c',
+                border: '1px solid #1e2535',
+                borderRadius: '6px',
+                color: '#cbd5e1'
               }}
-              cursor={{ fill: 'rgba(59, 130, 246, 0.1)' }}
+              labelStyle={{ color: '#94a3b8' }}
+              cursor={{ fill: 'rgba(59, 130, 246, 0.08)' }}
             />
-            <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={2} />
-            {/* Grey background for neutral zone (±5%) */}
+            <ReferenceLine y={0} stroke="#2a3445" strokeWidth={2} />
             {greyZoneStart && greyZoneEnd && (
               <ReferenceArea
                 x1={greyZoneStart}
                 x2={greyZoneEnd}
-                fill="#F3F4F6"
+                fill="#1e2535"
                 fillOpacity={0.5}
               />
             )}
@@ -454,39 +460,25 @@ const PriceOffsetBarChart: React.FC<PriceOffsetBarChartProps> = ({ holdings }) =
 
       {/* Legend */}
       <div style={{
-        padding: '16px 24px',
-        borderTop: '1px solid #e5e7eb',
+        padding: '12px 20px',
+        borderTop: '1px solid #1e2535',
         display: 'flex',
         justifyContent: 'center',
         gap: '24px',
-        fontSize: '14px'
+        fontSize: '12px',
+        fontFamily: "'IBM Plex Mono', monospace"
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            width: '16px',
-            height: '16px',
-            backgroundColor: '#10B981',
-            borderRadius: '4px'
-          }}></div>
-          <span style={{ color: '#6b7280' }}>≥5% above 200-day SMA</span>
+          <div style={{ width: '12px', height: '12px', backgroundColor: '#10B981', borderRadius: '3px' }}></div>
+          <span style={{ color: '#64748b' }}>≥5% above SMA</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            width: '16px',
-            height: '16px',
-            backgroundColor: '#9CA3AF',
-            borderRadius: '4px'
-          }}></div>
-          <span style={{ color: '#6b7280' }}>Within ±5% of 200-day SMA</span>
+          <div style={{ width: '12px', height: '12px', backgroundColor: '#475569', borderRadius: '3px' }}></div>
+          <span style={{ color: '#64748b' }}>Within ±5%</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            width: '16px',
-            height: '16px',
-            backgroundColor: '#EF4444',
-            borderRadius: '4px'
-          }}></div>
-          <span style={{ color: '#6b7280' }}>≥5% below 200-day SMA</span>
+          <div style={{ width: '12px', height: '12px', backgroundColor: '#EF4444', borderRadius: '3px' }}></div>
+          <span style={{ color: '#64748b' }}>≥5% below SMA</span>
         </div>
       </div>
     </div>
