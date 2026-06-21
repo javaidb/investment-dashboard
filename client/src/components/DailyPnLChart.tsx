@@ -218,27 +218,27 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
       const breakevenPrice = data.shares > 0 ? (data.costBasis - data.realizedPnL) / data.shares : 0;
 
       return (
-        <div className="bg-white p-4 border border-gray-300 rounded-lg shadow-lg">
-          <p className="font-semibold text-gray-800 mb-2">{formatDate(label)}</p>
-          <div className="space-y-1 text-sm">
-            <p className="text-gray-700">
+        <div style={{ backgroundColor: '#10141c', padding: '14px', border: '1px solid #1e2535', borderRadius: '8px' }}>
+          <p style={{ fontWeight: 700, color: '#cbd5e1', marginBottom: '8px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px' }}>{formatDate(label)}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Shares:</span> {data.shares.toFixed(4)}
             </p>
-            <p className="text-gray-700">
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Close Price:</span> {formatCurrency(data.closePrice)}
             </p>
             {breakevenPrice > 0 && (
-              <p className="text-gray-700">
+              <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
                 <span className="font-medium">Breakeven Price:</span> {formatCurrency(breakevenPrice)}
               </p>
             )}
-            <p className="text-gray-700">
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Market Value:</span> {formatCurrency(data.marketValue)}
             </p>
-            <p className="text-gray-700">
+            <p style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
               <span className="font-medium">Cost Basis:</span> {formatCurrency(data.costBasis)}
             </p>
-            <div className="border-t border-gray-200 mt-2 pt-2">
+            <div style={{ borderTop: '1px solid #1e2535', marginTop: '8px', paddingTop: '8px' }}>
               <p className={`font-semibold ${data.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 Total P&L: {formatCurrency(data.totalPnL)} ({formatPercent(data.totalPnLPercent)})
               </p>
@@ -252,10 +252,10 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
               )}
             </div>
             {data.transactions && data.transactions.length > 0 && (
-              <div className="border-t border-gray-200 mt-2 pt-2">
-                <p className="font-medium text-gray-800 text-xs mb-1">Transactions:</p>
+              <div style={{ borderTop: '1px solid #1e2535', marginTop: '8px', paddingTop: '8px' }}>
+                <p style={{ fontWeight: 500, color: '#cbd5e1', fontSize: '12px', marginBottom: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>Transactions:</p>
                 {data.transactions.map((txn, idx) => (
-                  <p key={idx} className="text-xs text-gray-600">
+                  <p key={idx} style={{ color: '#94a3b8', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>
                     {txn.action.toUpperCase()}: {txn.quantity.toFixed(4)} @ {formatCurrency(txn.price)}
                   </p>
                 ))}
@@ -270,7 +270,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-lg shadow">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px', backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535' }}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading PnL data for {symbol}...</p>
@@ -360,17 +360,16 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
   return (
     <div style={{
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e5e7eb',
+      backgroundColor: '#10141c',
+      borderRadius: '8px',
+      border: '1px solid #1e2535',
       overflow: 'hidden'
     }}>
       {/* Header */}
       <div style={{
-        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
+        background: '#10141c',
         padding: '20px 24px',
-        borderBottom: '1px solid #e5e7eb',
+        borderBottom: '1px solid #1e2535',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between'
@@ -385,23 +384,23 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             }}
           />
           <div>
-            <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+            <h2 style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', marginBottom: '4px', fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.12em', textTransform: 'uppercase' }}>
               {symbol} - Daily P&L Chart
             </h2>
-            <p style={{ fontSize: '13px', color: '#6b7280' }}>
+            <p style={{ fontSize: '13px', color: '#64748b' }}>
               From {formatDate(pnlData.assetInfo.firstPurchaseDate)} • {pnlData.totalRecords} days tracked
             </p>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>Current Position</p>
-          <p style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>
+          <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Current Position</p>
+          <p style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0' }}>
             {latestRecord.shares.toFixed(4)} shares
           </p>
           <p style={{
             fontSize: '20px',
             fontWeight: '700',
-            color: latestRecord.totalPnL >= 0 ? '#166534' : '#dc2626',
+            color: latestRecord.totalPnL >= 0 ? '#34d399' : '#f87171',
             marginTop: '4px'
           }}>
             {formatCurrency(latestRecord.totalPnL)}
@@ -409,7 +408,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
           <p style={{
             fontSize: '13px',
             fontWeight: '600',
-            color: latestRecord.totalPnLPercent >= 0 ? '#166534' : '#dc2626'
+            color: latestRecord.totalPnLPercent >= 0 ? '#34d399' : '#f87171'
           }}>
             {formatPercent(latestRecord.totalPnLPercent)}
           </p>
@@ -428,11 +427,11 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: '600',
-                border: dateRange === range ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                border: dateRange === range ? '2px solid rgba(79,70,229,0.5)' : '1px solid #1e2535',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
-                backgroundColor: dateRange === range ? '#eef2ff' : 'white',
-                color: dateRange === range ? '#4f46e5' : '#6b7280'
+                backgroundColor: dateRange === range ? 'rgba(79,70,229,0.15)' : 'rgba(30,37,53,0.6)',
+                color: dateRange === range ? '#818cf8' : '#64748b'
               }}
             >
               {range}
@@ -452,8 +451,8 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'totalPnL' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'totalPnL' ? 'white' : '#6b7280'
+              backgroundColor: selectedMetric === 'totalPnL' ? '#4f46e5' : 'rgba(30,37,53,0.6)',
+              color: selectedMetric === 'totalPnL' ? 'white' : '#64748b'
             }}
           >
             P&L Analysis
@@ -468,8 +467,8 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
               border: 'none',
               cursor: 'pointer',
               transition: 'all 0.2s',
-              backgroundColor: selectedMetric === 'marketValueAndShares' ? '#4f46e5' : '#f3f4f6',
-              color: selectedMetric === 'marketValueAndShares' ? 'white' : '#6b7280'
+              backgroundColor: selectedMetric === 'marketValueAndShares' ? '#4f46e5' : 'rgba(30,37,53,0.6)',
+              color: selectedMetric === 'marketValueAndShares' ? 'white' : '#64748b'
             }}
           >
             Market Value & Shares
@@ -488,11 +487,11 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                   borderRadius: '6px',
                   fontSize: '12px',
                   fontWeight: '600',
-                  border: chartType === type ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                  border: chartType === type ? '2px solid rgba(79,70,229,0.5)' : '1px solid #1e2535',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
-                  backgroundColor: chartType === type ? '#eef2ff' : 'white',
-                  color: chartType === type ? '#4f46e5' : '#6b7280'
+                  backgroundColor: chartType === type ? 'rgba(79,70,229,0.15)' : 'rgba(30,37,53,0.6)',
+                  color: chartType === type ? '#818cf8' : '#64748b'
                 }}
               >
                 {type === 'line' ? 'Line' : 'Candle'}
@@ -506,7 +505,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             {/* Total P&L Chart */}
             <div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
                 Total P&L
               </h3>
               <ResponsiveContainer width="100%" height={350}>
@@ -521,20 +520,22 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
                   <XAxis
                     dataKey="date"
                     tickFormatter={(value) => {
                       const date = new Date(value);
                       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     }}
-                    stroke="#6b7280"
+                    stroke="#4a5568"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <YAxis
                     yAxisId="left"
                     tickFormatter={(value) => formatCurrency(value)}
-                    stroke="#4b5563"
+                    stroke="#4a5568"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <Tooltip content={<CustomTooltip />} />
@@ -631,7 +632,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
             {/* Realized/Unrealized P&L Chart */}
             <div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
                 Realized vs Unrealized P&L
               </h3>
               <ResponsiveContainer width="100%" height={350}>
@@ -646,20 +647,22 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
                   <XAxis
                     dataKey="date"
                     tickFormatter={(value) => {
                       const date = new Date(value);
                       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     }}
-                    stroke="#6b7280"
+                    stroke="#4a5568"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <YAxis
                     yAxisId="left"
                     tickFormatter={(value) => formatCurrency(value)}
                     stroke="#8b5cf6"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <Tooltip content={<CustomTooltip />} />
@@ -736,7 +739,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             {/* Market Value Chart */}
             <div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
                 Market Value
               </h3>
               <ResponsiveContainer width="100%" height={350}>
@@ -753,20 +756,22 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0.2}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
                   <XAxis
                     dataKey="date"
                     tickFormatter={(value) => {
                       const date = new Date(value);
                       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     }}
-                    stroke="#6b7280"
+                    stroke="#4a5568"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <YAxis
                     yAxisId="left"
                     tickFormatter={(value) => formatCurrency(value)}
                     stroke="#3b82f6"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <Tooltip content={<CustomTooltip />} />
@@ -860,39 +865,42 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
 
             {/* Shares Chart */}
             <div>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px', textAlign: 'center' }}>
                 Shares & Price
               </h3>
               <ResponsiveContainer width="100%" height={350}>
                 <LineChart data={clippedChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
                   <XAxis
                     dataKey="date"
                     tickFormatter={(value) => {
                       const date = new Date(value);
                       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     }}
-                    stroke="#6b7280"
+                    stroke="#4a5568"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <YAxis
                     yAxisId="left"
                     tickFormatter={(value) => value.toFixed(4)}
                     stroke="#84cc16"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                   />
                   <YAxis
                     yAxisId="right"
                     orientation="right"
                     tickFormatter={(value) => formatCurrency(value)}
-                    stroke="#9ca3af"
+                    stroke="#4a5568"
+                    tick={{ fill: '#64748b' }}
                     style={{ fontSize: '11px' }}
                     domain={priceAxisDomain}
                     label={{
                       value: 'Price',
                       angle: 90,
                       position: 'insideRight',
-                      style: { fill: '#9ca3af', fontSize: '11px' }
+                      style: { fill: '#64748b', fontSize: '11px' }
                     }}
                   />
                   <Tooltip content={<CustomTooltip />} />
@@ -984,13 +992,13 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
           gap: '24px',
           marginTop: '24px',
           paddingTop: '24px',
-          borderTop: '1px solid #e5e7eb'
+          borderTop: '1px solid #1e2535'
         }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: '#111827',
+              color: '#e2e8f0',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -998,12 +1006,12 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Market Value
             </div>
@@ -1012,7 +1020,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: '#111827',
+              color: '#e2e8f0',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -1020,12 +1028,12 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Cost Basis
             </div>
@@ -1034,7 +1042,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: latestRecord.unrealizedPnL >= 0 ? '#166534' : '#dc2626',
+              color: latestRecord.unrealizedPnL >= 0 ? '#34d399' : '#f87171',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -1042,12 +1050,12 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Unrealized P&L
             </div>
@@ -1056,7 +1064,7 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             <div style={{
               fontSize: '22px',
               fontWeight: '700',
-              color: latestRecord.realizedPnL >= 0 ? '#166534' : '#dc2626',
+              color: latestRecord.realizedPnL >= 0 ? '#34d399' : '#f87171',
               marginBottom: '4px',
               fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
             }}>
@@ -1064,12 +1072,12 @@ const DailyPnLChart: React.FC<DailyPnLChartProps> = ({ symbol, startDate, endDat
             </div>
             <div style={{
               fontSize: '12px',
-              color: '#6b7280',
-              backgroundColor: '#f3f4f6',
+              color: '#64748b',
+              backgroundColor: 'rgba(30,37,53,0.6)',
               padding: '2px 8px',
               borderRadius: '12px',
               display: 'inline-block',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #1e2535'
             }}>
               Realized P&L
             </div>
