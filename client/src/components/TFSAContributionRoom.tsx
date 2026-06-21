@@ -510,25 +510,25 @@ const TFSAContributionRoom: React.FC = () => {
 
       {/* Chart */}
       <ResponsiveContainer width="100%" height={650}>
-        <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 16, bottom: 0 }}>
+        <ComposedChart data={chartData} margin={{ top: 24, right: 16, left: 16, bottom: 0 }}>
           <defs>
-            <linearGradient id="roomGrad" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="tfsa-roomGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
               <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
             </linearGradient>
-            <linearGradient id="depositGrad" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="tfsa-depositGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#10b981" stopOpacity={0.55} />
               <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}  />
             </linearGradient>
-            <linearGradient id="wsDepositGrad" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="tfsa-wsDepositGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#ffffff" stopOpacity={0.35} />
               <stop offset="95%" stopColor="#ffffff" stopOpacity={0.05} />
             </linearGradient>
-            <linearGradient id="recurringGrad" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="tfsa-recurringGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#ef4444" stopOpacity={0.6}  />
               <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1}  />
             </linearGradient>
-            <linearGradient id="planGrad" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="tfsa-planGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.55} />
               <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.1}  />
             </linearGradient>
@@ -537,34 +537,34 @@ const TFSAContributionRoom: React.FC = () => {
           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
           <XAxis dataKey="weekIndex" ticks={yearTicks} tickFormatter={xTickFormatter}
             tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={{ stroke: '#334155' }} tickLine={false} interval={0} />
-          <YAxis tickFormatter={fmt} domain={[0, 82000]}
+          <YAxis tickFormatter={fmt} domain={[0, 'auto']}
             tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={{ stroke: '#334155' }} tickLine={false} width={90} />
 
           <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#475569', strokeWidth: 1 }} />
           <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '0.85rem', color: '#94a3b8' }} />
 
           <Area name="TFSA Room" type="stepAfter" dataKey="room"
-            stroke="#3b82f6" fill="url(#roomGrad)" strokeWidth={2.5}
+            stroke="#3b82f6" fill="url(#tfsa-roomGrad)" strokeWidth={2.5}
             dot={false} activeDot={{ r: 4, fill: '#60a5fa', stroke: '#1e40af', strokeWidth: 2 }}
             isAnimationActive={false} />
 
           <Area name="Questrade deposits" type="monotone" dataKey="depositedQT"
-            stackId="contributions" stroke="#10b981" fill="url(#depositGrad)" strokeWidth={2}
+            stackId="contributions" stroke="#10b981" fill="url(#tfsa-depositGrad)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: '#34d399', stroke: '#065f46', strokeWidth: 2 }}
             connectNulls={false} isAnimationActive={false} />
 
           <Area name="Wealthsimple deposits" type="monotone" dataKey="depositedWS"
-            stackId="contributions" stroke="#ffffff" fill="url(#wsDepositGrad)" strokeWidth={2}
+            stackId="contributions" stroke="#ffffff" fill="url(#tfsa-wsDepositGrad)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: '#ffffff', stroke: '#94a3b8', strokeWidth: 2 }}
             connectNulls={false} isAnimationActive={false} />
 
           <Area name="Recurring bank transfers" type="monotone" dataKey="recurring"
-            stackId="contributions" stroke="#ef4444" fill="url(#recurringGrad)" strokeWidth={2}
+            stackId="contributions" stroke="#ef4444" fill="url(#tfsa-recurringGrad)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: '#f87171', stroke: '#7f1d1d', strokeWidth: 2 }}
             connectNulls={false} isAnimationActive={false} />
 
           <Area name="Custom plans" type="monotone" dataKey="planTotal"
-            stackId="contributions" stroke="#8b5cf6" fill="url(#planGrad)" strokeWidth={2}
+            stackId="contributions" stroke="#8b5cf6" fill="url(#tfsa-planGrad)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: '#a78bfa', stroke: '#4c1d95', strokeWidth: 2 }}
             connectNulls={false} isAnimationActive={false} />
 
