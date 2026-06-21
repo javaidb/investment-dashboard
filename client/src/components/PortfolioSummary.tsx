@@ -44,6 +44,12 @@ interface Holding {
   currentPosition?: number; // Current position in sorted order (1-indexed)
   lastWeekPosition?: number; // Position from last week
   positionChange?: 'up' | 'down' | 'same' | 'new'; // Position movement
+  analystTargetMean?: number | null; // Analyst mean price target
+  analystCount?: number | null; // Number of analysts
+  insiderSentiment?: string | null; // STRONG_BUY / BUY / NEUTRAL / SELL / HEAVY_SELL
+  insiderHasData?: boolean | null; // false = Finnhub has no SEC filings (non-US stock)
+  insiderBuyCount?: number | null;
+  insiderSellCount?: number | null;
 }
 
 interface PortfolioSummaryData {
@@ -70,56 +76,37 @@ const ThreeSegmentPill: React.FC<ThreeSegmentPillProps> = ({ values, labels }) =
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '4px 8px',
-        borderRadius: '12px',
+        padding: '2px 6px',
+        borderRadius: '2px',
         fontSize: '12px',
         fontWeight: '500',
-        backgroundColor: '#f3f4f6',
-        color: '#6b7280',
-        border: '1px solid #d1d5db'
+        backgroundColor: '#141820',
+        color: '#4a5568',
+        border: '1px solid #1e2535',
+        fontFamily: "'IBM Plex Mono', monospace",
       }}>
-        <svg style={{width: '12px', height: '12px', marginRight: '4px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        Loading...
+        —
       </div>
     );
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      gap: '4px',
-      alignItems: 'center'
-    }}>
+    <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
       {[...values].reverse().map((value, index) => {
-        const originalIndex = values.length - 1 - index; // Track original index for labels
+        const originalIndex = values.length - 1 - index;
         const isPositive = value >= 0;
-        const isHighPositive = value > 10; // Blue for > 10%
-        const formattedValue = value.toFixed(1) + '%';
+        const isHighPositive = value > 10;
+        const formattedValue = (isPositive ? '+' : '') + value.toFixed(1);
 
-        // Determine colors based on value
         let backgroundColor, color, borderColor;
         if (isHighPositive) {
-          // Blue for high positive gains (> 10%)
-          backgroundColor = '#dbeafe';
-          color = '#1e40af';
-          borderColor = '#93c5fd';
+          backgroundColor = 'rgba(79,143,255,0.12)'; color = '#4f8fff'; borderColor = 'rgba(79,143,255,0.25)';
         } else if (isPositive) {
-          // Green for moderate positive gains
-          backgroundColor = '#dcfce7';
-          color = '#166534';
-          borderColor = '#bbf7d0';
+          backgroundColor = 'rgba(34,197,94,0.12)'; color = '#22c55e'; borderColor = 'rgba(34,197,94,0.25)';
         } else if (value > -10) {
-          // Red for small losses (> -10%)
-          backgroundColor = '#fef2f2';
-          color = '#dc2626';
-          borderColor = '#fecaca';
+          backgroundColor = 'rgba(239,68,68,0.12)'; color = '#ef4444'; borderColor = 'rgba(239,68,68,0.25)';
         } else {
-          // Deep burgundy/maroon for large losses (<= -10%)
-          backgroundColor = '#fdf2f8';
-          color = '#701a75';
-          borderColor = '#e879f9';
+          backgroundColor = 'rgba(168,85,247,0.12)'; color = '#a855f7'; borderColor = 'rgba(168,85,247,0.25)';
         }
 
         return (
@@ -129,20 +116,21 @@ const ThreeSegmentPill: React.FC<ThreeSegmentPillProps> = ({ values, labels }) =
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '4px 8px',
-              borderRadius: '12px',
-              fontSize: '13px',
-              fontWeight: '600',
+              padding: '2px 5px',
+              borderRadius: '8px',
+              fontSize: '12px',
+              fontWeight: '700',
               backgroundColor,
               color,
-              border: `1.5px solid ${borderColor}`,
-              minWidth: '50px',
-              transition: 'all 0.2s ease',
-              cursor: labels ? 'help' : 'default'
+              border: `1px solid ${borderColor}`,
+              minWidth: '42px',
+              whiteSpace: 'nowrap',
+              cursor: labels ? 'help' : 'default',
+              fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
             }}
             title={labels ? labels[originalIndex] : undefined}
           >
-            {isPositive ? '+' : ''}{formattedValue}
+            {formattedValue}
           </div>
         );
       })}
@@ -170,6 +158,8 @@ const PortfolioSummary: React.FC = () => {
   const [quarterlyChanges, setQuarterlyChanges] = useState<{[symbol: string]: number}>({});
   const [positionHistory, setPositionHistory] = useState<{[symbol: string]: number}>({});
   const [showInactiveHoldings, setShowInactiveHoldings] = useState(true);
+  const [sortColumn, setSortColumn] = useState<string>('pnl');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   // Calculate total capital from portfolio net value
   const totalCapital = summary ? (summary.currentTotalValue || 0) : 0;
   
@@ -351,6 +341,26 @@ const PortfolioSummary: React.FC = () => {
     }
   );
 
+  // Fetch analyst price targets and insider sentiment for stock holdings
+  const { data: analystData } = useQuery(
+    ['portfolio-analyst-data', holdings.filter(h => h.type !== 'c').map(h => h.symbol).join(',')],
+    async () => {
+      const stockSymbols = holdings.filter(h => h.type !== 'c' && (h.quantity || 0) > 0.01).map(h => h.symbol);
+      if (stockSymbols.length === 0) return { targets: {}, insiders: {} };
+      const [targetsRes, insidersRes] = await Promise.all([
+        axios.post('/api/analyst/price-targets/batch', { symbols: stockSymbols }),
+        axios.post('/api/analyst/insider/batch', { symbols: stockSymbols }),
+      ]);
+      return { targets: targetsRes.data.targets || {}, insiders: insidersRes.data.insiders || {} };
+    },
+    {
+      enabled: holdings.length > 0,
+      staleTime: 60 * 60 * 1000,
+      cacheTime: 2 * 60 * 60 * 1000,
+      retry: 1,
+    }
+  );
+
   // Get historical positions from a week ago for comparison
   const { data: historicalPositions } = useQuery(
     ['historical-positions', activePortfolio?.timestamp],
@@ -529,7 +539,7 @@ const PortfolioSummary: React.FC = () => {
     setError(null); // Clear any previous errors
     processPortfolioData();
     // eslint-disable-next-line
-  }, [activePortfolio, activeHoldings, persistentPortfolio, weeklyChanges, dailyChanges, monthlyChanges, quarterlyChanges, positionHistory]);
+  }, [activePortfolio, activeHoldings, persistentPortfolio, weeklyChanges, dailyChanges, monthlyChanges, quarterlyChanges, positionHistory, analystData]);
 
   const processPortfolioData = () => {
     console.log('🔥 processPortfolioData STARTING');
@@ -614,7 +624,13 @@ const PortfolioSummary: React.FC = () => {
           weeklyChangePercent: weeklyChange !== undefined ? weeklyChange : null,
           dailyChangePercent: dailyChange !== undefined ? dailyChange : null,
           monthlyChangePercent: monthlyChange !== undefined ? monthlyChange : null,
-          quarterlyChangePercent: quarterlyChange !== undefined ? quarterlyChange : null
+          quarterlyChangePercent: quarterlyChange !== undefined ? quarterlyChange : null,
+          analystTargetMean: analystData?.targets?.[symbol]?.targetMean ?? null,
+          analystCount: analystData?.targets?.[symbol]?.analystCount ?? null,
+          insiderSentiment: analystData?.insiders?.[symbol]?.sentiment ?? null,
+          insiderHasData: analystData?.insiders?.[symbol]?.hasData ?? null,
+          insiderBuyCount: analystData?.insiders?.[symbol]?.buyCount ?? null,
+          insiderSellCount: analystData?.insiders?.[symbol]?.sellCount ?? null,
         };
 
         // Final debug for BTC
@@ -784,25 +800,19 @@ const PortfolioSummary: React.FC = () => {
   if (isLoading && !hasDataToShow) {
     console.log('🔄 PortfolioSummary: Rendering loading state');
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-white">Portfolio Summary</h2>
-              <p className="text-blue-100 text-sm">Loading your investment data...</p>
-              <p className="text-blue-100 text-xs mt-1">This may take up to 60 seconds while fetching current prices</p>
-            </div>
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-            </div>
+      <div style={{ background: '#141820', borderRadius: '6px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+        <div style={{ background: '#141820', borderBottom: '1px solid #1e2535', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const, marginBottom: '4px' }}>Portfolio Summary</div>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Loading investment data…</p>
+            <p style={{ color: '#4a5568', fontSize: '12px', margin: '4px 0 0' }}>This may take up to 60 seconds while fetching current prices</p>
           </div>
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-t-transparent" style={{ borderColor: '#00d4aa', borderTopColor: 'transparent' }}></div>
         </div>
-        <div className="p-6">
-          <div className="flex justify-center items-center h-32">
-            <div className="animate-pulse space-y-3">
-              <div className="h-4 bg-gray-200 rounded w-48"></div>
-              <div className="h-4 bg-gray-200 rounded w-32"></div>
-            </div>
+        <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '120px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+            <div style={{ height: '8px', background: '#1e2535', borderRadius: '2px', width: '200px' }}></div>
+            <div style={{ height: '8px', background: '#1e2535', borderRadius: '2px', width: '140px' }}></div>
           </div>
         </div>
       </div>
@@ -812,65 +822,122 @@ const PortfolioSummary: React.FC = () => {
   if (cacheError || error) {
     console.log('❌ PortfolioSummary: Rendering error state:', { cacheError, error });
     return (
-      <div style={{ color: 'red', padding: '1rem', background: '#fff0f0', border: '1px solid #ffcccc', borderRadius: 8 }}>
-        <div><b>Portfolio Summary</b></div>
-        <div>Cache Error: {cacheError}</div>
-        {error && <div>Processing Error: {error}</div>}
-        <button onClick={refreshCache} style={{ marginTop: 12, padding: '6px 16px', borderRadius: 4, border: '1px solid #ccc', background: '#f9f9f9', cursor: 'pointer' }}>Refresh Cache</button>
+      <div style={{ padding: '16px 20px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px' }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: 700, color: '#ef4444', letterSpacing: '0.1em', marginBottom: '8px' }}>PORTFOLIO SUMMARY ERROR</div>
+        <div style={{ fontSize: '13px', color: '#94a3b8' }}>Cache Error: {cacheError}</div>
+        {error && <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>Processing Error: {error}</div>}
+        <button onClick={refreshCache} style={{ marginTop: 12, padding: '5px 14px', borderRadius: '2px', border: '1px solid #1e2535', background: '#141820', color: '#94a3b8', cursor: 'pointer', fontSize: '12px', fontFamily: "'IBM Plex Mono', monospace" }}>Refresh Cache</button>
       </div>
     );
   }
 
+  // Sort handler for the Active Trading Holdings table
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
+  const getSortedHoldings = (list: Holding[]) => {
+    return [...list].sort((a, b) => {
+      let aVal: number, bVal: number;
+      switch (sortColumn) {
+        case 'symbol': {
+          const cmp = a.symbol.localeCompare(b.symbol);
+          return sortDirection === 'asc' ? cmp : -cmp;
+        }
+        case 'currentValue': aVal = a.currentValue || 0; bVal = b.currentValue || 0; break;
+        case 'totalInvested': aVal = a.totalAmountInvested || 0; bVal = b.totalAmountInvested || 0; break;
+        case 'pnlPercent': aVal = a.totalPnLPercent || 0; bVal = b.totalPnLPercent || 0; break;
+        case 'portfolio': {
+          aVal = a.totalAmountInvested ? (a.totalAmountInvested - (a.amountSold || 0)) : 0;
+          bVal = b.totalAmountInvested ? (b.totalAmountInvested - (b.amountSold || 0)) : 0;
+          break;
+        }
+        case 'analystUpside': {
+          const aUp = a.analystTargetMean && a.currentPrice ? ((a.analystTargetMean - a.currentPrice) / a.currentPrice) * 100 : -999;
+          const bUp = b.analystTargetMean && b.currentPrice ? ((b.analystTargetMean - b.currentPrice) / b.currentPrice) * 100 : -999;
+          aVal = aUp; bVal = bUp; break;
+        }
+        case 'dailyChange': {
+          const aArr = Array.isArray(a.dailyChangePercent) ? a.dailyChangePercent : [];
+          const bArr = Array.isArray(b.dailyChangePercent) ? b.dailyChangePercent : [];
+          aVal = aArr[aArr.length - 1] ?? 0; bVal = bArr[bArr.length - 1] ?? 0; break;
+        }
+        case 'weeklyChange': {
+          const aArr = Array.isArray(a.weeklyChangePercent) ? a.weeklyChangePercent : [];
+          const bArr = Array.isArray(b.weeklyChangePercent) ? b.weeklyChangePercent : [];
+          aVal = aArr[aArr.length - 1] ?? 0; bVal = bArr[bArr.length - 1] ?? 0; break;
+        }
+        default: aVal = a.totalPnL || 0; bVal = b.totalPnL || 0; // 'pnl' (default)
+      }
+      return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  };
+
+  const SortableHeader: React.FC<{ column: string; label: string; subLabel?: string }> = ({ column, label, subLabel }) => {
+    const active = sortColumn === column;
+    return (
+      <button
+        onClick={() => handleSort(column)}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: 0,
+          textAlign: 'left',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+          <span style={{
+            fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+            color: active ? '#00d4aa' : '#4a5568',
+            fontWeight: '600',
+            fontSize: '11px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.14em'
+          }}>
+            {label}
+          </span>
+          <span style={{ color: active ? '#00d4aa' : '#4a5568', fontSize: '11px' }}>
+            {active ? (sortDirection === 'desc' ? '▼' : '▲') : '⇅'}
+          </span>
+        </div>
+        {subLabel && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: '400', color: '#4a5568', textTransform: 'none', letterSpacing: '0.06em' }}>{subLabel}</span>}
+      </button>
+    );
+  };
+
   console.log('✅ PortfolioSummary: Rendering success state with', holdings.length, 'holdings');
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-      {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-6 py-6 relative overflow-hidden">
-        <div className="absolute inset-0 bg-black/10"></div>
-        <div className="relative z-10">
-          <h2 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">Portfolio Summary</h2>
-          <p className="text-indigo-100 text-base font-medium">Current holdings and performance from {persistentPortfolio ? 'persistent' : 'live'} cache</p>
-          <div className="mt-3 space-y-2">
-            <div className="text-sm text-indigo-200 bg-indigo-800/30 px-4 py-2 rounded-lg inline-block">
-              💾 Source: {persistentPortfolio ? 'Persistent Cache (Browser Storage)' : 'Live Cache Context'} • 💱 All amounts converted from USD to CAD for accurate P&L calculations • 📊 Holdings sorted by P&L (highest first) • 💰 Net Invested = Total Invested - Amount Sold
-            </div>
-            <div className="flex gap-4 text-xs text-indigo-300">
-              {portfolioTimestamp && (
-                <div>📊 Portfolio: {portfolioTimestamp.toLocaleString()}</div>
-              )}
-              {holdingsTimestamp && (
-                <div>💰 Prices: {holdingsTimestamp.toLocaleString()}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+    <>
 
-      <div className="p-6 bg-gradient-to-br from-gray-50 to-white" style={{width: '100%', maxWidth: 'fit-content', margin: '0 auto'}}>
+      <div style={{ padding: '16px', width: '100%', maxWidth: '100%' }}>
         {/* Grid layout: Summary cards and Recurring Investments on left, Profit chart on right */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 650px', gap: '24px', marginBottom: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(0, 45%)', gap: '24px', marginBottom: '24px' }}>
           {/* Left side: Summary and Recurring Investments */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             {summary && tradingSummary && (
               <div style={{
-                backgroundColor: 'white',
-                borderRadius: '16px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-                border: '1px solid #e5e7eb',
+                backgroundColor: '#141820',
+                borderRadius: '6px',
+                border: '1px solid #1e2535',
                 overflow: 'hidden',
                 width: '100%'
               }}>
                 <div style={{
-                  background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-                  padding: '20px 24px',
-                  borderBottom: '1px solid #e5e7eb'
+                  background: '#141820',
+                  padding: '14px 20px',
+                  borderBottom: '1px solid #1e2535'
                 }}>
                   <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <h3 style={{
-                      fontSize: '20px',
-                      fontWeight: 'bold',
-                      color: '#111827'
-                    }}>Portfolio Summary</h3>
+                    <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Portfolio Summary</div>
                   </div>
                 </div>
 
@@ -884,356 +951,264 @@ const PortfolioSummary: React.FC = () => {
                   <div>
                     {/* Row 1: Total Portfolio Current Positions */}
                     <div style={{
-                      padding: '30px 24px',
+                      padding: '14px 16px',
                       display: 'grid',
-                      gridTemplateColumns: '180px repeat(5, 1fr)',
-                      gap: '20px',
+                      gridTemplateColumns: '140px repeat(5, 1fr)',
+                      gap: '12px',
                       alignItems: 'center',
-                      borderBottom: '1px solid #e5e7eb',
-                      borderRight: '2px solid #e5e7eb',
-                      background: 'linear-gradient(to right, #eff6ff, #f0f9ff)'
+                      borderBottom: '1px solid #1e2535',
+                      borderRight: '2px solid #1e2535',
+                      background: '#141820'
                     }}>
                       <div style={{textAlign: 'left'}}>
                         <div style={{
-                          fontSize: '14px',
-                          color: '#2563eb',
+                          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                          fontSize: '12px',
+                          color: '#00d4aa',
                           fontWeight: '700',
-                          letterSpacing: '0.5px',
-                          textTransform: 'uppercase'
+                          letterSpacing: '0.12em',
+                          textTransform: 'uppercase' as const
                         }}>
                           Total Portfolio
                         </div>
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '26px',
-                          fontWeight: '700',
-                          color: '#111827',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                          fontSize: '17px',
+                          fontWeight: '600',
+                          color: '#e2e8f0',
+                          marginBottom: '4px'
                         }}>
                           {formatCurrency(summary.totalInvested)}
                         </div>
                         <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #bfdbfe'
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '10px',
+                          color: '#4a5568',
+                          letterSpacing: '0.06em',
+                          marginTop: '2px'
                         }}>
                           Total Invested
                         </div>
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          fontSize: '26px',
-                          fontWeight: '700',
-                          color: '#111827',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                          fontSize: '17px',
+                          fontWeight: '600',
+                          color: '#e2e8f0',
+                          marginBottom: '4px'
                         }}>
                           {formatCurrency(summary.currentTotalValue)}
                         </div>
                         <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #bfdbfe'
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '10px',
+                          color: '#4a5568',
+                          letterSpacing: '0.06em',
+                          marginTop: '2px'
                         }}>
                           Current Value
                         </div>
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px',
-                          marginBottom: '4px'
+                          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                          fontSize: '17px',
+                          fontWeight: '600',
+                          color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#22c55e' : '#ef4444',
+                          marginBottom: '2px'
                         }}>
-                          <div style={{
-                            fontSize: '26px',
-                            fontWeight: '700',
-                            color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(summary.totalUnrealizedPnL)}
-                          </div>
-                          <div style={{
-                            fontSize: '13px',
-                            fontWeight: '600',
-                            color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}>
-                            <span>{summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '↑' : '↓'}</span>
-                            <span>{summary.totalInvested > 0 ? formatPercentage((summary.totalUnrealizedPnL || 0) / summary.totalInvested * 100) : '0.00%'}</span>
-                          </div>
+                          {formatCurrency(summary.totalUnrealizedPnL)}
                         </div>
                         <div style={{
+                          fontFamily: "'IBM Plex Mono', monospace",
                           fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #bfdbfe'
+                          fontWeight: '600',
+                          color: summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '#22c55e' : '#ef4444',
+                          marginBottom: '2px'
+                        }}>
+                          {summary.totalUnrealizedPnL && summary.totalUnrealizedPnL >= 0 ? '↑' : '↓'} {summary.totalInvested > 0 ? formatPercentage((summary.totalUnrealizedPnL || 0) / summary.totalInvested * 100) : '0.00%'}
+                        </div>
+                        <div style={{
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '10px',
+                          color: '#4a5568',
+                          letterSpacing: '0.06em',
                         }}>
                           Unrealized P/L
                         </div>
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px',
-                          marginBottom: '4px'
+                          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                          fontSize: '17px',
+                          fontWeight: '600',
+                          color: summary.totalRealized && summary.totalRealized >= 0 ? '#22c55e' : '#ef4444',
+                          marginBottom: '2px'
                         }}>
-                          <div style={{
-                            fontSize: '26px',
-                            fontWeight: '700',
-                            color: summary.totalRealized && summary.totalRealized >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(summary.totalRealized)}
-                          </div>
+                          {formatCurrency(summary.totalRealized)}
                         </div>
                         <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #bfdbfe'
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '10px',
+                          color: '#4a5568',
+                          letterSpacing: '0.06em',
                         }}>
                           Realized P/L
                         </div>
                       </div>
                       <div style={{textAlign: 'center'}}>
                         <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px',
-                          marginBottom: '4px'
+                          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                          fontSize: '17px',
+                          fontWeight: '600',
+                          color: summary.totalPnL && summary.totalPnL >= 0 ? '#22c55e' : '#ef4444',
+                          marginBottom: '2px'
                         }}>
-                          <div style={{
-                            fontSize: '26px',
-                            fontWeight: '700',
-                            color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(summary.totalPnL)}
-                          </div>
-                          <div style={{
-                            fontSize: '13px',
-                            fontWeight: '600',
-                            color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}>
-                            <span>{summary.totalPnL && summary.totalPnL >= 0 ? '↑' : '↓'}</span>
-                            <span>{summary.totalInvested > 0 ? formatPercentage((summary.totalPnL || 0) / summary.totalInvested * 100) : '0.00%'}</span>
-                          </div>
+                          {formatCurrency(summary.totalPnL)}
                         </div>
                         <div style={{
+                          fontFamily: "'IBM Plex Mono', monospace",
                           fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #bfdbfe'
+                          fontWeight: '600',
+                          color: summary.totalPnL && summary.totalPnL >= 0 ? '#22c55e' : '#ef4444',
+                          marginBottom: '2px'
+                        }}>
+                          {summary.totalPnL && summary.totalPnL >= 0 ? '↑' : '↓'} {summary.totalInvested > 0 ? formatPercentage((summary.totalPnL || 0) / summary.totalInvested * 100) : '0.00%'}
+                        </div>
+                        <div style={{
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '10px',
+                          color: '#4a5568',
+                          letterSpacing: '0.06em',
                         }}>
                           Total P/L
                         </div>
                       </div>
                     </div>
 
-                    {/* Row 2: Trading Holdings Only */}
-                    <div style={{
-                      padding: '30px 24px',
-                      display: 'grid',
-                      gridTemplateColumns: '180px repeat(5, 1fr)',
-                      gap: '20px',
-                      alignItems: 'center',
-                      borderRight: '2px solid #e5e7eb',
-                      background: 'linear-gradient(to right, #fefce8, #fef9c3)'
-                    }}>
-                      <div style={{textAlign: 'left'}}>
-                        <div style={{
-                          fontSize: '14px',
-                          color: '#ca8a04',
-                          fontWeight: '700',
-                          letterSpacing: '0.5px',
-                          textTransform: 'uppercase'
-                        }}>
-                          Trading Holdings
-                        </div>
-                      </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          fontSize: '26px',
-                          fontWeight: '700',
-                          color: '#111827',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                        }}>
-                          {formatCurrency(tradingSummary.totalInvested)}
-                        </div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Total Invested
-                        </div>
-                      </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          fontSize: '26px',
-                          fontWeight: '700',
-                          color: '#111827',
-                          marginBottom: '4px',
-                          fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                        }}>
-                          {formatCurrency(tradingSummary.currentValue)}
-                        </div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Current Value
-                        </div>
-                      </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px',
-                          marginBottom: '4px'
-                        }}>
-                          <div style={{
-                            fontSize: '26px',
-                            fontWeight: '700',
-                            color: tradingSummary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(tradingSummary.totalUnrealizedPnL)}
+                    {/* Rows: Stocks+ETFs and Crypto */}
+                    {holdings.length > 0 && (() => {
+                      const seH = holdings.filter(h => h.type !== 'c');
+                      const crH = holdings.filter(h => h.type === 'c');
+
+                      const seCurrentValue = seH.reduce((s, h) => s + (h.currentValue || 0), 0);
+                      const seTotalInvested = seH.reduce((s, h) => s + (h.totalInvested || 0), 0);
+                      const seUnrealized = seH.reduce((s, h) => s + (h.unrealizedPnL || 0), 0);
+                      const seRealized = seH.reduce((s, h) => s + (h.realizedPnL || 0), 0);
+                      const seTotalPnL = seUnrealized + seRealized;
+                      const seTai = seH.reduce((s, h) => s + (h.totalAmountInvested || h.totalInvested || 0), 0);
+                      const seAmtSold = seH.reduce((s, h) => s + (h.amountSold || 0), 0);
+                      const seNi = seTai - seAmtSold;
+                      const seDen = (seTotalPnL >= 0 && seNi > 0) ? seNi : (seTai || 1);
+                      const sePct = (seTotalPnL / seDen) * 100;
+
+                      const crCurrentValue = crH.reduce((s, h) => s + (h.currentValue || 0), 0);
+                      const crTotalInvested = crH.reduce((s, h) => s + (h.totalInvested || 0), 0);
+                      const crUnrealized = crH.reduce((s, h) => s + (h.unrealizedPnL || 0), 0);
+                      const crRealized = crH.reduce((s, h) => s + (h.realizedPnL || 0), 0);
+                      const crTotalPnL = crUnrealized + crRealized;
+                      const crTai = crH.reduce((s, h) => s + (h.totalAmountInvested || h.totalInvested || 0), 0);
+                      const crAmtSold = crH.reduce((s, h) => s + (h.amountSold || 0), 0);
+                      const crNi = crTai - crAmtSold;
+                      const crDen = (crTotalPnL >= 0 && crNi > 0) ? crNi : (crTai || 1);
+                      const crPct = (crTotalPnL / crDen) * 100;
+
+                      const rowStyle: React.CSSProperties = { padding: '14px 16px', display: 'grid', gridTemplateColumns: '140px repeat(5, 1fr)', gap: '12px', alignItems: 'center', borderTop: '1px solid #1e2535', borderRight: '2px solid #1e2535', background: '#141820' };
+                      const f = "'IBM Plex Mono', 'Courier New', monospace";
+                      const pc = (v: number) => v >= 0 ? '#22c55e' : '#ef4444';
+
+                      return (
+                        <>
+                          <div style={rowStyle}>
+                            <div style={{ fontFamily: f, fontSize: '12px', color: '#3b82f6', fontWeight: '700', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Stocks + ETFs</div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#e2e8f0', marginBottom: '2px' }}>{formatCurrency(seTotalInvested)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Total Invested</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#e2e8f0', marginBottom: '2px' }}>{formatCurrency(seCurrentValue)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Current Value</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(seUnrealized), marginBottom: '2px' }}>{formatCurrency(seUnrealized)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Unrealized P/L</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(seRealized), marginBottom: '2px' }}>{formatCurrency(seRealized)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Realized P/L</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '2px' }}>
+                                <span style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(seTotalPnL) }}>{formatCurrency(seTotalPnL)}</span>
+                                <span style={{ fontSize: '11px', color: pc(seTotalPnL) }}>{sePct >= 0 ? '+' : ''}{sePct.toFixed(1)}%</span>
+                              </div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Total P/L</div>
+                            </div>
                           </div>
-                          <div style={{
-                            fontSize: '13px',
-                            fontWeight: '600',
-                            color: tradingSummary.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}>
-                            <span>{tradingSummary.totalUnrealizedPnL >= 0 ? '↑' : '↓'}</span>
-                            <span>{tradingSummary.totalInvested > 0 ? formatPercentage(tradingSummary.totalUnrealizedPnL / tradingSummary.totalInvested * 100) : '0.00%'}</span>
+                          <div style={rowStyle}>
+                            <div style={{ fontFamily: f, fontSize: '12px', color: '#f59e0b', fontWeight: '700', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Crypto</div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#e2e8f0', marginBottom: '2px' }}>{formatCurrency(crTotalInvested)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Total Invested</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#e2e8f0', marginBottom: '2px' }}>{formatCurrency(crCurrentValue)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Current Value</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(crUnrealized), marginBottom: '2px' }}>{formatCurrency(crUnrealized)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Unrealized P/L</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(crRealized), marginBottom: '2px' }}>{formatCurrency(crRealized)}</div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Realized P/L</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '2px' }}>
+                                <span style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(crTotalPnL) }}>{formatCurrency(crTotalPnL)}</span>
+                                <span style={{ fontSize: '11px', color: pc(crTotalPnL) }}>{crPct >= 0 ? '+' : ''}{crPct.toFixed(1)}%</span>
+                              </div>
+                              <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Total P/L</div>
+                            </div>
                           </div>
-                        </div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Unrealized P/L
-                        </div>
-                      </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px',
-                          marginBottom: '4px'
-                        }}>
-                          <div style={{
-                            fontSize: '26px',
-                            fontWeight: '700',
-                            color: tradingSummary.totalRealized && tradingSummary.totalRealized >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(tradingSummary.totalRealized)}
-                          </div>
-                        </div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Realized P/L
-                        </div>
-                      </div>
-                      <div style={{textAlign: 'center'}}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px',
-                          marginBottom: '4px'
-                        }}>
-                          <div style={{
-                            fontSize: '26px',
-                            fontWeight: '700',
-                            color: tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                          }}>
-                            {formatCurrency(tradingSummary.totalPnL)}
-                          </div>
-                          <div style={{
-                            fontSize: '13px',
-                            fontWeight: '600',
-                            color: tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px'
-                          }}>
-                            <span>{tradingSummary.totalPnL && tradingSummary.totalPnL >= 0 ? '↑' : '↓'}</span>
-                            <span>{tradingSummary.totalInvested > 0 ? formatPercentage((tradingSummary.totalPnL || 0) / tradingSummary.totalInvested * 100) : '0.00%'}</span>
-                          </div>
-                        </div>
-                        <div style={{
-                          fontSize: '11px',
-                          color: '#6b7280',
-                          backgroundColor: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          display: 'inline-block',
-                          border: '1px solid #fde68a'
-                        }}>
-                          Total P/L
-                        </div>
-                      </div>
-                    </div>
+                          {recurringInvestments?.totals && (() => {
+                            const ri = recurringInvestments.totals;
+                            const riPct = ri.totalInvested > 0 ? (ri.profitLoss / ri.totalInvested) * 100 : 0;
+                            return (
+                              <div style={rowStyle}>
+                                <div style={{ fontFamily: f, fontSize: '12px', color: '#DC2626', fontWeight: '700', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Index Funds</div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#e2e8f0', marginBottom: '2px' }}>{formatCurrency(ri.totalInvested)}</div>
+                                  <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Total Invested</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#e2e8f0', marginBottom: '2px' }}>{formatCurrency(ri.currentValue)}</div>
+                                  <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Current Value</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(ri.profitLoss), marginBottom: '2px' }}>{formatCurrency(ri.profitLoss)}</div>
+                                  <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Unrealized P/L</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: '#4a5568', marginBottom: '2px' }}>—</div>
+                                  <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Realized P/L</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginBottom: '2px' }}>
+                                    <span style={{ fontFamily: f, fontSize: '17px', fontWeight: '600', color: pc(ri.profitLoss) }}>{formatCurrency(ri.profitLoss)}</span>
+                                    <span style={{ fontSize: '11px', color: pc(ri.profitLoss) }}>{riPct >= 0 ? '+' : ''}{riPct.toFixed(1)}%</span>
+                                  </div>
+                                  <div style={{ fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', fontFamily: f }}>Total P/L</div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Right side: All-Time Performance (spans both rows) */}
@@ -1243,46 +1218,46 @@ const PortfolioSummary: React.FC = () => {
                     justifyContent: 'center',
                     alignItems: 'center',
                     padding: '16px 20px',
-                    background: 'linear-gradient(135deg, #faf5ff, #f3e8ff)'
+                    background: 'rgba(168,85,247,0.06)',
+                    borderLeft: '1px solid rgba(168,85,247,0.2)'
                   }}>
                     <div style={{
-                      fontSize: '11px',
-                      color: '#7c3aed',
+                      fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                      fontSize: '12px',
+                      color: '#a855f7',
                       fontWeight: '700',
-                      marginBottom: '6px',
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase'
+                      marginBottom: '4px',
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase' as const
                     }}>
-                      All-Time Performance
+                      All-Time
                     </div>
                     <div style={{
-                      fontSize: '10px',
-                      color: '#9333ea',
-                      marginBottom: '12px',
-                      textAlign: 'center',
-                      fontStyle: 'italic'
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: '12px',
+                      color: '#4a5568',
+                      marginBottom: '14px',
+                      textAlign: 'center'
                     }}>
-                      (Current + Realized)
+                      Current + Realized
                     </div>
 
-                    <div style={{marginBottom: '16px', textAlign: 'center'}}>
+                    <div style={{marginBottom: '14px', textAlign: 'center'}}>
                       <div style={{
-                        fontSize: '30px',
-                        fontWeight: '700',
-                        color: summary.totalPnL && summary.totalPnL >= 0 ? '#166534' : '#dc2626',
-                        marginBottom: '5px',
-                        fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                        fontSize: '22px',
+                        fontWeight: '600',
+                        color: summary.totalPnL && summary.totalPnL >= 0 ? '#22c55e' : '#ef4444',
+                        marginBottom: '4px',
                       }}>
                         {formatCurrency(summary.totalPnL)}
                       </div>
                       <div style={{
-                        fontSize: '11px',
-                        color: '#6b7280',
-                        backgroundColor: 'white',
-                        padding: '3px 10px',
-                        borderRadius: '12px',
-                        display: 'inline-block',
-                        border: '1px solid #e9d5ff'
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: '10px',
+                        color: '#4a5568',
+                        letterSpacing: '0.06em',
+                        marginTop: '2px'
                       }}>
                         Total P/L
                       </div>
@@ -1290,22 +1265,20 @@ const PortfolioSummary: React.FC = () => {
 
                     <div style={{textAlign: 'center'}}>
                       <div style={{
-                        fontSize: '30px',
-                        fontWeight: '700',
-                        color: summary.totalPnLPercent && summary.totalPnLPercent >= 0 ? '#166534' : '#dc2626',
-                        marginBottom: '5px',
-                        fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                        fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                        fontSize: '22px',
+                        fontWeight: '600',
+                        color: summary.totalPnLPercent && summary.totalPnLPercent >= 0 ? '#22c55e' : '#ef4444',
+                        marginBottom: '4px',
                       }}>
                         {formatPercentage(summary.totalPnLPercent)}
                       </div>
                       <div style={{
-                        fontSize: '11px',
-                        color: '#6b7280',
-                        backgroundColor: 'white',
-                        padding: '3px 10px',
-                        borderRadius: '12px',
-                        display: 'inline-block',
-                        border: '1px solid #e9d5ff'
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: '10px',
+                        color: '#4a5568',
+                        letterSpacing: '0.06em',
+                        marginTop: '2px'
                       }}>
                         Total Return %
                       </div>
@@ -1323,7 +1296,7 @@ const PortfolioSummary: React.FC = () => {
 
           {/* Right side: Profit by Asset Type Bar Chart */}
           {holdings.length > 0 && (
-            <div style={{ display: 'flex', width: '100%' }}>
+            <div style={{ display: 'flex', width: '100%', height: '100%' }}>
               <ProfitByAssetTypeBarChart
                 holdings={holdings}
                 recurringInvestments={recurringInvestments?.investments || []}
@@ -1331,16 +1304,6 @@ const PortfolioSummary: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* Portfolio Allocation Pie Chart */}
-        {holdings.length > 0 && (
-          <div style={{ marginBottom: '24px' }}>
-            <PortfolioAllocationPieChart
-              holdings={holdings}
-              recurringInvestments={recurringInvestments?.investments || []}
-            />
-          </div>
-        )}
 
         {/* Holdings by Asset Type Table */}
         {holdings.length > 0 && (() => {
@@ -1494,90 +1457,45 @@ const PortfolioSummary: React.FC = () => {
 
           return (
             <div style={{
-              backgroundColor: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e5e7eb',
+              backgroundColor: '#141820',
+              borderRadius: '6px',
+              border: '1px solid #1e2535',
               overflow: 'hidden',
               width: '100%',
               maxWidth: '100%',
-              marginBottom: '24px',
+              marginBottom: '14px',
               gridColumn: '1 / -1'
             }}>
               <div style={{
-                background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-                padding: '20px 24px',
-                borderBottom: '1px solid #e5e7eb'
+                background: '#141820',
+                padding: '12px 20px'
               }}>
                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                  <h3 style={{
-                    fontSize: '20px',
-                    fontWeight: 'bold',
-                    color: '#111827'
-                  }}>Holdings by Asset Type</h3>
+                  <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Holdings by Asset Type</div>
                   <div style={{
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    color: '#6b7280',
-                    backgroundColor: 'white',
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#4a5568',
+                    backgroundColor: '#0a0c10',
+                    padding: '3px 10px',
+                    borderRadius: '2px',
+                    border: '1px solid #1e2535'
                   }}>{Object.keys(holdingsByType).length} types</div>
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-full" style={{backgroundColor: 'white', border: '1px solid #e5e7eb'}}>
+                <table className="min-w-full" style={{backgroundColor: '#141820', borderCollapse: 'collapse'}}>
                   <thead>
-                    <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Asset Type
-                      </th>
-                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        # of Assets
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Total Invested
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Current Value
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Total P&L ↓
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Total P&L %
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Unrealized P&L
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Realized P&L
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        % of Portfolio
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Daily Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Weekly Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        This Week
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Monthly Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Quarterly Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Yearly Change
-                      </th>
+                    <tr style={{backgroundColor: '#141820'}}>
+                      {(['Type','#','Invested','Value','P&L','P&L%','Unrlzd','Rlzd','Alloc%','Day','Week','This Wk','Month','Qtr','YTD']).map(h => (
+                        <th key={h} style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', textAlign: 'left', whiteSpace: 'nowrap' as const}}>
+                          {h}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody>
                     {sortedCategories.map(([category, data], index) => {
                       const catNetInvested = data.totalAmountInvested - data.totalAmountSold;
                       const catPnlDenominator = (data.totalPnL >= 0 && catNetInvested > 0) ? catNetInvested : data.totalAmountInvested;
@@ -1589,227 +1507,186 @@ const PortfolioSummary: React.FC = () => {
 
                       return (
                         <tr key={category} style={{
-                          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
-                          borderBottom: '1px solid #f3f4f6',
-                          borderLeft: `4px solid ${categoryColors[category]}`,
-                          transition: 'all 0.2s ease'
+                          backgroundColor: '#141820',
+                          borderBottom: '1px solid #1e2535',
+                          borderLeft: `3px solid ${categoryColors[category]}`,
                         }}>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                               <div style={{
-                                width: '12px',
-                                height: '12px',
+                                width: '8px',
+                                height: '8px',
                                 backgroundColor: categoryColors[category],
-                                borderRadius: '3px'
+                                borderRadius: '2px',
+                                flexShrink: 0
                               }}></div>
                               <div style={{
-                                fontSize: '16px',
-                                fontWeight: '700',
-                                color: '#111827'
+                                fontFamily: "'IBM Plex Sans', sans-serif",
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                color: '#e2e8f0'
                               }}>
                                 {category}
                               </div>
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px', textAlign: 'center'}}>
+                          <td style={{padding: '7px 8px', textAlign: 'center'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '600',
-                              color: '#111827'
+                              color: '#e2e8f0'
                             }}>
                               {data.count}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '600',
-                              color: '#111827'
+                              color: '#e2e8f0'
                             }}>
                               {formatCurrency(data.totalInvested)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '600',
-                              color: '#111827'
+                              color: '#e2e8f0'
                             }}>
                               {formatCurrency(data.currentValue)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '8px 16px',
-                              borderRadius: '20px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                              backgroundColor: data.totalPnL >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: data.totalPnL >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${data.totalPnL >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
+                              fontWeight: '700',
+                              color: data.totalPnL >= 0 ? '#22c55e' : '#ef4444',
                             }}>
-                              {data.totalPnL >= 0 ? (
-                                <svg style={{width: '16px', height: '16px', marginRight: '8px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '16px', height: '16px', marginRight: '8px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatCurrency(data.totalPnL)}
+                              {data.totalPnL >= 0 ? '▲' : '▼'} {formatCurrency(data.totalPnL)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '3px'}}>
                               <div style={{
-                                fontSize: '14px',
-                                fontWeight: '600',
-                                padding: '6px 12px',
-                                borderRadius: '16px',
-                                backgroundColor: pnlPercent >= 0 ? '#f0fdf4' : '#fef2f2',
-                                color: pnlPercent >= 0 ? '#166534' : '#dc2626',
-                                border: `1px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                                width: 'fit-content'
+                                fontFamily: "'IBM Plex Mono', monospace",
+                                fontSize: '12px',
+                                fontWeight: '700',
+                                color: pnlPercent >= 0 ? '#22c55e' : '#ef4444',
                               }}>
                                 {formatPercentage(pnlPercent)}
                               </div>
                               <div style={{display: 'flex', gap: '4px', flexWrap: 'nowrap'}}>
                                 <div style={{
-                                  fontSize: '11px',
-                                  fontWeight: '500',
-                                  padding: '2px 6px',
-                                  borderRadius: '8px',
-                                  backgroundColor: '#eff6ff',
-                                  color: '#1d4ed8',
-                                  border: '1px solid #bfdbfe',
-                                  whiteSpace: 'nowrap'
+                                  fontFamily: "'IBM Plex Mono', monospace",
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  padding: '1px 5px',
+                                  borderRadius: '2px',
+                                  backgroundColor: 'rgba(79,143,255,0.1)',
+                                  color: '#4f8fff',
+                                  border: '1px solid rgba(79,143,255,0.2)',
+                                  whiteSpace: 'nowrap' as const
                                 }}>
                                   U: {formatPercentage(unrealizedPercent)}
                                 </div>
                                 <div style={{
-                                  fontSize: '11px',
-                                  fontWeight: '500',
-                                  padding: '2px 6px',
-                                  borderRadius: '8px',
-                                  backgroundColor: '#faf5ff',
-                                  color: '#7c3aed',
-                                  border: '1px solid #e9d5ff',
-                                  whiteSpace: 'nowrap'
+                                  fontFamily: "'IBM Plex Mono', monospace",
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  padding: '1px 5px',
+                                  borderRadius: '2px',
+                                  backgroundColor: 'rgba(168,85,247,0.1)',
+                                  color: '#a855f7',
+                                  border: '1px solid rgba(168,85,247,0.2)',
+                                  whiteSpace: 'nowrap' as const
                                 }}>
                                   R: {formatPercentage(realizedPercent)}
                                 </div>
                               </div>
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '15px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              color: data.unrealizedPnL >= 0 ? '#166534' : '#dc2626'
+                              color: data.unrealizedPnL >= 0 ? '#22c55e' : '#ef4444'
                             }}>
                               {formatCurrency(data.unrealizedPnL)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '15px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              color: data.realizedPnL >= 0 ? '#166534' : '#dc2626'
+                              color: data.realizedPnL >= 0 ? '#22c55e' : '#ef4444'
                             }}>
                               {formatCurrency(data.realizedPnL)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '14px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              backgroundColor: '#dbeafe',
-                              color: '#2563eb',
-                              border: '2px solid #93c5fd',
+                              padding: '3px 8px',
+                              borderRadius: '2px',
+                              backgroundColor: portfolioPercent < 0.01 ? 'rgba(148,163,184,0.08)' : 'rgba(79,143,255,0.12)',
+                              color: portfolioPercent < 0.01 ? '#4a5568' : '#4f8fff',
+                              border: `1px solid ${portfolioPercent < 0.01 ? 'rgba(148,163,184,0.15)' : 'rgba(79,143,255,0.25)'}`,
                               width: 'fit-content'
                             }}>
                               {portfolioPercent.toFixed(2)}%
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <ThreeSegmentPill
                               values={changes.dailyChange}
                               labels={['2 days ago', 'Yesterday', 'Today']}
                             />
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <ThreeSegmentPill
                               values={changes.weeklyChange}
                               labels={['2 weeks ago', 'Last week', 'This week']}
                             />
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <ThreeSegmentPill
                               values={changes.thisWeekChange}
                               labels={['2 weeks ago', 'Last week', 'This week']}
                             />
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <ThreeSegmentPill
                               values={changes.monthlyChange}
                               labels={['2 months ago', 'Last month', 'This month']}
                             />
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              backgroundColor: changes.quarterlyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.quarterlyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.quarterlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
+                              color: changes.quarterlyChange >= 0 ? '#22c55e' : '#ef4444',
                             }}>
-                              {changes.quarterlyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.quarterlyChange)}
+                              {changes.quarterlyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.quarterlyChange)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              backgroundColor: changes.yearlyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.yearlyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.yearlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
+                              color: changes.yearlyChange >= 0 ? '#22c55e' : '#ef4444',
                             }}>
-                              {changes.yearlyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.yearlyChange)}
+                              {changes.yearlyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.yearlyChange)}
                             </div>
                           </td>
                         </tr>
@@ -1821,6 +1698,16 @@ const PortfolioSummary: React.FC = () => {
             </div>
           );
         })()}
+
+        {/* Portfolio Allocation Pie Chart */}
+        {holdings.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <PortfolioAllocationPieChart
+              holdings={holdings}
+              recurringInvestments={recurringInvestments?.investments || []}
+            />
+          </div>
+        )}
 
         {/* Holdings by Sector Table */}
         {holdings.length > 0 && (() => {
@@ -1993,91 +1880,46 @@ const PortfolioSummary: React.FC = () => {
 
           return (
             <div style={{
-              backgroundColor: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e5e7eb',
+              backgroundColor: '#141820',
+              borderRadius: '6px',
+              border: '1px solid #1e2535',
               overflow: 'hidden',
               width: '100%',
               maxWidth: '100%',
               marginTop: '0',
-              marginBottom: '0',
+              marginBottom: '14px',
               gridColumn: '1 / -1'
             }}>
               <div style={{
-                background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-                padding: '20px 24px',
-                borderBottom: '1px solid #e5e7eb'
+                background: '#141820',
+                padding: '12px 20px'
               }}>
                 <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                  <h3 style={{
-                    fontSize: '20px',
-                    fontWeight: 'bold',
-                    color: '#111827'
-                  }}>Holdings by Sector</h3>
+                  <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Holdings by Sector</div>
                   <div style={{
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    color: '#6b7280',
-                    backgroundColor: 'white',
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#4a5568',
+                    backgroundColor: '#0a0c10',
+                    padding: '3px 10px',
+                    borderRadius: '2px',
+                    border: '1px solid #1e2535'
                   }}>{Object.keys(holdingsBySector).length} sectors</div>
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="min-w-full" style={{backgroundColor: 'white', border: '1px solid #e5e7eb'}}>
+                <table className="min-w-full" style={{backgroundColor: '#141820', borderCollapse: 'collapse'}}>
                   <thead>
-                    <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Sector
-                      </th>
-                      <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        # Assets (Active/Total)
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Total Invested
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Current Value
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Total P&L ↓
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Total P&L %
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Unrealized P&L
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Realized P&L
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        % of Portfolio
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Daily Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Weekly Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        This Week
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Monthly Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Quarterly Change
-                      </th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                        Yearly Change
-                      </th>
+                    <tr style={{backgroundColor: '#141820'}}>
+                      {(['Sector','Act/Tot','Invested','Value','P&L','P&L%','Unrlzd','Rlzd','Alloc%','Day','Week','This Wk','Month','Qtr','YTD']).map(h => (
+                        <th key={h} style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', textAlign: 'left', whiteSpace: 'nowrap' as const}}>
+                          {h}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody>
                     {sortedSectors.map(([sector, data], index) => {
                       const sectorNetInvested = data.totalAmountInvested - data.totalAmountSold;
                       const sectorPnlDenominator = (data.totalPnL >= 0 && sectorNetInvested > 0) ? sectorNetInvested : data.totalAmountInvested;
@@ -2090,315 +1932,172 @@ const PortfolioSummary: React.FC = () => {
 
                       return (
                         <tr key={sector} style={{
-                          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
-                          borderBottom: '1px solid #f3f4f6',
-                          borderLeft: `4px solid ${sectorColor}`,
-                          transition: 'all 0.2s ease'
+                          backgroundColor: '#141820',
+                          borderBottom: '1px solid #1e2535',
+                          borderLeft: `3px solid ${sectorColor}`,
                         }}>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                               <div style={{
-                                width: '12px',
-                                height: '12px',
+                                width: '8px',
+                                height: '8px',
                                 backgroundColor: sectorColor,
-                                borderRadius: '3px'
+                                borderRadius: '2px',
+                                flexShrink: 0
                               }}></div>
                               <div style={{
-                                fontSize: '16px',
-                                fontWeight: '700',
-                                color: '#111827'
+                                fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                color: '#e2e8f0'
                               }}>
                                 {sector}
                               </div>
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px', textAlign: 'center'}}>
+                          <td style={{padding: '7px 8px', textAlign: 'center'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '600',
-                              color: '#111827'
+                              color: '#e2e8f0'
                             }}>
                               {data.activeCount} / {data.count}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '600',
-                              color: '#111827'
+                              color: '#e2e8f0'
                             }}>
                               {formatCurrency(data.totalInvested)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '600',
-                              color: '#111827'
+                              color: '#e2e8f0'
                             }}>
                               {formatCurrency(data.currentValue)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '16px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '13px',
                               fontWeight: '700',
-                              color: data.totalPnL >= 0 ? '#059669' : '#dc2626',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px'
+                              color: data.totalPnL >= 0 ? '#22c55e' : '#ef4444',
                             }}>
-                              {data.totalPnL >= 0 ? (
-                                <svg style={{width: '18px', height: '18px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '18px', height: '18px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatCurrency(data.totalPnL)}
+                              {data.totalPnL >= 0 ? '▲' : '▼'} {formatCurrency(data.totalPnL)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{display: 'flex', flexDirection: 'column', gap: '3px'}}>
                               <div style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                padding: '6px 12px',
-                                borderRadius: '16px',
-                                fontSize: '14px',
+                                fontFamily: "'IBM Plex Mono', monospace",
+                                fontSize: '12px',
                                 fontWeight: '700',
-                                backgroundColor: pnlPercent >= 0 ? '#dcfce7' : '#fef2f2',
-                                color: pnlPercent >= 0 ? '#166534' : '#dc2626',
-                                border: `2px solid ${pnlPercent >= 0 ? '#bbf7d0' : '#fecaca'}`
+                                color: pnlPercent >= 0 ? '#22c55e' : '#ef4444',
                               }}>
                                 {formatPercentage(pnlPercent)}
                               </div>
                               <div style={{display: 'flex', gap: '4px', flexWrap: 'nowrap'}}>
                                 <div style={{
-                                  fontSize: '11px',
-                                  fontWeight: '500',
-                                  padding: '2px 6px',
-                                  borderRadius: '8px',
-                                  backgroundColor: '#eff6ff',
-                                  color: '#1d4ed8',
-                                  border: '1px solid #bfdbfe',
-                                  whiteSpace: 'nowrap'
+                                  fontFamily: "'IBM Plex Mono', monospace",
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  padding: '1px 5px',
+                                  borderRadius: '2px',
+                                  backgroundColor: 'rgba(79,143,255,0.1)',
+                                  color: '#4f8fff',
+                                  border: '1px solid rgba(79,143,255,0.2)',
+                                  whiteSpace: 'nowrap' as const
                                 }}>
                                   U: {formatPercentage(unrealizedPercent)}
                                 </div>
                                 <div style={{
-                                  fontSize: '11px',
-                                  fontWeight: '500',
-                                  padding: '2px 6px',
-                                  borderRadius: '8px',
-                                  backgroundColor: '#faf5ff',
-                                  color: '#7c3aed',
-                                  border: '1px solid #e9d5ff',
-                                  whiteSpace: 'nowrap'
+                                  fontFamily: "'IBM Plex Mono', monospace",
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  padding: '1px 5px',
+                                  borderRadius: '2px',
+                                  backgroundColor: 'rgba(168,85,247,0.1)',
+                                  color: '#a855f7',
+                                  border: '1px solid rgba(168,85,247,0.2)',
+                                  whiteSpace: 'nowrap' as const
                                 }}>
                                   R: {formatPercentage(realizedPercent)}
                                 </div>
                               </div>
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '15px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              color: data.unrealizedPnL >= 0 ? '#059669' : '#dc2626'
+                              color: data.unrealizedPnL >= 0 ? '#22c55e' : '#ef4444'
                             }}>
                               {formatCurrency(data.unrealizedPnL)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              fontSize: '15px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              color: data.realizedPnL >= 0 ? '#059669' : '#dc2626'
+                              color: data.realizedPnL >= 0 ? '#22c55e' : '#ef4444'
                             }}>
                               {formatCurrency(data.realizedPnL)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                          <td style={{padding: '7px 8px'}}>
                             <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px'
-                            }}>
-                              <div style={{
-                                fontSize: '15px',
-                                fontWeight: '600',
-                                color: '#111827'
-                              }}>
-                                {formatPercentage(portfolioPercent)}
-                              </div>
-                              <div style={{
-                                flex: 1,
-                                height: '6px',
-                                backgroundColor: '#e5e7eb',
-                                borderRadius: '3px',
-                                overflow: 'hidden',
-                                minWidth: '40px'
-                              }}>
-                                <div style={{
-                                  width: `${Math.min(portfolioPercent, 100)}%`,
-                                  height: '100%',
-                                  backgroundColor: sectorColor,
-                                  transition: 'width 0.3s ease'
-                                }}></div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: '12px',
                               fontWeight: '600',
-                              backgroundColor: changes.dailyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.dailyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.dailyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
+                              padding: '3px 8px',
+                              borderRadius: '2px',
+                              backgroundColor: portfolioPercent < 0.01 ? 'rgba(148,163,184,0.08)' : 'rgba(79,143,255,0.12)',
+                              color: portfolioPercent < 0.01 ? '#4a5568' : '#4f8fff',
+                              border: `1px solid ${portfolioPercent < 0.01 ? 'rgba(148,163,184,0.15)' : 'rgba(79,143,255,0.25)'}`,
                               width: 'fit-content'
                             }}>
-                              {changes.dailyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.dailyChange)}
+                              {portfolioPercent.toFixed(2)}%
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.weeklyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.weeklyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.weeklyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.weeklyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.weeklyChange)}
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: '600', color: changes.dailyChange >= 0 ? '#22c55e' : '#ef4444'}}>
+                              {changes.dailyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.dailyChange)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.thisWeekChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.thisWeekChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.thisWeekChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.thisWeekChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.thisWeekChange)}
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: '600', color: changes.weeklyChange >= 0 ? '#22c55e' : '#ef4444'}}>
+                              {changes.weeklyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.weeklyChange)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.monthlyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.monthlyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.monthlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.monthlyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.monthlyChange)}
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: '600', color: changes.thisWeekChange >= 0 ? '#22c55e' : '#ef4444'}}>
+                              {changes.thisWeekChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.thisWeekChange)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.quarterlyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.quarterlyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.quarterlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.quarterlyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.quarterlyChange)}
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: '600', color: changes.monthlyChange >= 0 ? '#22c55e' : '#ef4444'}}>
+                              {changes.monthlyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.monthlyChange)}
                             </div>
                           </td>
-                          <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              backgroundColor: changes.yearlyChange >= 0 ? '#dcfce7' : '#fef2f2',
-                              color: changes.yearlyChange >= 0 ? '#166534' : '#dc2626',
-                              border: `2px solid ${changes.yearlyChange >= 0 ? '#bbf7d0' : '#fecaca'}`,
-                              width: 'fit-content'
-                            }}>
-                              {changes.yearlyChange >= 0 ? (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                </svg>
-                              ) : (
-                                <svg style={{width: '14px', height: '14px', marginRight: '6px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                </svg>
-                              )}
-                              {formatPercentage(changes.yearlyChange)}
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: '600', color: changes.quarterlyChange >= 0 ? '#22c55e' : '#ef4444'}}>
+                              {changes.quarterlyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.quarterlyChange)}
+                            </div>
+                          </td>
+                          <td style={{padding: '7px 8px'}}>
+                            <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: '600', color: changes.yearlyChange >= 0 ? '#22c55e' : '#ef4444'}}>
+                              {changes.yearlyChange >= 0 ? '▲' : '▼'} {formatPercentage(changes.yearlyChange)}
                             </div>
                           </td>
                         </tr>
@@ -2415,10 +2114,9 @@ const PortfolioSummary: React.FC = () => {
 
         {holdings.length > 0 && (
           <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
+            backgroundColor: '#141820',
+            borderRadius: '6px',
+            border: '1px solid #1e2535',
             overflow: 'hidden',
             width: '100%',
             maxWidth: '100%',
@@ -2427,220 +2125,149 @@ const PortfolioSummary: React.FC = () => {
             gridColumn: '1 / -1'
           }}>
             <div style={{
-              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-              padding: '20px 24px',
-              borderBottom: '1px solid #e5e7eb'
+              background: '#141820',
+              padding: '12px 20px',
+              borderBottom: '1px solid #1e2535'
             }}>
-              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px'}}>
-                <h3 style={{
-                  fontSize: '20px',
-                  fontWeight: 'bold',
-                  color: '#111827'
-                }}>Active Trading Holdings</h3>
-                <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px'}}>
+                <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Active Trading Holdings</div>
+                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
                   <button
                     onClick={() => setShowInactiveHoldings(prev => !prev)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      color: showInactiveHoldings ? '#6b7280' : '#7c3aed',
-                      backgroundColor: showInactiveHoldings ? '#f3f4f6' : '#f3e8ff',
-                      border: `1px solid ${showInactiveHoldings ? '#d1d5db' : '#c4b5fd'}`,
-                      padding: '5px 12px',
-                      borderRadius: '20px',
+                      gap: '5px',
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: showInactiveHoldings ? '#4a5568' : '#a855f7',
+                      backgroundColor: showInactiveHoldings ? '#141820' : 'rgba(168,85,247,0.1)',
+                      border: `1px solid ${showInactiveHoldings ? '#1e2535' : 'rgba(168,85,247,0.25)'}`,
+                      padding: '3px 10px',
+                      borderRadius: '2px',
                       cursor: 'pointer',
-                      transition: 'all 0.2s ease'
                     }}
                   >
-                    <span style={{
-                      display: 'inline-block',
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: showInactiveHoldings ? '#9ca3af' : '#7c3aed'
-                    }} />
-                    {showInactiveHoldings ? 'Hide' : 'Show'} inactive ({holdings.filter(h => h.quantity <= 0.01).length})
+                    <span style={{display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: showInactiveHoldings ? '#4a5568' : '#a855f7'}} />
+                    {showInactiveHoldings ? 'HIDE' : 'SHOW'} INACTIVE ({holdings.filter(h => h.quantity <= 0.01).length})
                   </button>
                   <div style={{
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    color: '#6b7280',
-                    backgroundColor: 'white',
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#4a5568',
+                    backgroundColor: '#0a0c10',
+                    padding: '3px 10px',
+                    borderRadius: '2px',
+                    border: '1px solid #1e2535'
                   }}>{showInactiveHoldings ? holdings.length : holdings.filter(h => h.quantity > 0.01).length} assets</div>
                 </div>
               </div>
-              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
                 <label style={{
-                  fontSize: '14px',
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: '12px',
                   fontWeight: '600',
-                  color: '#374151'
+                  color: '#4a5568',
+                  letterSpacing: '0.08em'
                 }}>
-                  Total Capital Available:
+                  TOTAL CAPITAL:
                 </label>
                 <div style={{
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  border: '2px solid #e5e7eb',
-                  fontSize: '16px',
-                  fontWeight: '700',
-                  backgroundColor: '#f8fafc',
-                  color: '#111827'
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  padding: '3px 10px',
+                  borderRadius: '2px',
+                  border: '1px solid #1e2535',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  backgroundColor: '#0a0c10',
+                  color: '#00d4aa'
                 }}>
                   {formatCurrency(totalCapital)}
                 </div>
                 <div style={{
+                  fontFamily: "'IBM Plex Sans', sans-serif",
                   fontSize: '12px',
-                  color: '#6b7280',
-                  backgroundColor: '#f3f4f6',
-                  padding: '4px 8px',
-                  borderRadius: '12px'
+                  color: '#4a5568',
                 }}>
-                  Auto-calculated from net portfolio value
+                  auto-calculated from net portfolio value
                 </div>
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full" style={{backgroundColor: 'white', border: '1px solid #e5e7eb'}}>
+              <table className="min-w-full" style={{backgroundColor: '#141820', borderCollapse: 'collapse'}}>
                 <thead>
-                  <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e5e7eb'}}>
-                    <th className="text-center py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 12px', width: '80px'}}>
-                      #
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Symbol
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px', width: '80px'}}>
-                      Icon
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Company
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Type
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Shares
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Current Price
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Current Value
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Net Invested
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Total Invested
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Amount Sold ($)
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      P&L ↓
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Daily Change %
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Weekly Change %
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      Monthly Change %
-                    </th>
-                    <th className="text-left py-4 px-6 text-xs font-semibold text-gray-700 uppercase tracking-wider" style={{backgroundColor: '#f8fafc', color: '#374151', fontSize: '12px', fontWeight: '600', padding: '16px 24px'}}>
-                      % of Portfolio
-                      <div style={{fontSize: '10px', fontWeight: '400', color: '#6b7280', marginTop: '2px', textTransform: 'none'}}>
-                        (based on net invested)
-                      </div>
-                    </th>
+                  <tr style={{backgroundColor: '#141820'}}>
+                    {/* shared th style */}
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 6px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', textAlign: 'center', width: '44px', whiteSpace: 'nowrap' as const}}>#</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="symbol" label="Sym" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 6px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', width: '36px', whiteSpace: 'nowrap' as const}}>Co</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Name</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Type</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Qty</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Price</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="currentValue" label="Value" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="portfolio" label="Net Inv" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="totalInvested" label="Invested" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Sold</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="pnl" label="P&L" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Insider</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="dailyChange" label="Day" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="weeklyChange" label="Week" /></th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', color: '#4a5568', fontSize: '11px', fontWeight: '600', padding: '0 8px 7px', textTransform: 'uppercase' as const, letterSpacing: '0.14em', whiteSpace: 'nowrap' as const}}>Month</th>
+                    <th style={{fontFamily: "'IBM Plex Mono','Courier New',monospace", backgroundColor: '#141820', padding: '0 8px 7px'}}><SortableHeader column="portfolio" label="Alloc%" /></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {holdings.filter(h => showInactiveHoldings || h.quantity > 0.01).map((holding, index) => (
+                <tbody>
+                  {getSortedHoldings(holdings.filter(h => showInactiveHoldings || h.quantity > 0.01)).map((holding, index) => (
                     <tr key={holding.symbol} style={{
-                      backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
-                      borderBottom: '1px solid #f3f4f6',
-                      transition: 'all 0.2s ease'
+                      backgroundColor: '#141820',
+                      borderBottom: '1px solid #1e2535',
                     }} onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#f0f9ff';
+                      e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.04)';
                     }} onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+                      e.currentTarget.style.backgroundColor = '#141820';
                     }}>
-                      <td className="py-4 px-6" style={{padding: '16px 12px', textAlign: 'center'}}>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px'
-                        }}>
+                      <td style={{padding: '7px 6px', textAlign: 'center'}}>
+                        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px'}}>
                           {holding.positionChange && holding.positionChange !== 'same' && (
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              fontSize: '12px',
-                            }}>
-                              {holding.positionChange === 'up' ? (
-                                <svg style={{width: '14px', height: '14px', color: '#166534'}} fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M7 14l5-5 5 5H7z"/>
-                                </svg>
-                              ) : holding.positionChange === 'down' ? (
-                                <svg style={{width: '14px', height: '14px', color: '#dc2626'}} fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M7 10l5 5 5-5H7z"/>
-                                </svg>
-                              ) : holding.positionChange === 'new' ? (
-                                <svg style={{width: '14px', height: '14px', color: '#2563eb'}} fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                                </svg>
-                              ) : null}
-                            </div>
+                            <span style={{fontSize: '11px', color: holding.positionChange === 'up' ? '#22c55e' : holding.positionChange === 'down' ? '#ef4444' : '#4f8fff'}}>
+                              {holding.positionChange === 'up' ? '▲' : holding.positionChange === 'down' ? '▼' : '★'}
+                            </span>
                           )}
                           <div style={{
-                            fontSize: '16px',
-                            fontWeight: '700',
-                            color: holding.positionChange === 'up' ? '#166534' : 
-                                   holding.positionChange === 'down' ? '#dc2626' : 
-                                   holding.positionChange === 'new' ? '#2563eb' : '#111827',
-                            fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
+                            fontFamily: "'IBM Plex Mono', monospace",
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: holding.positionChange === 'up' ? '#22c55e' :
+                                   holding.positionChange === 'down' ? '#ef4444' :
+                                   holding.positionChange === 'new' ? '#4f8fff' : '#94a3b8',
                           }}>
                             {holding.currentPosition}
                           </div>
                         </div>
                         {holding.lastWeekPosition ? (
-                          <div style={{
-                            fontSize: '10px',
-                            color: '#6b7280',
-                            marginTop: '2px'
-                          }}>
+                          <div style={{fontFamily: "'IBM Plex Sans', sans-serif", fontSize: '11px', color: '#4a5568', marginTop: '1px'}}>
                             was {holding.lastWeekPosition}
                           </div>
                         ) : holding.positionChange === 'new' ? (
-                          <div style={{
-                            fontSize: '10px',
-                            color: '#2563eb',
-                            marginTop: '2px',
-                            fontWeight: '500'
-                          }}>
+                          <div style={{fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: '#4f8fff', marginTop: '1px', letterSpacing: '0.06em'}}>
                             NEW
                           </div>
                         ) : null}
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: '#e2e8f0'
                         }}>
                           {holding.symbol}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px', textAlign: 'center'}}>
+                      <td style={{padding: '7px 8px', textAlign: 'center'}}>
                         <CompanyIcon
                           symbol={holding.symbol}
                           iconUrl={iconUrls[holding.symbol.toUpperCase()]}
@@ -2650,242 +2277,197 @@ const PortfolioSummary: React.FC = () => {
                           showTooltip={false}
                         />
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
-                        <div style={{
-                          fontSize: '14px',
-                          color: '#6b7280',
-                          fontStyle: 'italic'
-                        }}>
+                      <td style={{padding: '7px 8px', maxWidth: '140px'}}>
+                        <div
+                          title={holding.companyName}
+                          style={{
+                            fontSize: '12px',
+                            color: '#94a3b8',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical' as const,
+                            overflow: 'hidden',
+                            lineHeight: '1.35',
+                          }}
+                        >
                           {holding.companyName}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         <div style={{
-                          fontSize: '14px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '12px',
                           fontWeight: '600',
-                          padding: '6px 12px',
-                          borderRadius: '16px',
-                          backgroundColor: holding.type === 'c' ? '#f3e8ff' : '#dbeafe',
-                          color: holding.type === 'c' ? '#7c3aed' : '#2563eb',
-                          border: `1px solid ${holding.type === 'c' ? '#c4b5fd' : '#93c5fd'}`
+                          padding: '2px 7px',
+                          borderRadius: '2px',
+                          backgroundColor: holding.type === 'c' ? 'rgba(168,85,247,0.12)' : 'rgba(79,143,255,0.12)',
+                          color: holding.type === 'c' ? '#a855f7' : '#4f8fff',
+                          border: `1px solid ${holding.type === 'c' ? 'rgba(168,85,247,0.25)' : 'rgba(79,143,255,0.25)'}`,
+                          letterSpacing: '0.06em'
                         }}>
-                          {holding.type === 'c' ? 'Crypto' : 'Stock'}
+                          {holding.type === 'c' ? 'CRYPTO' : 'STOCK'}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: '#e2e8f0'
                         }}>
                           {Number.isInteger(holding.quantity) ? holding.quantity.toLocaleString() : safeToFixed(holding.quantity)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: '#e2e8f0'
                         }}>
                           {formatCurrency(holding.currentPrice)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{
-                        padding: '20px 24px', 
+                      <td style={{
+                        padding: '7px 8px',
                         backgroundColor: (() => {
                           const currentValue = holding.currentValue || 0;
                           const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
-                          
-                          // Grey background for zero or very small values
-                          if (currentValue <= 0.01) return '#f9fafb';
-                          
-                          return currentValue > netInvested ? '#dcfce7' : '#fef2f2';
+                          if (currentValue <= 0.01) return 'transparent';
+                          return currentValue > netInvested ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)';
                         })()
                       }}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
                           color: (() => {
                             const currentValue = holding.currentValue || 0;
                             const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
-                            
-                            // Grey text for zero or very small values
-                            if (currentValue <= 0.01) return '#9ca3af';
-                            
-                            return currentValue > netInvested ? '#166534' : '#dc2626';
+                            if (currentValue <= 0.01) return '#4a5568';
+                            return currentValue > netInvested ? '#22c55e' : '#ef4444';
                           })()
                         }}>
                           {formatCurrency(holding.currentValue)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{
-                        padding: '20px 24px', 
-                        backgroundColor: holding.quantity <= 0.01 ? '#f3e8ff' : '#e0f2fe'
+                      <td style={{
+                        padding: '7px 8px',
+                        backgroundColor: holding.quantity <= 0.01 ? 'rgba(168,85,247,0.06)' : 'rgba(79,143,255,0.05)'
                       }}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
-                          color: holding.quantity <= 0.01 ? '#7c3aed' : '#111827'
+                          color: holding.quantity <= 0.01 ? '#a855f7' : '#94a3b8'
                         }}>
                           {formatCurrency(calculateNetInvested(holding.totalAmountInvested, holding.amountSold))}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: '#94a3b8'
                         }}>
                           {formatCurrency(holding.totalAmountInvested)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         <div style={{
-                          fontSize: '16px',
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          fontSize: '13px',
                           fontWeight: '600',
-                          color: '#111827'
+                          color: '#94a3b8'
                         }}>
                           {formatCurrency(holding.amountSold || 0)}
                         </div>
                       </td>
-                      <td className="py-4 px-6" style={{padding: '10px 12px'}}>
+                      <td style={{padding: '10px 12px'}}>
                         {(() => {
                           const totalAmtInvested = holding.totalAmountInvested || holding.totalInvested || 0;
                           const netInvested = totalAmtInvested - (holding.amountSold || 0);
                           const pnlDenominator = ((holding.totalPnL || 0) >= 0 && netInvested > 0) ? netInvested : totalAmtInvested;
                           const unrealizedPct = pnlDenominator > 0 ? ((holding.unrealizedPnL || 0) / pnlDenominator) * 100 : 0;
                           const realizedPct = pnlDenominator > 0 ? ((holding.realizedPnL || 0) / pnlDenominator) * 100 : 0;
+                          const pnlPos = (holding.totalPnL && holding.totalPnL >= 0);
+                          const pnlColor = pnlPos ? '#22c55e' : '#ef4444';
+                          const unrlzdColor = (holding.unrealizedPnL && holding.unrealizedPnL >= 0) ? '#22c55e' : '#ef4444';
+                          const rlzdColor = (holding.realizedPnL && holding.realizedPnL >= 0) ? '#22c55e' : '#ef4444';
                           return (
-                            <div style={{display: 'flex', gap: '6px', alignItems: 'stretch'}}>
-                              {/* Total P&L - Left side */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                              {/* Total P&L — colored box with arrow */}
                               <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                padding: '6px 10px',
-                                borderRadius: '8px',
-                                backgroundColor: (holding.totalPnL && holding.totalPnL >= 0) ? '#dcfce7' : '#fef2f2',
-                                border: `1px solid ${(holding.totalPnL && holding.totalPnL >= 0) ? '#bbf7d0' : '#fecaca'}`,
-                                minWidth: '110px'
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '3px 7px', borderRadius: '2px',
+                                backgroundColor: pnlPos ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                                border: `1px solid ${pnlPos ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
                               }}>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  marginBottom: '1px'
-                                }}>
-                                  <div style={{
-                                    fontSize: '9px',
-                                    fontWeight: '600',
-                                    color: '#6b7280',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.3px'
-                                  }}>Total</div>
-                                  {(holding.totalPnL && holding.totalPnL >= 0) ? (
-                                    <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#166534" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                    </svg>
-                                  ) : (
-                                    <svg style={{width: '10px', height: '10px'}} fill="none" stroke="#dc2626" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
-                                    </svg>
-                                  )}
-                                </div>
-                                <div style={{
-                                  fontSize: '14px',
-                                  fontWeight: '700',
-                                  color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
-                                  lineHeight: '1.2'
-                                }}>
-                                  {formatCurrency(holding.totalPnL)}
-                                </div>
-                                <div style={{
-                                  fontSize: '11px',
-                                  fontWeight: '600',
-                                  color: (holding.totalPnL && holding.totalPnL >= 0) ? '#166534' : '#dc2626',
-                                  lineHeight: '1.2'
-                                }}>
-                                  {formatPercentage(holding.totalPnLPercent)}
-                                </div>
+                                <span style={{ fontSize: '11px', color: pnlColor }}>{pnlPos ? '▲' : '▼'}</span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', fontWeight: 700, color: pnlColor, whiteSpace: 'nowrap' as const }}>{formatCurrency(holding.totalPnL)}</span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 600, color: pnlColor, whiteSpace: 'nowrap' as const }}>{formatPercentage(holding.totalPnLPercent)}</span>
                               </div>
-
-                              {/* Unrealized & Realized - Right side stacked */}
-                              <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '3px',
-                                justifyContent: 'center'
-                              }}>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#eff6ff',
-                                  border: '1px solid #bfdbfe'
-                                }}>
-                                  <div style={{
-                                    fontSize: '8px',
-                                    fontWeight: '600',
-                                    color: '#6b7280',
-                                    textTransform: 'uppercase',
-                                    whiteSpace: 'nowrap'
-                                  }}>U:</div>
-                                  <div style={{
-                                    fontSize: '10px',
-                                    fontWeight: '600',
-                                    color: (holding.unrealizedPnL && holding.unrealizedPnL >= 0) ? '#059669' : '#dc2626'
-                                  }}>
-                                    {formatCurrency(holding.unrealizedPnL)}
-                                  </div>
-                                  <div style={{
-                                    fontSize: '10px',
-                                    fontWeight: '600',
-                                    color: '#1d4ed8',
-                                    whiteSpace: 'nowrap'
-                                  }}>
-                                    {formatPercentage(unrealizedPct)}
-                                  </div>
-                                </div>
-
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#faf5ff',
-                                  border: '1px solid #e9d5ff'
-                                }}>
-                                  <div style={{
-                                    fontSize: '8px',
-                                    fontWeight: '600',
-                                    color: '#6b7280',
-                                    textTransform: 'uppercase',
-                                    whiteSpace: 'nowrap'
-                                  }}>R:</div>
-                                  <div style={{
-                                    fontSize: '10px',
-                                    fontWeight: '600',
-                                    color: (holding.realizedPnL && holding.realizedPnL >= 0) ? '#059669' : '#dc2626'
-                                  }}>
-                                    {formatCurrency(holding.realizedPnL)}
-                                  </div>
-                                  <div style={{
-                                    fontSize: '10px',
-                                    fontWeight: '600',
-                                    color: '#7c3aed',
-                                    whiteSpace: 'nowrap'
-                                  }}>
-                                    {formatPercentage(realizedPct)}
-                                  </div>
-                                </div>
+                              {/* Unrealized */}
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', flexShrink: 0 }}>U</span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 600, color: unrlzdColor, whiteSpace: 'nowrap' as const }}>{formatCurrency(holding.unrealizedPnL)}</span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 600, color: '#4f8fff', whiteSpace: 'nowrap' as const }}>{formatPercentage(unrealizedPct)}</span>
+                              </div>
+                              {/* Realized */}
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', color: '#4a5568', letterSpacing: '0.06em', flexShrink: 0 }}>R</span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 600, color: rlzdColor, whiteSpace: 'nowrap' as const }}>{formatCurrency(holding.realizedPnL)}</span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 600, color: '#a855f7', whiteSpace: 'nowrap' as const }}>{formatPercentage(realizedPct)}</span>
                               </div>
                             </div>
                           );
                         })()}
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      {/* Insider activity */}
+                      <td style={{padding: '7px 8px'}}>
+                        {holding.insiderSentiment && holding.insiderSentiment !== 'NEUTRAL' ? (() => {
+                          const colors: Record<string, { bg: string; text: string; border: string }> = {
+                            STRONG_BUY: { bg: 'rgba(0,212,170,0.12)', text: '#00d4aa', border: 'rgba(0,212,170,0.25)' },
+                            BUY:        { bg: 'rgba(34,197,94,0.12)', text: '#22c55e', border: 'rgba(34,197,94,0.25)' },
+                            SELL:       { bg: 'rgba(239,68,68,0.12)', text: '#ef4444', border: 'rgba(239,68,68,0.25)' },
+                            HEAVY_SELL: { bg: 'rgba(239,68,68,0.18)', text: '#f87171', border: 'rgba(239,68,68,0.35)' },
+                          };
+                          const c = colors[holding.insiderSentiment] || { bg: '#141820', text: '#4a5568', border: '#1e2535' };
+                          const label = holding.insiderSentiment.replace('_', ' ');
+                          return (
+                            <div title={`${holding.insiderBuyCount ?? 0} buys, ${holding.insiderSellCount ?? 0} sells (90 days)`}>
+                              <div style={{
+                                fontFamily: "'IBM Plex Mono', monospace",
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '2px 7px',
+                                borderRadius: '2px',
+                                fontSize: '12px',
+                                fontWeight: '700',
+                                backgroundColor: c.bg,
+                                color: c.text,
+                                border: `1px solid ${c.border}`,
+                                textTransform: 'uppercase' as const,
+                                letterSpacing: '0.08em'
+                              }}>
+                                {label}
+                              </div>
+                              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', color: '#4a5568', marginTop: '2px' }}>
+                                {holding.insiderBuyCount ?? 0}B / {holding.insiderSellCount ?? 0}S
+                              </div>
+                            </div>
+                          );
+                        })() : holding.insiderHasData === false ? (
+                          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: '12px', color: '#2a3445' }} title="No SEC filing data — non-US or non-covered stock">non-US</div>
+                        ) : holding.insiderSentiment === 'NEUTRAL' ? (
+                          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: '12px', color: '#4a5568' }} title="No insider transactions in last 90 days">quiet</div>
+                        ) : (
+                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', color: '#1e2535' }}>—</div>
+                        )}
+                      </td>
+                      <td style={{padding: '7px 7px'}}>
                         {Array.isArray(holding.dailyChangePercent) ? (
                           <ThreeSegmentPill
                             values={holding.dailyChangePercent}
@@ -2895,7 +2477,7 @@ const PortfolioSummary: React.FC = () => {
                           <ThreeSegmentPill values={[]} />
                         )}
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 7px'}}>
                         {Array.isArray(holding.weeklyChangePercent) ? (
                           <ThreeSegmentPill
                             values={holding.weeklyChangePercent}
@@ -2905,7 +2487,7 @@ const PortfolioSummary: React.FC = () => {
                           <ThreeSegmentPill values={[]} />
                         )}
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 7px'}}>
                         {Array.isArray(holding.monthlyChangePercent) ? (
                           <ThreeSegmentPill
                             values={holding.monthlyChangePercent}
@@ -2915,38 +2497,38 @@ const PortfolioSummary: React.FC = () => {
                           <ThreeSegmentPill values={[]} />
                         )}
                       </td>
-                      <td className="py-4 px-6" style={{padding: '20px 24px'}}>
+                      <td style={{padding: '7px 8px'}}>
                         {(() => {
                           const netInvested = calculateNetInvested(holding.totalAmountInvested, holding.amountSold);
                           const percentage = totalCapital > 0 ? (netInvested / totalCapital) * 100 : 0;
 
-                          // Color coding: Purple > 5%, Blue 1-5%, Green <= 1%
                           let backgroundColor, textColor, borderColor;
                           if (percentage > 5) {
-                            backgroundColor = '#f3e8ff'; // Purple
-                            textColor = '#6b21a8';
-                            borderColor = '#e9d5ff';
+                            backgroundColor = 'rgba(168,85,247,0.12)';
+                            textColor = '#a855f7';
+                            borderColor = 'rgba(168,85,247,0.25)';
                           } else if (percentage > 1) {
-                            backgroundColor = '#dbeafe'; // Blue
-                            textColor = '#2563eb';
-                            borderColor = '#93c5fd';
+                            backgroundColor = 'rgba(79,143,255,0.12)';
+                            textColor = '#4f8fff';
+                            borderColor = 'rgba(79,143,255,0.25)';
                           } else {
-                            backgroundColor = '#dcfce7'; // Green
-                            textColor = '#166534';
-                            borderColor = '#bbf7d0';
+                            backgroundColor = 'rgba(34,197,94,0.12)';
+                            textColor = '#22c55e';
+                            borderColor = 'rgba(34,197,94,0.25)';
                           }
 
                           return (
                             <div style={{
-                              display: 'flex',
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              display: 'inline-flex',
                               alignItems: 'center',
-                              padding: '6px 12px',
-                              borderRadius: '16px',
-                              fontSize: '14px',
+                              padding: '3px 8px',
+                              borderRadius: '2px',
+                              fontSize: '12px',
                               fontWeight: '600',
                               backgroundColor,
                               color: textColor,
-                              border: `2px solid ${borderColor}`
+                              border: `1px solid ${borderColor}`
                             }}>
                               {percentage.toFixed(2)}%
                             </div>
@@ -2963,7 +2545,7 @@ const PortfolioSummary: React.FC = () => {
 
 
       </div>
-    </div>
+    </>
   );
 };
 
