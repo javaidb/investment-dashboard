@@ -59,63 +59,38 @@ interface FileTrackingStatus {
   message: string;
 }
 
+const mono = "'IBM Plex Mono', 'Courier New', monospace";
+
 const Portfolio: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
 
-  // Check file tracking status
   const { data: fileTrackingStatus, isLoading: isLoadingFileStatus, refetch: refetchFileStatus } = useQuery<FileTrackingStatus>(
     'fileTrackingStatus',
-    async () => {
-      const response = await axios.get('/api/portfolio/files/tracking/stats');
-      return response.data;
-    },
-    {
-      refetchInterval: 30000, // Check every 30 seconds
-      staleTime: 10000, // Consider data stale after 10 seconds
-    }
+    async () => (await axios.get('/api/portfolio/files/tracking/stats')).data,
+    { refetchInterval: 30000, staleTime: 10000 }
   );
 
-  // First, get the list of portfolios
   const { data: portfolioSummaries, isLoading: isLoadingSummaries } = useQuery<PortfolioSummary[]>(
     'portfolios',
-    async () => {
-      const response = await axios.get('/api/portfolio');
-      return response.data;
-    }
+    async () => (await axios.get('/api/portfolio')).data
   );
 
-  // Then, fetch detailed data for each portfolio
   const { data: portfolios, isLoading: isLoadingDetails } = useQuery<Portfolio[]>(
     ['portfolios-detailed', portfolioSummaries],
     async () => {
-      if (!portfolioSummaries || portfolioSummaries.length === 0) {
-        return [];
-      }
-      
-      // Fetch detailed data for each portfolio
-      const detailedPortfolios = await Promise.all(
+      if (!portfolioSummaries || portfolioSummaries.length === 0) return [];
+      return Promise.all(
         portfolioSummaries.map(async (summary) => {
           try {
-            const response = await axios.get(`/api/portfolio/${summary.id}`);
-            return response.data;
-          } catch (error) {
-            console.error(`Failed to fetch portfolio ${summary.id}:`, error);
-            // Return summary data as fallback
-            return {
-              ...summary,
-              holdings: [],
-              lastUpdated: new Date().toISOString()
-            };
+            return (await axios.get(`/api/portfolio/${summary.id}`)).data;
+          } catch {
+            return { ...summary, holdings: [], lastUpdated: new Date().toISOString() };
           }
         })
       );
-      
-      return detailedPortfolios;
     },
-    {
-      enabled: !!portfolioSummaries && portfolioSummaries.length > 0,
-    }
+    { enabled: !!portfolioSummaries && portfolioSummaries.length > 0 }
   );
 
   const isLoading = isLoadingSummaries || isLoadingDetails;
@@ -124,416 +99,296 @@ const Portfolio: React.FC = () => {
     async (file: File) => {
       const formData = new FormData();
       formData.append('trades', file);
-      const response = await axios.post('/api/portfolio/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
+      return (await axios.post('/api/portfolio/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
     },
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('portfolios');
-        setUploadedFile(null);
-      },
-    }
+    { onSuccess: () => { queryClient.invalidateQueries('portfolios'); setUploadedFile(null); } }
   );
 
   const deleteMutation = useMutation(
-    async (portfolioId: string) => {
-      await axios.delete(`/api/portfolio/${portfolioId}`);
-    },
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('portfolios');
-      },
-    }
+    async (portfolioId: string) => { await axios.delete(`/api/portfolio/${portfolioId}`); },
+    { onSuccess: () => queryClient.invalidateQueries('portfolios') }
   );
 
   const autoProcessMutation = useMutation(
-    async () => {
-      const response = await axios.post('/api/portfolio/auto-process');
-      return response.data;
-    },
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('portfolios');
-        refetchFileStatus();
-      },
-    }
+    async () => (await axios.post('/api/portfolio/auto-process')).data,
+    { onSuccess: () => { queryClient.invalidateQueries('portfolios'); refetchFileStatus(); } }
   );
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    setUploadedFile(acceptedFiles[0]);
-  }, []);
+  const onDrop = useCallback((acceptedFiles: File[]) => { setUploadedFile(acceptedFiles[0]); }, []);
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'text/csv': ['.csv'] }, multiple: false });
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'text/csv': ['.csv'],
-    },
-    multiple: false,
-  });
+  const handleUpload = () => { if (uploadedFile) uploadMutation.mutate(uploadedFile); };
 
-  const handleUpload = () => {
-    if (uploadedFile) {
-      uploadMutation.mutate(uploadedFile);
-    }
+  const fmtCAD = (v: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(v);
+  const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+
+  const card: React.CSSProperties = {
+    background: '#10141c', border: '1px solid #1e2535', borderRadius: '8px',
+    padding: '20px', marginBottom: '20px',
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
+  const btnSecondary: React.CSSProperties = {
+    padding: '7px 14px', fontSize: '12px', fontWeight: 500, fontFamily: mono,
+    color: '#94a3b8', backgroundColor: '#141820', border: '1px solid #1e2535',
+    borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
+    transition: 'all 0.15s',
+  };
+  const btnPrimary: React.CSSProperties = {
+    ...btnSecondary, color: '#00d4aa', border: '1px solid rgba(0,212,170,0.3)', backgroundColor: 'rgba(0,212,170,0.08)',
   };
 
-  const formatPercentage = (value: number) => {
-    return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+  const sectionLabel: React.CSSProperties = {
+    fontFamily: mono, fontSize: '10px', fontWeight: 700, color: '#4a5568',
+    letterSpacing: '0.12em', textTransform: 'uppercase',
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header Section */}
-      <div className="dashboard-header">
-        <div className="dashboard-header-content">
-          <h1 className="dashboard-title">Portfolio Management</h1>
-          <p className="dashboard-subtitle">Upload and manage your investment portfolios</p>
-        </div>
+    <div style={{ padding: '24px', minHeight: '100%' }}>
+      {/* Header */}
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{ fontFamily: mono, fontSize: '18px', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.04em' }}>Portfolio Management</div>
+        <div style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', marginTop: '4px' }}>Upload and manage your investment portfolios</div>
       </div>
 
-      {/* Main Content */}
-      <div className="dashboard-content">
-        <div className="dashboard-section">
-          
-        {/* File Status Section */}
-        {fileTrackingStatus && (
-          <div className="card mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-medium text-gray-900">File Status</h2>
-              <button
-                onClick={() => refetchFileStatus()}
-                disabled={isLoadingFileStatus}
-                className="btn-secondary flex items-center gap-2"
-              >
-                <RefreshCw className={`h-4 w-4 ${isLoadingFileStatus ? 'animate-spin' : ''}`} />
-                Refresh
+      {/* File Status */}
+      {fileTrackingStatus && (
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color: '#e2e8f0' }}>File Status</div>
+            <button style={btnSecondary} onClick={() => refetchFileStatus()} disabled={isLoadingFileStatus}
+              onMouseEnter={e => { e.currentTarget.style.color = '#e2e8f0'; e.currentTarget.style.borderColor = '#2a3445'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = '#1e2535'; }}>
+              <RefreshCw style={{ width: '12px', height: '12px' }} className={isLoadingFileStatus ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+            {[
+              { label: 'Total Files',  value: fileTrackingStatus.stats.totalFiles,       color: '#60a5fa' },
+              { label: 'Processed',    value: fileTrackingStatus.stats.processedFiles,    color: '#4ade80' },
+              { label: 'Unprocessed', value: fileTrackingStatus.stats.unprocessedFiles,  color: '#fb923c' },
+              { label: 'Changes',      value: fileTrackingStatus.changes.newFiles.length + fileTrackingStatus.changes.modifiedFiles.length, color: '#a78bfa' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ textAlign: 'center', padding: '12px', background: '#141820', border: '1px solid #1e2535', borderRadius: '6px' }}>
+                <div style={{ fontFamily: mono, fontSize: '22px', fontWeight: 700, color }}>{value}</div>
+                <div style={{ ...sectionLabel, marginTop: '4px' }}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {fileTrackingStatus.changes.hasChanges && (
+            <div style={{ background: 'rgba(251,146,60,0.07)', border: '1px solid rgba(251,146,60,0.25)', borderRadius: '6px', padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+              <AlertCircle style={{ width: '15px', height: '15px', color: '#fb923c', flexShrink: 0, marginTop: '1px' }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: mono, fontSize: '12px', fontWeight: 700, color: '#fb923c', marginBottom: '6px' }}>File Changes Detected</div>
+                <div style={{ fontFamily: mono, fontSize: '11px', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {fileTrackingStatus.changes.newFiles.length > 0 && <span>New: {fileTrackingStatus.changes.newFiles.map(f => f.name).join(', ')}</span>}
+                  {fileTrackingStatus.changes.modifiedFiles.length > 0 && <span>Modified: {fileTrackingStatus.changes.modifiedFiles.map(f => f.name).join(', ')}</span>}
+                  {fileTrackingStatus.changes.deletedFiles.length > 0 && <span>Deleted: {fileTrackingStatus.changes.deletedFiles.map(f => f.name).join(', ')}</span>}
+                </div>
+              </div>
+              <button style={{ ...btnPrimary, opacity: autoProcessMutation.isLoading ? 0.6 : 1 }}
+                onClick={() => autoProcessMutation.mutate()} disabled={autoProcessMutation.isLoading}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.14)'; }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.08)'; }}>
+                <RefreshCw style={{ width: '12px', height: '12px' }} className={autoProcessMutation.isLoading ? 'animate-spin' : ''} />
+                {autoProcessMutation.isLoading ? 'Processing…' : 'Auto-Process'}
               </button>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">
-                  {fileTrackingStatus.stats.totalFiles}
-                </div>
-                <div className="text-sm text-gray-500">Total Files</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {fileTrackingStatus.stats.processedFiles}
-                </div>
-                <div className="text-sm text-gray-500">Processed</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">
-                  {fileTrackingStatus.stats.unprocessedFiles}
-                </div>
-                <div className="text-sm text-gray-500">Unprocessed</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">
-                  {fileTrackingStatus.changes.newFiles.length + fileTrackingStatus.changes.modifiedFiles.length}
-                </div>
-                <div className="text-sm text-gray-500">Changes</div>
-              </div>
-            </div>
+          )}
+        </div>
+      )}
 
-            {fileTrackingStatus.changes.hasChanges && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-orange-500 mt-0.5" />
-                  <div className="flex-1">
-                    <h3 className="font-medium text-orange-800 mb-2">File Changes Detected</h3>
-                    <div className="text-sm text-orange-700 space-y-1">
-                      {fileTrackingStatus.changes.newFiles.length > 0 && (
-                        <div>New files: {fileTrackingStatus.changes.newFiles.map(f => f.name).join(', ')}</div>
-                      )}
-                      {fileTrackingStatus.changes.modifiedFiles.length > 0 && (
-                        <div>Modified files: {fileTrackingStatus.changes.modifiedFiles.map(f => f.name).join(', ')}</div>
-                      )}
-                      {fileTrackingStatus.changes.deletedFiles.length > 0 && (
-                        <div>Deleted files: {fileTrackingStatus.changes.deletedFiles.map(f => f.name).join(', ')}</div>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => autoProcessMutation.mutate()}
-                    disabled={autoProcessMutation.isLoading}
-                    className="btn-primary flex items-center gap-2"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${autoProcessMutation.isLoading ? 'animate-spin' : ''}`} />
-                    {autoProcessMutation.isLoading ? 'Processing...' : 'Auto-Process'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+      {/* Upload */}
+      <div style={card}>
+        <div style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color: '#e2e8f0', marginBottom: '14px' }}>Upload Portfolio</div>
 
-      {/* Upload Section */}
-      <div className="card">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Upload Portfolio</h2>
-        
         <div
           {...getRootProps()}
-          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-            isDragActive
-              ? 'border-primary-500 bg-primary-50'
-              : 'border-gray-300 hover:border-primary-400'
-          }`}
+          style={{
+            border: `2px dashed ${isDragActive ? '#00d4aa' : '#1e2535'}`,
+            borderRadius: '8px', padding: '36px', textAlign: 'center', cursor: 'pointer',
+            background: isDragActive ? 'rgba(0,212,170,0.05)' : '#0d111a',
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { if (!isDragActive) (e.currentTarget as HTMLDivElement).style.borderColor = '#2a3445'; }}
+          onMouseLeave={e => { if (!isDragActive) (e.currentTarget as HTMLDivElement).style.borderColor = '#1e2535'; }}
         >
           <input {...getInputProps()} />
-          <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+          <Upload style={{ width: '36px', height: '36px', color: isDragActive ? '#00d4aa' : '#2a3445', margin: '0 auto 12px' }} />
           {uploadedFile ? (
-            <div>
-              <p className="text-sm font-medium text-gray-900">{uploadedFile.name}</p>
-              <p className="text-sm text-gray-500">
-                {(uploadedFile.size / 1024).toFixed(1)} KB
-              </p>
-            </div>
+            <>
+              <div style={{ fontFamily: mono, fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>{uploadedFile.name}</div>
+              <div style={{ fontFamily: mono, fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{(uploadedFile.size / 1024).toFixed(1)} KB</div>
+            </>
           ) : (
-            <div>
-              <p className="text-sm font-medium text-gray-900">
-                {isDragActive ? 'Drop the CSV file here' : 'Drag & drop a CSV file here'}
-              </p>
-              <p className="text-sm text-gray-500">or click to select a file</p>
-            </div>
+            <>
+              <div style={{ fontFamily: mono, fontSize: '13px', color: '#94a3b8' }}>{isDragActive ? 'Drop the CSV file here' : 'Drag & drop a CSV file here'}</div>
+              <div style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', marginTop: '4px' }}>or click to select a file</div>
+            </>
           )}
         </div>
 
         {uploadedFile && (
-          <div className="mt-4 flex justify-end">
-            <button
-              onClick={handleUpload}
-              disabled={uploadMutation.isLoading}
-              className="btn btn-primary"
-            >
-              {uploadMutation.isLoading ? 'Uploading...' : 'Upload Portfolio'}
+          <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'flex-end' }}>
+            <button style={{ ...btnPrimary, opacity: uploadMutation.isLoading ? 0.6 : 1 }}
+              onClick={handleUpload} disabled={uploadMutation.isLoading}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.14)'; }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.08)'; }}>
+              <Upload style={{ width: '12px', height: '12px' }} />
+              {uploadMutation.isLoading ? 'Uploading…' : 'Upload Portfolio'}
             </button>
           </div>
         )}
 
-        {/* CSV Format Instructions */}
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <h4 className="font-medium text-gray-900 mb-2">CSV Format Support</h4>
-          <p className="text-sm text-gray-600 mb-4">
+        {/* CSV Format Guide */}
+        <div style={{ marginTop: '20px', padding: '16px', background: '#0d111a', border: '1px solid #1e2535', borderRadius: '6px' }}>
+          <div style={{ fontFamily: mono, fontSize: '12px', fontWeight: 700, color: '#e2e8f0', marginBottom: '6px' }}>CSV Format Support</div>
+          <div style={{ fontFamily: mono, fontSize: '11px', color: '#64748b', marginBottom: '14px' }}>
             The system automatically processes CSV files from both crypto exchanges and Wealthsimple:
-          </p>
-          
-          <div className="space-y-4">
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h5 className="font-medium text-gray-900 mb-2">Crypto Exchange Format</h5>
-              <div className="text-sm text-gray-600 space-y-1">
-                <p>• <strong>symbol</strong> - Crypto symbol (e.g., BTC, ETH)</p>
-                <p>• <strong>date</strong> - Transaction date (YYYY-MM-DD)</p>
-                <p>• <strong>action</strong> - buy or sell</p>
-                <p>• <strong>quantity</strong> - Number of coins</p>
-                <p>• <strong>total amount</strong> - Total amount in CAD</p>
-                <p>• <strong>type</strong> - 'c' for crypto</p>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ borderLeft: '3px solid #60a5fa', paddingLeft: '12px' }}>
+              <div style={{ fontFamily: mono, fontSize: '11px', fontWeight: 700, color: '#60a5fa', marginBottom: '6px' }}>Crypto Exchange Format</div>
+              <div style={{ fontFamily: mono, fontSize: '10px', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <span>• <strong style={{ color: '#94a3b8' }}>symbol</strong> — Crypto symbol (e.g., BTC, ETH)</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>date</strong> — Transaction date (YYYY-MM-DD)</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>action</strong> — buy or sell</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>quantity</strong> — Number of coins</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>total amount</strong> — Total amount in CAD</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>type</strong> — 'c' for crypto</span>
               </div>
             </div>
-            
-            <div className="border-l-4 border-green-500 pl-4">
-              <h5 className="font-medium text-gray-900 mb-2">Wealthsimple Format</h5>
-              <div className="text-sm text-gray-600 space-y-1">
-                <p>• <strong>date</strong> - Transaction date (YYYY-MM-DD)</p>
-                <p>• <strong>transaction</strong> - BUY or SELL (only these are processed)</p>
-                <p>• <strong>description</strong> - Contains symbol and shares info</p>
-                <p>• <strong>amount</strong> - Transaction amount in CAD (negative for BUY, positive for SELL)</p>
-                <p>• <strong>balance</strong> - Account balance (ignored)</p>
+
+            <div style={{ borderLeft: '3px solid #4ade80', paddingLeft: '12px' }}>
+              <div style={{ fontFamily: mono, fontSize: '11px', fontWeight: 700, color: '#4ade80', marginBottom: '6px' }}>Wealthsimple Format</div>
+              <div style={{ fontFamily: mono, fontSize: '10px', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <span>• <strong style={{ color: '#94a3b8' }}>date</strong> — Transaction date (YYYY-MM-DD)</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>transaction</strong> — BUY or SELL (only these are processed)</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>description</strong> — Contains symbol and shares info</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>amount</strong> — Transaction amount in CAD (negative for BUY, positive for SELL)</span>
+                <span>• <strong style={{ color: '#94a3b8' }}>balance</strong> — Account balance (ignored)</span>
               </div>
-              <p className="text-sm text-gray-500 mt-2">
-                Examples: "TSLA - Tesla Inc: Bought 1.0000 shares" → Symbol: TSLA, Quantity: 1.0<br/>
-                "TSLA - Tesla Inc: Sold 1.0000 shares" → Symbol: TSLA, Quantity: 1.0
-              </p>
+              <div style={{ fontFamily: mono, fontSize: '10px', color: '#4a5568', marginTop: '6px' }}>
+                Examples: "TSLA - Tesla Inc: Bought 1.0000 shares" → Symbol: TSLA, Quantity: 1.0
+              </div>
             </div>
           </div>
-          
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-800 font-medium">📁 File Organization:</p>
-            <p className="text-sm text-blue-700">
-              Place crypto CSV files in the <code>crypto/</code> folder and Wealthsimple CSV files in the <code>wealthsimple/</code> folder. Empty files are automatically ignored.
-            </p>
+
+          <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(79,143,255,0.07)', border: '1px solid rgba(79,143,255,0.2)', borderRadius: '5px' }}>
+            <div style={{ fontFamily: mono, fontSize: '10px', fontWeight: 700, color: '#60a5fa', marginBottom: '3px' }}>File Organization</div>
+            <div style={{ fontFamily: mono, fontSize: '10px', color: '#64748b' }}>
+              Place crypto CSV files in the <code style={{ color: '#94a3b8' }}>crypto/</code> folder and Wealthsimple CSV files in the <code style={{ color: '#94a3b8' }}>wealthsimple/</code> folder. Empty files are automatically ignored.
+            </div>
           </div>
-          
-          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-800 font-medium">💱 Currency Conversion Note:</p>
-            <p className="text-sm text-green-700">
-              All CSV amounts are processed as CAD. Current market prices (in USD) are automatically converted to CAD for accurate profit/loss calculations.
-            </p>
+
+          <div style={{ marginTop: '8px', padding: '10px 14px', background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '5px' }}>
+            <div style={{ fontFamily: mono, fontSize: '10px', fontWeight: 700, color: '#4ade80', marginBottom: '3px' }}>Currency Conversion</div>
+            <div style={{ fontFamily: mono, fontSize: '10px', color: '#64748b' }}>
+              All CSV amounts are processed as CAD. Current market prices (in USD) are automatically converted to CAD for accurate P&L calculations.
+            </div>
           </div>
         </div>
       </div>
 
       {/* Portfolios List */}
-      <div className="card">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Your Portfolios</h2>
-        
+      <div style={card}>
+        <div style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color: '#e2e8f0', marginBottom: '16px' }}>Your Portfolios</div>
+
         {isLoading ? (
-          <div className="text-center py-8">
-            <div className="loading-spinner mx-auto mb-4"></div>
-            <p className="text-gray-500">Loading portfolios...</p>
+          <div style={{ textAlign: 'center', padding: '40px', color: '#4a5568', fontFamily: mono, fontSize: '12px' }}>
+            <RefreshCw style={{ width: '20px', height: '20px', color: '#00d4aa', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
+            Loading portfolios…
           </div>
         ) : portfolios && portfolios.length > 0 ? (
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {portfolios.map((portfolio: Portfolio) => (
-              <div key={portfolio.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-4">
+              <div key={portfolio.id} style={{ background: '#0d111a', border: '1px solid #1e2535', borderRadius: '6px', padding: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                   <div>
-                    <h3 className="font-medium text-gray-900">
-                      Portfolio {portfolio.id.slice(-6)}
-                    </h3>
-                    <p className="text-sm text-gray-500">
+                    <div style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color: '#e2e8f0' }}>Portfolio {portfolio.id.slice(-6)}</div>
+                    <div style={{ fontFamily: mono, fontSize: '10px', color: '#4a5568', marginTop: '2px' }}>
                       Created {new Date(portfolio.createdAt).toLocaleDateString()}
-                    </p>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => deleteMutation.mutate(portfolio.id)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-5 w-5" />
+                  <button onClick={() => deleteMutation.mutate(portfolio.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5568', padding: '4px', transition: 'color 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                    onMouseLeave={e => (e.currentTarget.style.color = '#4a5568')}>
+                    <Trash2 style={{ width: '16px', height: '16px' }} />
                   </button>
                 </div>
-                
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <p className="text-sm text-gray-500">Total Invested</p>
-                    <p className="font-medium text-gray-900">
-                      {formatCurrency(portfolio.summary.totalInvested)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Realized P&L</p>
-                    <p className={`font-medium ${
-                      portfolio.summary.totalRealized > 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {formatCurrency(portfolio.summary.totalRealized)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Holdings</p>
-                    <p className="font-medium text-gray-900">
-                      {portfolio.summary.totalHoldings}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Total Quantity</p>
-                    <p className="font-medium text-gray-900">
-                      {portfolio.summary.totalQuantity.toLocaleString()}
-                    </p>
-                  </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
+                  {[
+                    { label: 'Total Invested', value: fmtCAD(portfolio.summary.totalInvested), color: '#e2e8f0' },
+                    { label: 'Realized P&L',   value: fmtCAD(portfolio.summary.totalRealized), color: portfolio.summary.totalRealized >= 0 ? '#4ade80' : '#f87171' },
+                    { label: 'Holdings',        value: portfolio.summary.totalHoldings, color: '#e2e8f0' },
+                    { label: 'Total Quantity',  value: portfolio.summary.totalQuantity.toLocaleString(), color: '#e2e8f0' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ padding: '10px 12px', background: '#141820', border: '1px solid #1e2535', borderRadius: '5px' }}>
+                      <div style={{ ...sectionLabel, marginBottom: '4px' }}>{label}</div>
+                      <div style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color }}>{value}</div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Holdings Table */}
                 {portfolio.holdings && portfolio.holdings.length > 0 && (
-                  <div className="mt-6">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Holdings</h4>
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                            <tr>
-                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Symbol
-                              </th>
-                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Quantity
-                              </th>
-                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Avg Price
-                              </th>
-                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Current Price
-                              </th>
-                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Total Value
-                              </th>
-                              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                P&L
-                              </th>
+                  <div>
+                    <div style={{ ...sectionLabel, marginBottom: '8px' }}>Holdings</div>
+                    <div style={{ background: '#141820', border: '1px solid #1e2535', borderRadius: '5px', overflow: 'hidden' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid #1e2535' }}>
+                              {['Symbol', 'Quantity', 'Avg Price', 'Current Price', 'Total Value', 'P&L'].map(h => (
+                                <th key={h} style={{ padding: '9px 14px', fontFamily: mono, fontSize: '10px', fontWeight: 700, color: '#4a5568', letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: 'left', background: '#0d111a' }}>{h}</th>
+                              ))}
                             </tr>
                           </thead>
-                          <tbody className="bg-white divide-y divide-gray-100">
-                            {portfolio.holdings.map((holding, index) => (
-                              <tr 
-                                key={holding.symbol}
-                                className={`hover:bg-gray-50 transition-colors duration-150 ${
-                                  index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
-                                }`}
+                          <tbody>
+                            {portfolio.holdings.map((holding, idx) => (
+                              <tr key={holding.symbol}
+                                style={{ backgroundColor: idx % 2 === 0 ? '#141820' : '#10141c', borderBottom: '1px solid #1e2535', transition: 'background 0.15s' }}
+                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(0,212,170,0.04)')}
+                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#141820' : '#10141c')}
                               >
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="flex items-center">
-                                    <div className="flex-shrink-0 h-8 w-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-                                      <span className="text-xs font-bold text-white">
-                                        {holding.symbol.slice(0, 2)}
-                                      </span>
+                                <td style={{ padding: '10px 14px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ width: '30px', height: '30px', background: 'rgba(0,212,170,0.12)', border: '1px solid rgba(0,212,170,0.25)', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                      <span style={{ fontFamily: mono, fontSize: '9px', fontWeight: 700, color: '#00d4aa' }}>{holding.symbol.slice(0, 2)}</span>
                                     </div>
-                                    <div className="ml-3">
-                                      <div className="text-sm font-semibold text-gray-900">
-                                        {holding.symbol}
-                                      </div>
-                                    </div>
+                                    <span style={{ fontFamily: mono, fontSize: '13px', fontWeight: 700, color: '#e2e8f0' }}>{holding.symbol}</span>
                                   </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm font-medium text-gray-900">
-                                    {holding.quantity.toLocaleString()}
-                                  </div>
+                                <td style={{ padding: '10px 14px', fontFamily: mono, fontSize: '12px', color: '#94a3b8' }}>
+                                  {holding.quantity.toLocaleString()}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 font-medium">
-                                    {formatCurrency(holding.averagePrice)}
-                                  </div>
+                                <td style={{ padding: '10px 14px', fontFamily: mono, fontSize: '12px', color: '#94a3b8' }}>
+                                  {fmtCAD(holding.averagePrice)}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 font-medium">
-                                    {holding.currentPrice ? formatCurrency(holding.currentPrice) : (
-                                      <span className="text-gray-400 italic">N/A</span>
-                                    )}
-                                  </div>
+                                <td style={{ padding: '10px 14px', fontFamily: mono, fontSize: '12px', color: '#94a3b8' }}>
+                                  {holding.currentPrice ? fmtCAD(holding.currentPrice) : <span style={{ color: '#2a3445', fontStyle: 'italic' }}>N/A</span>}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 font-medium">
-                                    {holding.currentValue ? formatCurrency(holding.currentValue) : (
-                                      <span className="text-gray-400 italic">N/A</span>
-                                    )}
-                                  </div>
+                                <td style={{ padding: '10px 14px', fontFamily: mono, fontSize: '12px', color: '#94a3b8' }}>
+                                  {holding.currentValue ? fmtCAD(holding.currentValue) : <span style={{ color: '#2a3445', fontStyle: 'italic' }}>N/A</span>}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td style={{ padding: '10px 14px' }}>
                                   {holding.totalPnL !== undefined ? (
-                                    <div className="flex items-center space-x-2">
-                                      <div className={`flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                                        holding.totalPnL > 0 
-                                          ? 'bg-green-100 text-green-800' 
-                                          : 'bg-red-100 text-red-800'
-                                      }`}>
-                                        {holding.totalPnL > 0 ? (
-                                          <TrendingUp className="h-3 w-3 mr-1" />
-                                        ) : (
-                                          <TrendingDown className="h-3 w-3 mr-1" />
-                                        )}
-                                        {formatCurrency(holding.totalPnL)}
-                                      </div>
-                                      {holding.totalPnLPercent && (
-                                        <div className={`text-xs font-medium ${
-                                          holding.totalPnLPercent > 0 ? 'text-green-600' : 'text-red-600'
-                                        }`}>
-                                          {formatPercentage(holding.totalPnLPercent)}
-                                        </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{ fontFamily: mono, fontSize: '11px', fontWeight: 600, padding: '3px 9px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px', background: holding.totalPnL >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: holding.totalPnL >= 0 ? '#4ade80' : '#f87171', border: `1px solid ${holding.totalPnL >= 0 ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+                                        {holding.totalPnL >= 0 ? <TrendingUp style={{ width: '10px', height: '10px' }} /> : <TrendingDown style={{ width: '10px', height: '10px' }} />}
+                                        {fmtCAD(holding.totalPnL)}
+                                      </span>
+                                      {holding.totalPnLPercent !== undefined && (
+                                        <span style={{ fontFamily: mono, fontSize: '11px', fontWeight: 600, color: holding.totalPnLPercent >= 0 ? '#4ade80' : '#f87171' }}>
+                                          {fmtPct(holding.totalPnLPercent)}
+                                        </span>
                                       )}
                                     </div>
                                   ) : (
-                                    <span className="text-gray-400 italic text-sm">N/A</span>
+                                    <span style={{ fontFamily: mono, fontSize: '11px', color: '#2a3445', fontStyle: 'italic' }}>N/A</span>
                                   )}
                                 </td>
                               </tr>
@@ -548,17 +403,15 @@ const Portfolio: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div className="text-center py-8">
-            <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-gray-500">No portfolios uploaded yet</p>
-            <p className="text-sm text-gray-400">Upload a CSV file to get started</p>
+          <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+            <FileText style={{ width: '40px', height: '40px', color: '#2a3445', margin: '0 auto 12px' }} />
+            <div style={{ fontFamily: mono, fontSize: '13px', color: '#4a5568', marginBottom: '6px' }}>No portfolios uploaded yet</div>
+            <div style={{ fontFamily: mono, fontSize: '11px', color: '#2a3445' }}>Upload a CSV file to get started</div>
           </div>
         )}
-      </div>
-        </div>
       </div>
     </div>
   );
 };
 
-export default Portfolio; 
+export default Portfolio;
