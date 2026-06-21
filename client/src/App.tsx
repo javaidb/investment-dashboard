@@ -12,12 +12,14 @@ import Search from './pages/Search';
 import CacheManagement from './pages/CacheManagement';
 import PnLTracker from './pages/PnLTracker';
 import Insights from './pages/Insights';
+import Allocation from './pages/Allocation';
 import NewsBoard from './components/NewsBoard';
 import Icons from './components/Icons';
 import NotFound from './pages/NotFound';
 import IconTest from './components/IconTest';
 import Tax from './pages/Tax';
 import Fib from './pages/Fib';
+import Timing from './pages/Timing';
 
 function App() {
   return (
@@ -31,6 +33,7 @@ function App() {
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/ratios" element={<Ratios />} />
             <Route path="/insights" element={<Insights />} />
+            <Route path="/allocation" element={<Allocation />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/pnl" element={<PnLTracker />} />
             <Route path="/newsboard" element={<NewsBoard />} />
@@ -40,6 +43,7 @@ function App() {
             <Route path="/icons-test" element={<IconTest />} />
             <Route path="/tax" element={<Tax />} />
             <Route path="/fib" element={<Fib />} />
+            <Route path="/timing" element={<Timing />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>
