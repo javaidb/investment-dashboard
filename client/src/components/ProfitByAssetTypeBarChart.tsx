@@ -157,7 +157,7 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
     const data = chartData[index];
 
     const isPositive = value >= 0;
-    const labelY = isPositive ? y - 10 : y + height + 20;
+    const labelY = isPositive ? y - 10 : y + height - 14;
 
     // Return empty text element if no data
     if (!data) {
@@ -171,10 +171,10 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
     if (weeklyChange !== null && weeklyChange !== undefined) {
       if (weeklyChange > 0) {
         arrow = '↑';
-        arrowColor = '#166534';
+        arrowColor = '#22c55e';
       } else if (weeklyChange < 0) {
         arrow = '↓';
-        arrowColor = '#dc2626';
+        arrowColor = '#ef4444';
       } else {
         arrow = '→';
         arrowColor = '#6b7280';
@@ -186,7 +186,7 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
         <text
           x={x + width / 2}
           y={labelY}
-          fill={isPositive ? '#166534' : '#dc2626'}
+          fill={isPositive ? '#22c55e' : '#ef4444'}
           textAnchor="middle"
           fontSize="14px"
           fontWeight="700"
@@ -212,33 +212,18 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
+      const mono = "'IBM Plex Mono', monospace";
       return (
-        <div style={{
-          backgroundColor: 'white',
-          padding: '12px 16px',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-        }}>
-          <p style={{ fontWeight: 'bold', margin: 0, color: '#111827', marginBottom: '8px' }}>
-            {data.category}
-          </p>
-          <p style={{ margin: '4px 0', color: data.profit >= 0 ? '#166534' : '#dc2626', fontWeight: '600' }}>
+        <div style={{ backgroundColor: '#10141c', padding: '10px 14px', border: '1px solid #1e2535', borderRadius: '4px' }}>
+          <p style={{ fontFamily: mono, fontWeight: 700, margin: '0 0 6px', color: '#e2e8f0', fontSize: '12px' }}>{data.category}</p>
+          <p style={{ fontFamily: mono, margin: '3px 0', color: data.profit >= 0 ? '#22c55e' : '#ef4444', fontWeight: 600, fontSize: '12px' }}>
             P&L: {formatCurrency(data.profit)}
           </p>
-          <p style={{ margin: '4px 0', color: data.profit >= 0 ? '#166534' : '#dc2626', fontWeight: '700', fontSize: '14px' }}>
+          <p style={{ fontFamily: mono, margin: '3px 0', color: data.profit >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700, fontSize: '12px' }}>
             Return: {formatPercent(data.percentPnL)}
           </p>
           {data.weeklyChange !== null && data.weeklyChange !== undefined && (
-            <p style={{
-              margin: '4px 0',
-              color: data.weeklyChange >= 0 ? '#166534' : '#dc2626',
-              fontWeight: '600',
-              fontSize: '13px',
-              borderTop: '1px solid #e5e7eb',
-              paddingTop: '6px',
-              marginTop: '6px'
-            }}>
+            <p style={{ fontFamily: mono, margin: '3px 0', color: data.weeklyChange >= 0 ? '#22c55e' : '#ef4444', fontWeight: 600, fontSize: '11px', borderTop: '1px solid #1e2535', paddingTop: '5px', marginTop: '5px' }}>
               Weekly: {formatPercent(data.weeklyChange)} {data.weeklyChange > 0 ? '↑' : data.weeklyChange < 0 ? '↓' : '→'}
             </p>
           )}
@@ -252,111 +237,49 @@ const ProfitByAssetTypeBarChart: React.FC<ProfitByAssetTypeBarChartProps> = ({
     return null; // Don't render if no data
   }
 
+  const mono = "'IBM Plex Mono', 'Courier New', monospace";
+
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden" style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{
-        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-        padding: '20px 24px',
-        borderBottom: '1px solid #e5e7eb'
-      }}>
-        <h3 style={{
-          fontSize: '20px',
-          fontWeight: 'bold',
-          color: '#111827',
-          margin: 0
-        }}>Profit by Type</h3>
-        <p style={{
-          fontSize: '14px',
-          color: '#6b7280',
-          marginTop: '4px',
-          margin: 0
-        }}>
-          P&L breakdown by asset category. Green highlights indicate negative P&L with rising momentum - consider buying opportunities.
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#10141c', borderRadius: '6px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+      <div style={{ background: '#141820', padding: '12px 20px', borderBottom: '1px solid #1e2535' }}>
+        <div style={{ fontFamily: mono, fontSize: '11px', fontWeight: 700, color: '#4a5568', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Profit by Type</div>
+        <p style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', marginTop: '2px', margin: '2px 0 0' }}>
+          P&L by asset category · green = rising momentum on negative P&L
         </p>
       </div>
 
-      <div style={{ padding: '24px 16px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: '400px' }}>
-        <div style={{ flex: 1, minHeight: '350px' }}>
+      <div style={{ padding: '16px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, minHeight: '240px' }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={chartData}
-              margin={{ top: 20, right: 60, left: 5, bottom: 80 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-              <XAxis
-                dataKey="category"
-                stroke="#6B7280"
-                fontSize={13}
-                fontWeight={600}
-                angle={-45}
-                textAnchor="end"
-                height={80}
-              />
-              <YAxis
-                stroke="#6B7280"
-                fontSize={12}
-                tickFormatter={(value) => formatCurrency(value)}
-                width={70}
-              />
+            <BarChart data={chartData} margin={{ top: 20, right: 50, left: 5, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
+              <XAxis dataKey="category" stroke="#4a5568" fontSize={12} fontFamily={mono} fontWeight={600} angle={-35} textAnchor="end" height={60} tick={{ fill: '#94a3b8' }} />
+              <YAxis stroke="#4a5568" fontSize={11} fontFamily={mono} tickFormatter={(v) => formatCurrency(v)} width={80} tick={{ fill: '#94a3b8' }} />
               <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={2} />
-              <Bar dataKey="profit" radius={[8, 8, 0, 0]} label={renderCustomLabel}>
+              <ReferenceLine y={0} stroke="#1e2535" strokeWidth={2} />
+              <Bar dataKey="profit" radius={[4, 4, 0, 0]} label={renderCustomLabel}>
                 {chartData.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={categoryColors[entry.category]}
-                  />
+                  <Cell key={`cell-${index}`} fill={categoryColors[entry.category]} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Legend */}
-        <div style={{
-          marginTop: '20px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '12px',
-          fontSize: '13px'
-        }}>
+        <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
           {chartData.map(({ category, profit, percentPnL, weeklyChange }) => (
-            <div key={category} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 12px',
-              backgroundColor: '#f9fafb',
-              borderRadius: '8px',
-              borderLeft: `4px solid ${categoryColors[category]}`
-            }}>
-              <span style={{ color: '#6b7280', fontWeight: '600' }}>{category}:</span>
-              <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+            <div key={category} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', backgroundColor: '#141820', borderRadius: '4px', borderLeft: `3px solid ${categoryColors[category]}` }}>
+              <span style={{ fontFamily: mono, color: '#94a3b8', fontWeight: 600, fontSize: '12px' }}>{category}:</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{
-                    color: profit >= 0 ? '#166534' : '#dc2626',
-                    fontWeight: '700',
-                    fontSize: '14px'
-                  }}>
-                    {formatCurrency(profit)}
-                  </span>
+                  <span style={{ fontFamily: mono, color: profit >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700, fontSize: '13px' }}>{formatCurrency(profit)}</span>
                   {weeklyChange !== null && weeklyChange !== undefined && (
-                    <span style={{
-                      color: weeklyChange >= 0 ? '#166534' : '#dc2626',
-                      fontSize: '14px',
-                      fontWeight: '700'
-                    }}>
+                    <span style={{ fontFamily: mono, color: weeklyChange >= 0 ? '#22c55e' : '#ef4444', fontSize: '13px', fontWeight: 700 }}>
                       {weeklyChange > 0 ? '↑' : weeklyChange < 0 ? '↓' : '→'}
                     </span>
                   )}
                 </div>
-                <span style={{
-                  color: profit >= 0 ? '#166534' : '#dc2626',
-                  fontWeight: '600',
-                  fontSize: '12px'
-                }}>
-                  {formatPercent(percentPnL)}
-                </span>
+                <span style={{ fontFamily: mono, color: profit >= 0 ? '#22c55e' : '#ef4444', fontWeight: 600, fontSize: '11px' }}>{formatPercent(percentPnL)}</span>
               </div>
             </div>
           ))}
