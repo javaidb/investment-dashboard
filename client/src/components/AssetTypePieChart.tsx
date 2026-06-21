@@ -143,37 +143,21 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
     ? (((categoryTotals['ETF'] || 0) + (categoryTotals['Index Fund'] || 0)) / totalValue) * 100
     : 0;
 
+  const mono = "'IBM Plex Mono', monospace";
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div style={{
-          backgroundColor: 'white',
-          padding: '12px 16px',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            <CompanyIcon
-              symbol={data.symbol}
-              iconUrl={data.iconUrl}
-              companyName={data.name}
-              size="xs"
-              showFallback={true}
-              showTooltip={false}
-            />
+        <div style={{ backgroundColor: '#10141c', padding: '10px 14px', border: '1px solid #1e2535', borderRadius: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <CompanyIcon symbol={data.symbol} iconUrl={data.iconUrl} companyName={data.name} size="xs" showFallback={true} showTooltip={false} />
             <div>
-              <p style={{ fontWeight: 'bold', margin: 0, color: '#111827' }}>{data.symbol}</p>
-              <p style={{ fontSize: '12px', margin: 0, color: '#6b7280' }}>{data.category}</p>
+              <p style={{ fontFamily: mono, fontWeight: 700, margin: 0, color: '#e2e8f0', fontSize: '12px' }}>{data.symbol}</p>
+              <p style={{ fontFamily: mono, fontSize: '11px', margin: 0, color: '#4a5568' }}>{data.category}</p>
             </div>
           </div>
-          <p style={{ margin: '4px 0', color: '#374151' }}>
-            <strong>Value:</strong> {formatCurrency(data.value)}
-          </p>
-          <p style={{ margin: '4px 0', color: '#374151' }}>
-            <strong>Allocation:</strong> {formatPercent(data.value)}
-          </p>
+          <p style={{ fontFamily: mono, margin: '3px 0', color: '#94a3b8', fontSize: '11px' }}>Value: {formatCurrency(data.value)}</p>
+          <p style={{ fontFamily: mono, margin: '3px 0', color: '#94a3b8', fontSize: '11px' }}>Alloc: {formatPercent(data.value)}</p>
         </div>
       );
     }
@@ -210,33 +194,11 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
     return (
       <g>
         {/* Line from pie edge to label */}
-        <line
-          x1={x1}
-          y1={y1}
-          x2={x2}
-          y2={y2}
-          stroke="#6b7280"
-          strokeWidth={1}
-        />
-        {/* Asset symbol */}
-        <text
-          x={textX}
-          y={y2 - 2}
-          textAnchor={textAnchor}
-          fill="#111827"
-          fontSize="12px"
-          fontWeight="600"
-        >
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#1e2535" strokeWidth={1} />
+        <text x={textX} y={y2 - 2} textAnchor={textAnchor} fill="#e2e8f0" fontSize="12px" fontWeight="600" fontFamily="'IBM Plex Mono', monospace">
           {asset.symbol}
         </text>
-        {/* Percentage */}
-        <text
-          x={textX}
-          y={y2 + 10}
-          textAnchor={textAnchor}
-          fill="#6b7280"
-          fontSize="11px"
-        >
+        <text x={textX} y={y2 + 10} textAnchor={textAnchor} fill="#4a5568" fontSize="11px" fontFamily="'IBM Plex Mono', monospace">
           {formatPercent(asset.value)}
         </text>
       </g>
@@ -253,89 +215,44 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
 
   if (holdings.length === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden p-6">
-        <p className="text-gray-500 text-center">No holdings data available</p>
+      <div style={{ backgroundColor: '#10141c', borderRadius: '6px', border: '1px solid #1e2535', padding: '16px', textAlign: 'center' }}>
+        <p style={{ fontFamily: mono, color: '#4a5568', fontSize: '12px' }}>No holdings data available</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-      <div style={{
-        background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-        padding: '20px 24px',
-        borderBottom: '1px solid #e5e7eb'
-      }}>
-        <h3 style={{
-          fontSize: '20px',
-          fontWeight: 'bold',
-          color: '#111827'
-        }}>Portfolio by Asset Type</h3>
-        <p style={{
-          fontSize: '14px',
-          color: '#6b7280',
-          marginTop: '4px'
-        }}>
-          Current vs target allocation across asset categories
+    <div style={{ backgroundColor: '#10141c', borderRadius: '6px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+      <div style={{ background: '#141820', padding: '12px 20px', borderBottom: '1px solid #1e2535' }}>
+        <div style={{ fontFamily: mono, fontSize: '11px', fontWeight: 700, color: '#4a5568', letterSpacing: '0.14em', textTransform: 'uppercase' as const }}>Portfolio by Asset Type</div>
+        <p style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', marginTop: '2px', margin: '2px 0 0' }}>
+          Current vs target allocation
         </p>
       </div>
 
-      <div style={{ padding: '24px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '24px' }}>
+      <div style={{ padding: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '16px' }}>
           {/* Individual Assets List */}
           <div>
-            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px' }}>
+            <div style={{ fontFamily: mono, fontSize: '11px', fontWeight: 600, color: '#4a5568', letterSpacing: '0.1em', textTransform: 'uppercase' as const, marginBottom: '8px' }}>
               Individual Assets
-            </h4>
-            <div style={{
-              maxHeight: '832px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              paddingRight: '8px'
-            }}>
+            </div>
+            <div style={{ maxHeight: '600px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px', paddingRight: '4px' }}>
               {combinedData.map((asset, index) => (
                 <div
                   key={asset.symbol}
-                  style={{
-                    padding: '8px 10px',
-                    backgroundColor: '#f9fafb',
-                    borderRadius: '6px',
-                    borderLeft: `3px solid ${categoryColors[asset.category]}`,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    opacity: activeIndex === null || activeIndex === index ? 1 : 0.6,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
+                  style={{ padding: '6px 10px', backgroundColor: '#141820', borderRadius: '4px', borderLeft: `3px solid ${categoryColors[asset.category]}`, cursor: 'pointer', opacity: activeIndex === null || activeIndex === index ? 1 : 0.5, display: 'flex', alignItems: 'center', gap: '8px' }}
                   onMouseEnter={() => setActiveIndex(index)}
                   onMouseLeave={() => setActiveIndex(null)}
                 >
-                  <CompanyIcon
-                    symbol={asset.symbol}
-                    iconUrl={asset.iconUrl}
-                    companyName={asset.name}
-                    size="xs"
-                    showFallback={true}
-                    showTooltip={false}
-                  />
+                  <CompanyIcon symbol={asset.symbol} iconUrl={asset.iconUrl} companyName={asset.name} size="xs" showFallback={true} showTooltip={false} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '13px', fontWeight: '600', margin: 0, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {asset.symbol}
-                    </p>
-                    <p style={{ fontSize: '11px', margin: 0, color: '#6b7280' }}>
-                      {asset.category}
-                    </p>
+                    <p style={{ fontFamily: mono, fontSize: '12px', fontWeight: 600, margin: 0, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{asset.symbol}</p>
+                    <p style={{ fontFamily: mono, fontSize: '10px', margin: 0, color: '#4a5568' }}>{asset.category}</p>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontSize: '13px', fontWeight: '600', color: '#111827', margin: 0, whiteSpace: 'nowrap' }}>
-                      {formatCurrency(asset.value)}
-                    </p>
-                    <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>
-                      {formatPercent(asset.value)}
-                    </p>
+                    <p style={{ fontFamily: mono, fontSize: '12px', fontWeight: 600, color: '#e2e8f0', margin: 0, whiteSpace: 'nowrap' }}>{formatCurrency(asset.value)}</p>
+                    <p style={{ fontFamily: mono, fontSize: '10px', color: '#4a5568', margin: 0 }}>{formatPercent(asset.value)}</p>
                   </div>
                 </div>
               ))}
@@ -344,15 +261,15 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
 
           {/* Pie Chart Section */}
           <div>
-            <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#111827', marginBottom: '12px', textAlign: 'center' }}>
+            <div style={{ fontFamily: mono, fontSize: '11px', fontWeight: 600, color: '#4a5568', letterSpacing: '0.1em', textTransform: 'uppercase' as const, marginBottom: '4px', textAlign: 'center' }}>
               Current vs Target Allocation
-            </h4>
-            <div style={{ marginBottom: '12px', textAlign: 'center' }}>
-              <p style={{ fontSize: '12px', color: '#6b7280', margin: '2px 0' }}>
-                <span style={{ fontWeight: '600' }}>Target:</span> Crypto 10% • ETF/Index 50% • Stock 40%
+            </div>
+            <div style={{ marginBottom: '8px', textAlign: 'center' }}>
+              <p style={{ fontFamily: mono, fontSize: '11px', color: '#4a5568', margin: '2px 0' }}>
+                Target: Crypto 10% · ETF/Index 50% · Stock 40%
               </p>
             </div>
-            <ResponsiveContainer width="100%" height={550}>
+            <ResponsiveContainer width="100%" height={480}>
               <PieChart>
                 <defs>
                   <linearGradient id="etfIndexGradient" x1="0%" y1="50%" x2="100%" y2="50%">
@@ -361,53 +278,20 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
                   </linearGradient>
                 </defs>
 
-                {/* Background: Target Allocation (semi-transparent, slightly larger radius) */}
                 <Pie
-                  data={[
-                    { category: 'Crypto', value: 10, label: '10%' },
-                    { category: 'ETF + Index Fund', value: 50, label: '50%' },
-                    { category: 'Stock', value: 40, label: '40%' }
-                  ]}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  outerRadius={200}
-                  innerRadius={60}
-                  fill="#8884d8"
-                  dataKey="value"
-                  startAngle={90}
-                  endAngle={-270}
+                  data={[{ category: 'Crypto', value: 10 }, { category: 'ETF + Index Fund', value: 50 }, { category: 'Stock', value: 40 }]}
+                  cx="50%" cy="50%" labelLine={false} outerRadius={185} innerRadius={55} fill="#8884d8" dataKey="value" startAngle={90} endAngle={-270}
                 >
-                  {[
-                    { category: 'Crypto', value: 10 },
-                    { category: 'ETF + Index Fund', value: 50 },
-                    { category: 'Stock', value: 40 }
-                  ].map((entry, index) => (
-                    <Cell
-                      key={`target-cell-${index}`}
-                      fill={entry.category === 'ETF + Index Fund' ? 'url(#etfIndexGradient)' : categoryColors[entry.category]}
-                      opacity={0.35}
-                      stroke="#ffffff"
-                      strokeWidth={3}
-                    />
+                  {[{ category: 'Crypto', value: 10 }, { category: 'ETF + Index Fund', value: 50 }, { category: 'Stock', value: 40 }].map((entry, index) => (
+                    <Cell key={`target-cell-${index}`} fill={entry.category === 'ETF + Index Fund' ? 'url(#etfIndexGradient)' : categoryColors[entry.category]} opacity={0.2} stroke="#0a0c10" strokeWidth={2} />
                   ))}
                 </Pie>
 
-                {/* Foreground: Current Allocation (smaller radius to show target behind) */}
                 <Pie
                   data={combinedData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={renderCustomLabel}
-                  outerRadius={175}
-                  innerRadius={75}
-                  fill="#8884d8"
-                  dataKey="value"
-                  onMouseEnter={onPieEnter}
-                  onMouseLeave={onPieLeave}
-                  startAngle={90}
-                  endAngle={-270}
+                  cx="50%" cy="50%" labelLine={false} label={renderCustomLabel}
+                  outerRadius={160} innerRadius={65} fill="#8884d8" dataKey="value"
+                  onMouseEnter={onPieEnter} onMouseLeave={onPieLeave} startAngle={90} endAngle={-270}
                 >
                   {combinedData.map((entry, index) => {
                     const isActive = activeIndex === null || activeIndex === index;
@@ -425,71 +309,32 @@ const AssetTypePieChart: React.FC<AssetTypePieChartProps> = ({ holdings, recurri
             </ResponsiveContainer>
 
             {/* Category breakdown cards below chart */}
-            <div style={{
-              marginTop: '24px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '12px'
-            }}>
+            <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
               {Object.entries(categoryTotals).map(([category, value]) => (
                 <div
                   key={category}
-                  style={{
-                    padding: '16px',
-                    backgroundColor: '#f9fafb',
-                    borderRadius: '12px',
-                    borderLeft: `4px solid ${categoryColors[category]}`,
-                    transition: 'all 0.2s',
-                    cursor: 'pointer'
-                  }}
-                  onMouseEnter={() => {
-                    const index = combinedData.findIndex(d => d.category === category);
-                    if (index !== -1) setActiveIndex(index);
-                  }}
+                  style={{ padding: '10px 12px', backgroundColor: '#141820', borderRadius: '4px', borderLeft: `3px solid ${categoryColors[category]}`, cursor: 'pointer' }}
+                  onMouseEnter={() => { const index = combinedData.findIndex(d => d.category === category); if (index !== -1) setActiveIndex(index); }}
                   onMouseLeave={() => setActiveIndex(null)}
                 >
-                  <p style={{
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    color: '#6b7280',
-                    margin: '0 0 8px 0'
-                  }}>
-                    {category}
-                  </p>
-                  <p style={{
-                    fontSize: '20px',
-                    fontWeight: 'bold',
-                    color: '#111827',
-                    margin: '0 0 4px 0'
-                  }}>
-                    {formatCurrency(value)}
-                  </p>
+                  <p style={{ fontFamily: mono, fontSize: '11px', fontWeight: 600, color: '#4a5568', margin: '0 0 4px 0', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>{category}</p>
+                  <p style={{ fontFamily: mono, fontSize: '16px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 2px 0' }}>{formatCurrency(value)}</p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <p style={{
-                      fontSize: '13px',
-                      color: '#6b7280',
-                      margin: 0
-                    }}>
-                      {formatPercent(value)}
-                    </p>
+                    <p style={{ fontFamily: mono, fontSize: '12px', color: '#94a3b8', margin: 0 }}>{formatPercent(value)}</p>
                     {(() => {
                       const currentPct = totalValue > 0 ? (value / totalValue) * 100 : 0;
                       let target: number | null = null;
                       let comparePct = currentPct;
                       let targetLabel = '';
                       if (category === 'ETF' || category === 'Index Fund') {
-                        target = etfIndexTarget;
-                        comparePct = etfIndexCombinedPct;
-                        targetLabel = `${etfIndexTarget}% (combined)`;
+                        target = etfIndexTarget; comparePct = etfIndexCombinedPct; targetLabel = `${etfIndexTarget}% combined`;
                       } else if (targetAllocations[category] !== undefined) {
-                        target = targetAllocations[category];
-                        targetLabel = `${target}%`;
+                        target = targetAllocations[category]; targetLabel = `${target}% target`;
                       }
                       if (target === null) return null;
                       const isAbove = comparePct > target;
-                      const color = isAbove ? '#EF4444' : '#10B981';
                       return (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '2px', color, fontSize: '12px', fontWeight: '600' }}>
+                        <span style={{ fontFamily: mono, display: 'flex', alignItems: 'center', gap: '2px', color: isAbove ? '#ef4444' : '#22c55e', fontSize: '11px', fontWeight: 600 }}>
                           {isAbove ? '▲' : '▼'} {targetLabel}
                         </span>
                       );
