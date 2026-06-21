@@ -177,16 +177,14 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
   if (isCalculating) {
     return (
       <div style={{
-        backgroundColor: 'white',
-        borderRadius: '16px',
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e5e7eb',
+        backgroundColor: '#10141c',
+        borderRadius: '8px',
+        border: '1px solid #1e2535',
         padding: '24px',
-        marginBottom: '24px'
       }}>
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
           <div className="loading-spinner" style={{ margin: '0 auto 16px' }}></div>
-          <p style={{ color: '#6b7280', fontSize: '14px' }}>Calculating 50-week and 200-week moving averages...</p>
+          <p style={{ color: '#64748b', fontSize: '13px', fontFamily: "'IBM Plex Mono', monospace" }}>Calculating 50-week and 200-week moving averages...</p>
         </div>
       </div>
     );
@@ -195,30 +193,18 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
   if (maStatusList.length === 0) {
     return (
       <div style={{
-        backgroundColor: 'white',
-        borderRadius: '16px',
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e5e7eb',
-        padding: '24px',
-        marginBottom: '24px'
+        backgroundColor: '#10141c',
+        borderRadius: '8px',
+        border: '1px solid #1e2535',
+        padding: '18px 20px',
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: '16px'
-        }}>
-          <div style={{
-            width: '4px',
-            height: '24px',
-            backgroundColor: '#9333EA',
-            borderRadius: '2px'
-          }}></div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+          <div style={{ width: '3px', height: '18px', backgroundColor: '#9333EA', borderRadius: '2px' }}></div>
+          <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const, margin: 0 }}>
             Moving Average Analysis
           </h2>
         </div>
-        <p style={{ color: '#6b7280', fontSize: '14px', textAlign: 'center', padding: '20px 0' }}>
+        <p style={{ color: '#4a5568', fontSize: '12px', textAlign: 'center', padding: '16px 0', fontFamily: "'IBM Plex Mono', monospace" }}>
           No holdings are currently near or below their moving averages
         </p>
       </div>
@@ -227,71 +213,53 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
 
   return (
     <div style={{
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e5e7eb',
-      padding: '24px',
-      marginBottom: '24px'
+      backgroundColor: '#10141c',
+      borderRadius: '8px',
+      border: '1px solid #1e2535',
+      padding: '18px 20px',
     }}>
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        marginBottom: '20px'
-      }}>
-        <div style={{
-          width: '4px',
-          height: '24px',
-          backgroundColor: '#9333EA',
-          borderRadius: '2px'
-        }}></div>
-        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+        <div style={{ width: '3px', height: '18px', backgroundColor: '#9333EA', borderRadius: '2px' }}></div>
+        <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const, margin: 0 }}>
           Moving Average Analysis
         </h2>
         <span style={{
-          backgroundColor: '#F3E8FF',
-          color: '#9333EA',
-          padding: '4px 12px',
-          borderRadius: '12px',
-          fontSize: '12px',
-          fontWeight: '600'
+          backgroundColor: 'rgba(147,51,234,0.1)',
+          color: '#a855f7',
+          padding: '2px 10px',
+          borderRadius: '4px',
+          fontSize: '11px',
+          fontWeight: 600,
+          fontFamily: "'IBM Plex Mono', monospace",
+          border: '1px solid rgba(147,51,234,0.2)'
         }}>
-          {maStatusList.length} {maStatusList.length === 1 ? 'stock' : 'stocks'}
+          {maStatusList.length} {maStatusList.length === 1 ? 'asset' : 'assets'}
         </span>
       </div>
 
       {/* Description */}
-      <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '20px' }}>
-        Assets trading near or below their 50-week and 200-week moving averages (within 20% range)
+      <p style={{ color: '#4a5568', fontSize: '11px', marginBottom: '16px', fontFamily: "'IBM Plex Mono', monospace" }}>
+        Assets trading near or below 50W / 200W moving averages (within 20% range)
       </p>
 
       {/* Two-Column Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
 
         {/* Below 50-Week MA Column */}
         <div>
-          <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#F59E0B', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ width: '3px', height: '20px', backgroundColor: '#F59E0B', borderRadius: '2px' }}></span>
-            Below 50-Week MA
+          <h3 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#F59E0B', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
+            <span style={{ width: '3px', height: '14px', backgroundColor: '#F59E0B', borderRadius: '2px' }}></span>
+            50-Week MA
           </h3>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '252px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Symbol
-                  </th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Price
-                  </th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    50W MA
-                  </th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Distance
-                  </th>
+              <thead style={{ position: 'sticky', top: 0, background: '#10141c', zIndex: 1 }}>
+                <tr style={{ borderBottom: '1px solid #1e2535' }}>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>Symbol</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>Price</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>50W MA</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>Dist.</th>
                 </tr>
               </thead>
               <tbody>
@@ -302,29 +270,17 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
                     <tr
                       key={item.symbol}
                       style={{
-                        borderBottom: index < arr.length - 1 ? '1px solid #f3f4f6' : 'none',
-                        transition: 'background-color 0.2s',
-                        backgroundColor: item.isBelow50MA ? '#FFF7ED' : 'transparent'
+                        borderBottom: index < arr.length - 1 ? '1px solid #131720' : 'none',
+                        transition: 'background-color 0.15s',
+                        backgroundColor: item.isBelow50MA ? 'rgba(245,158,11,0.05)' : 'transparent'
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FEF3C7'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = item.isBelow50MA ? '#FFF7ED' : 'transparent'}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(245,158,11,0.08)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = item.isBelow50MA ? 'rgba(245,158,11,0.05)' : 'transparent'; }}
                     >
-                      <td style={{ padding: '12px', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
-                        {item.symbol}
-                      </td>
-                      <td style={{ padding: '12px', fontSize: '13px', color: '#374151', textAlign: 'right' }}>
-                        ${item.currentPrice.toFixed(2)}
-                      </td>
-                      <td style={{ padding: '12px', fontSize: '13px', color: '#F59E0B', textAlign: 'right', fontWeight: '500' }}>
-                        ${item.ma50Week.toFixed(2)}
-                      </td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '13px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: item.percentFrom50MA < 0 ? '#EF4444' : item.percentFrom50MA < 5 ? '#F59E0B' : '#10B981'
-                      }}>
+                      <td style={{ padding: '10px', fontSize: '12px', fontWeight: 700, color: '#cbd5e1', fontFamily: "'IBM Plex Mono', monospace" }}>{item.symbol}</td>
+                      <td style={{ padding: '10px', fontSize: '12px', color: '#94a3b8', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>${item.currentPrice.toFixed(2)}</td>
+                      <td style={{ padding: '10px', fontSize: '12px', color: '#F59E0B', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>${item.ma50Week.toFixed(2)}</td>
+                      <td style={{ padding: '10px', fontSize: '12px', textAlign: 'right', fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", color: item.percentFrom50MA < 0 ? '#f87171' : item.percentFrom50MA < 5 ? '#fbbf24' : '#34d399' }}>
                         {item.percentFrom50MA > 0 ? '+' : ''}{item.percentFrom50MA.toFixed(1)}%
                       </td>
                     </tr>
@@ -332,35 +288,25 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
               </tbody>
             </table>
             {maStatusList.filter(item => item.percentFrom50MA <= 20).length === 0 && (
-              <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center', padding: '20px 0' }}>
-                No assets near or below 50W MA
-              </p>
+              <p style={{ color: '#4a5568', fontSize: '12px', textAlign: 'center', padding: '16px 0', fontFamily: "'IBM Plex Mono', monospace" }}>No assets near or below 50W MA</p>
             )}
           </div>
         </div>
 
         {/* Below 200-Week MA Column */}
         <div>
-          <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#9333EA', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ width: '3px', height: '20px', backgroundColor: '#9333EA', borderRadius: '2px' }}></span>
-            Below 200-Week MA
+          <h3 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#a855f7', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
+            <span style={{ width: '3px', height: '14px', backgroundColor: '#9333EA', borderRadius: '2px' }}></span>
+            200-Week MA
           </h3>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '252px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Symbol
-                  </th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Price
-                  </th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    200W MA
-                  </th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>
-                    Distance
-                  </th>
+              <thead style={{ position: 'sticky', top: 0, background: '#10141c', zIndex: 1 }}>
+                <tr style={{ borderBottom: '1px solid #1e2535' }}>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>Symbol</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>Price</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>200W MA</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em' }}>Dist.</th>
                 </tr>
               </thead>
               <tbody>
@@ -371,29 +317,17 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
                     <tr
                       key={item.symbol}
                       style={{
-                        borderBottom: index < arr.length - 1 ? '1px solid #f3f4f6' : 'none',
-                        transition: 'background-color 0.2s',
-                        backgroundColor: item.isBelow200MA ? '#FAF5FF' : 'transparent'
+                        borderBottom: index < arr.length - 1 ? '1px solid #131720' : 'none',
+                        transition: 'background-color 0.15s',
+                        backgroundColor: item.isBelow200MA ? 'rgba(147,51,234,0.05)' : 'transparent'
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F3E8FF'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = item.isBelow200MA ? '#FAF5FF' : 'transparent'}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(147,51,234,0.08)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = item.isBelow200MA ? 'rgba(147,51,234,0.05)' : 'transparent'; }}
                     >
-                      <td style={{ padding: '12px', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
-                        {item.symbol}
-                      </td>
-                      <td style={{ padding: '12px', fontSize: '13px', color: '#374151', textAlign: 'right' }}>
-                        ${item.currentPrice.toFixed(2)}
-                      </td>
-                      <td style={{ padding: '12px', fontSize: '13px', color: '#9333EA', textAlign: 'right', fontWeight: '500' }}>
-                        ${item.ma200Week.toFixed(2)}
-                      </td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '13px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: item.percentFrom200MA < 0 ? '#EF4444' : item.percentFrom200MA < 5 ? '#F59E0B' : '#10B981'
-                      }}>
+                      <td style={{ padding: '10px', fontSize: '12px', fontWeight: 700, color: '#cbd5e1', fontFamily: "'IBM Plex Mono', monospace" }}>{item.symbol}</td>
+                      <td style={{ padding: '10px', fontSize: '12px', color: '#94a3b8', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>${item.currentPrice.toFixed(2)}</td>
+                      <td style={{ padding: '10px', fontSize: '12px', color: '#a855f7', textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace" }}>${item.ma200Week.toFixed(2)}</td>
+                      <td style={{ padding: '10px', fontSize: '12px', textAlign: 'right', fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", color: item.percentFrom200MA < 0 ? '#f87171' : item.percentFrom200MA < 5 ? '#fbbf24' : '#34d399' }}>
                         {item.percentFrom200MA > 0 ? '+' : ''}{item.percentFrom200MA.toFixed(1)}%
                       </td>
                     </tr>
@@ -401,9 +335,7 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
               </tbody>
             </table>
             {maStatusList.filter(item => item.percentFrom200MA <= 20).length === 0 && (
-              <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center', padding: '20px 0' }}>
-                No assets near or below 200W MA
-              </p>
+              <p style={{ color: '#4a5568', fontSize: '12px', textAlign: 'center', padding: '16px 0', fontFamily: "'IBM Plex Mono', monospace" }}>No assets near or below 200W MA</p>
             )}
           </div>
         </div>
@@ -412,14 +344,16 @@ const Below200WeekMA: React.FC<Below200WeekMAProps> = ({ holdings }) => {
 
       {/* Footer note */}
       <div style={{
-        marginTop: '20px',
-        padding: '12px 16px',
-        backgroundColor: '#F9FAFB',
-        borderRadius: '8px',
-        fontSize: '12px',
-        color: '#6b7280'
+        marginTop: '16px',
+        padding: '10px 14px',
+        backgroundColor: 'rgba(30,37,53,0.5)',
+        borderRadius: '6px',
+        fontSize: '11px',
+        color: '#4a5568',
+        fontFamily: "'IBM Plex Mono', monospace",
+        border: '1px solid #1e2535'
       }}>
-        <strong>Note:</strong> Moving averages are trend indicators. The 50-week MA shows medium-term trends, while the 200-week MA indicates long-term trends. Prices below these levels may signal potential opportunities or bearish trends.
+        50W MA = medium-term trend · 200W MA = long-term trend. Prices near or below these levels may signal potential buying opportunities or bearish continuation.
       </div>
     </div>
   );
