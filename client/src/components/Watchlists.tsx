@@ -68,16 +68,14 @@ const Watchlists: React.FC = () => {
   if (isLoading) {
     return (
       <div style={{
-        backgroundColor: 'white',
-        borderRadius: '16px',
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e5e7eb',
+        backgroundColor: '#10141c',
+        borderRadius: '8px',
+        border: '1px solid #1e2535',
         padding: '20px',
-        marginBottom: '24px'
       }}>
         <div className="text-center py-4">
           <div className="loading-spinner mx-auto mb-2"></div>
-          <p className="text-gray-500 text-sm">Loading watchlist...</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>Loading watchlist...</p>
         </div>
       </div>
     );
@@ -86,14 +84,12 @@ const Watchlists: React.FC = () => {
   if (error) {
     return (
       <div style={{
-        backgroundColor: 'white',
-        borderRadius: '16px',
-        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e5e7eb',
+        backgroundColor: '#10141c',
+        borderRadius: '8px',
+        border: '1px solid #1e2535',
         padding: '20px',
-        marginBottom: '24px'
       }}>
-        <p className="text-red-500 text-sm">Failed to load watchlist</p>
+        <p style={{ color: '#f87171', fontSize: '13px' }}>Failed to load watchlist</p>
       </div>
     );
   }
@@ -104,27 +100,29 @@ const Watchlists: React.FC = () => {
 
   return (
     <div style={{
-      backgroundColor: 'white',
-      borderRadius: '16px',
-      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e5e7eb',
-      padding: '20px',
-      marginBottom: '24px'
+      backgroundColor: '#10141c',
+      borderRadius: '8px',
+      border: '1px solid #1e2535',
+      padding: '18px 20px',
     }}>
       <div style={{ marginBottom: '16px' }}>
         <h2 style={{
-          fontSize: '18px',
-          fontWeight: '700',
-          color: '#1f2937',
-          marginBottom: '4px'
+          fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+          fontSize: '11px',
+          fontWeight: 700,
+          color: '#94a3b8',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase' as const,
+          marginBottom: '3px'
         }}>
           Watchlists
         </h2>
         <p style={{
-          fontSize: '14px',
-          color: '#6b7280'
+          fontSize: '11px',
+          color: '#4a5568',
+          fontFamily: "'IBM Plex Mono', monospace"
         }}>
-          Track your active, inactive, and custom portfolio symbols
+          Active · Sold positions · Custom symbols
         </p>
       </div>
 
@@ -148,9 +146,12 @@ const Watchlists: React.FC = () => {
               backgroundColor: '#10b981'
             }}></div>
             <h3 style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#374151'
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#94a3b8',
+              fontFamily: "'IBM Plex Mono', monospace",
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase' as const
             }}>
               Active Holdings ({activeSymbols.length})
             </h3>
@@ -160,7 +161,10 @@ const Watchlists: React.FC = () => {
             display: 'flex',
             flexWrap: 'wrap',
             gap: '8px',
-            minHeight: '40px'
+            minHeight: '40px',
+            maxHeight: '196px',
+            overflowY: 'auto',
+            paddingRight: '4px'
           }}>
             {activeSymbols.length > 0 ? (
               activeSymbols.map((symbol) => (
@@ -169,13 +173,15 @@ const Watchlists: React.FC = () => {
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    color: '#059669',
-                    backgroundColor: '#d1fae5',
-                    borderRadius: '8px',
-                    border: '1px solid #a7f3d0'
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    color: '#34d399',
+                    backgroundColor: 'rgba(16,185,129,0.08)',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(16,185,129,0.2)',
+                    flexShrink: 0
                   }}
                 >
                   {symbol}
@@ -183,8 +189,8 @@ const Watchlists: React.FC = () => {
               ))
             ) : (
               <p style={{
-                fontSize: '13px',
-                color: '#9ca3af',
+                fontSize: '12px',
+                color: '#4a5568',
                 fontStyle: 'italic'
               }}>
                 No active holdings
@@ -208,9 +214,12 @@ const Watchlists: React.FC = () => {
               backgroundColor: '#9ca3af'
             }}></div>
             <h3 style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#374151'
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#94a3b8',
+              fontFamily: "'IBM Plex Mono', monospace",
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase' as const
             }}>
               Sold Positions ({inactiveSymbols.length})
             </h3>
@@ -220,7 +229,10 @@ const Watchlists: React.FC = () => {
             display: 'flex',
             flexWrap: 'wrap',
             gap: '8px',
-            minHeight: '40px'
+            minHeight: '40px',
+            maxHeight: '196px',
+            overflowY: 'auto',
+            paddingRight: '4px'
           }}>
             {inactiveSymbols.length > 0 ? (
               inactiveSymbols.map((symbol) => (
@@ -229,13 +241,15 @@ const Watchlists: React.FC = () => {
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    color: '#6b7280',
-                    backgroundColor: '#f3f4f6',
-                    borderRadius: '8px',
-                    border: '1px solid #e5e7eb'
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    color: '#64748b',
+                    backgroundColor: 'rgba(100,116,139,0.08)',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(100,116,139,0.2)',
+                    flexShrink: 0
                   }}
                 >
                   {symbol}
@@ -243,8 +257,8 @@ const Watchlists: React.FC = () => {
               ))
             ) : (
               <p style={{
-                fontSize: '13px',
-                color: '#9ca3af',
+                fontSize: '12px',
+                color: '#4a5568',
                 fontStyle: 'italic'
               }}>
                 No sold positions
@@ -268,9 +282,12 @@ const Watchlists: React.FC = () => {
               backgroundColor: '#3b82f6'
             }}></div>
             <h3 style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#374151'
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#94a3b8',
+              fontFamily: "'IBM Plex Mono', monospace",
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase' as const
             }}>
               Custom Watchlist ({customSymbols.length})
             </h3>
@@ -283,42 +300,46 @@ const Watchlists: React.FC = () => {
                 type="text"
                 value={newSymbol}
                 onChange={(e) => setNewSymbol(e.target.value.toUpperCase())}
-                placeholder="Enter symbol (e.g., AAPL)"
+                placeholder="e.g., AAPL"
                 disabled={isAdding}
                 style={{
                   flex: 1,
-                  padding: '8px 12px',
-                  fontSize: '13px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
+                  padding: '7px 10px',
+                  fontSize: '12px',
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  background: '#0a0c10',
+                  border: '1px solid #1e2535',
+                  borderRadius: '4px',
                   outline: 'none',
+                  color: '#cbd5e1',
                   transition: 'border-color 0.2s',
                 }}
                 onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                onBlur={(e) => e.target.style.borderColor = '#1e2535'}
               />
               <button
                 type="submit"
                 disabled={isAdding || !newSymbol.trim()}
                 style={{
-                  padding: '8px 16px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: 'white',
-                  backgroundColor: isAdding || !newSymbol.trim() ? '#9ca3af' : '#3b82f6',
-                  border: 'none',
-                  borderRadius: '8px',
+                  padding: '7px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  color: isAdding || !newSymbol.trim() ? '#4a5568' : '#93c5fd',
+                  backgroundColor: isAdding || !newSymbol.trim() ? 'rgba(100,116,139,0.08)' : 'rgba(59,130,246,0.12)',
+                  border: `1px solid ${isAdding || !newSymbol.trim() ? '#1e2535' : 'rgba(59,130,246,0.3)'}`,
+                  borderRadius: '4px',
                   cursor: isAdding || !newSymbol.trim() ? 'not-allowed' : 'pointer',
-                  transition: 'background-color 0.2s'
+                  transition: 'all 0.2s'
                 }}
                 onMouseEnter={(e) => {
                   if (!isAdding && newSymbol.trim()) {
-                    e.currentTarget.style.backgroundColor = '#2563eb';
+                    e.currentTarget.style.backgroundColor = 'rgba(59,130,246,0.2)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!isAdding && newSymbol.trim()) {
-                    e.currentTarget.style.backgroundColor = '#3b82f6';
+                    e.currentTarget.style.backgroundColor = 'rgba(59,130,246,0.12)';
                   }
                 }}
               >
@@ -328,8 +349,9 @@ const Watchlists: React.FC = () => {
             {addError && (
               <p style={{
                 marginTop: '4px',
-                fontSize: '12px',
-                color: '#ef4444'
+                fontSize: '11px',
+                color: '#f87171',
+                fontFamily: "'IBM Plex Mono', monospace"
               }}>
                 {addError}
               </p>
@@ -340,7 +362,10 @@ const Watchlists: React.FC = () => {
             display: 'flex',
             flexWrap: 'wrap',
             gap: '8px',
-            minHeight: '40px'
+            minHeight: '40px',
+            maxHeight: '196px',
+            overflowY: 'auto',
+            paddingRight: '4px'
           }}>
             {customSymbols.length > 0 ? (
               customSymbols.map((symbol) => (
@@ -350,13 +375,15 @@ const Watchlists: React.FC = () => {
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    color: '#1e40af',
-                    backgroundColor: '#dbeafe',
-                    borderRadius: '8px',
-                    border: '1px solid #93c5fd'
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    color: '#60a5fa',
+                    backgroundColor: 'rgba(59,130,246,0.08)',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(59,130,246,0.2)',
+                    flexShrink: 0
                   }}
                 >
                   {symbol}
@@ -366,21 +393,21 @@ const Watchlists: React.FC = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: '16px',
-                      height: '16px',
+                      width: '14px',
+                      height: '14px',
                       marginLeft: '2px',
                       backgroundColor: 'transparent',
                       border: 'none',
-                      borderRadius: '4px',
+                      borderRadius: '3px',
                       cursor: 'pointer',
-                      color: '#1e40af',
+                      color: '#60a5fa',
                       fontSize: '14px',
                       lineHeight: '1',
                       padding: '0',
                       transition: 'background-color 0.2s'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#93c5fd'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(59,130,246,0.2)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                     title={`Remove ${symbol}`}
                   >
                     ×
@@ -389,8 +416,8 @@ const Watchlists: React.FC = () => {
               ))
             ) : (
               <p style={{
-                fontSize: '13px',
-                color: '#9ca3af',
+                fontSize: '12px',
+                color: '#4a5568',
                 fontStyle: 'italic'
               }}>
                 No custom symbols. Add one above!
@@ -403,24 +430,26 @@ const Watchlists: React.FC = () => {
       {/* Summary Stats */}
       <div style={{
         marginTop: '16px',
-        paddingTop: '16px',
-        borderTop: '1px solid #e5e7eb',
+        paddingTop: '14px',
+        borderTop: '1px solid #1e2535',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
         <div style={{
-          fontSize: '13px',
-          color: '#6b7280'
+          fontSize: '12px',
+          color: '#4a5568',
+          fontFamily: "'IBM Plex Mono', monospace"
         }}>
-          <span style={{ fontWeight: '600', color: '#374151' }}>
+          <span style={{ fontWeight: 700, color: '#64748b' }}>
             {watchlistData?.totalSymbols || 0}
           </span>
           {' '}total symbols tracked
         </div>
         <div style={{
-          fontSize: '12px',
-          color: '#9ca3af'
+          fontSize: '11px',
+          color: '#374151',
+          fontFamily: "'IBM Plex Mono', monospace"
         }}>
           Updated on portfolio changes
         </div>
