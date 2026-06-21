@@ -291,11 +291,9 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
 
   if (loading) {
     return (
-      <div className="dashboard-content">
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div className="loading-spinner" style={{ margin: '0 auto 20px' }}></div>
-          <p style={{ color: '#6b7280' }}>Loading P&L data...</p>
-        </div>
+      <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <div className="loading-spinner" style={{ margin: '0 auto 20px' }}></div>
+        <p style={{ color: '#64748b', fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px' }}>Loading P&L data...</p>
       </div>
     );
   }
@@ -313,22 +311,28 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
 
   return (
     <div>
-      <div className="dashboard-header">
-        <div className="dashboard-header-content">
-          <h1 className="dashboard-title">Daily P&L Tracker</h1>
-          <p className="dashboard-subtitle">Track performance day by day since first purchase</p>
+      {/* Header */}
+      <div style={{ background: '#10141c', borderBottom: '1px solid #1e2535', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", fontSize: '12px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
+            Daily P&L Tracker
+          </div>
+          <div style={{ fontSize: '11px', color: '#4a5568', marginTop: '2px', fontFamily: "'IBM Plex Mono', monospace" }}>
+            Track performance day by day since first purchase
+          </div>
         </div>
         <button
           onClick={calculatePnL}
           disabled={calculating}
           style={{
-            padding: '12px 24px',
-            backgroundColor: calculating ? '#9ca3af' : '#4f46e5',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '600',
+            padding: '7px 16px',
+            backgroundColor: calculating ? 'rgba(100,116,139,0.1)' : 'rgba(79,70,229,0.15)',
+            color: calculating ? '#4a5568' : '#818cf8',
+            border: `1px solid ${calculating ? '#1e2535' : 'rgba(79,70,229,0.35)'}`,
+            borderRadius: '4px',
+            fontSize: '11px',
+            fontWeight: 700,
+            fontFamily: "'IBM Plex Mono', monospace",
             cursor: calculating ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -338,217 +342,80 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
         >
           {calculating ? (
             <>
-              <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></div>
+              <div className="loading-spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }}></div>
               Calculating...
             </>
           ) : (
-            <>
-              <span>🔄</span>
-              Calculate / Update P&L
-            </>
+            'Calculate / Update P&L'
           )}
         </button>
       </div>
 
-      <div className="dashboard-content">
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {batchProgress && (
-          <div className="card" style={{ marginBottom: '20px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+          <div style={{ backgroundColor: '#10141c', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div className="loading-spinner" style={{ width: '20px', height: '20px' }}></div>
+              <div className="loading-spinner" style={{ width: '16px', height: '16px' }}></div>
               <div>
-                <p style={{ fontSize: '14px', fontWeight: '600', color: '#1e40af' }}>Processing {calculatingSymbol}...</p>
-                <p style={{ fontSize: '12px', color: '#3b82f6' }}>{batchProgress.current} of {batchProgress.total} completed</p>
+                <p style={{ fontSize: '13px', fontWeight: 700, color: '#60a5fa', fontFamily: "'IBM Plex Mono', monospace" }}>Processing {calculatingSymbol}...</p>
+                <p style={{ fontSize: '11px', color: '#4a5568', fontFamily: "'IBM Plex Mono', monospace" }}>{batchProgress.current} of {batchProgress.total} completed</p>
               </div>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="card" style={{ marginBottom: '20px', backgroundColor: '#fee2e2', border: '1px solid #fecaca' }}>
-            <p style={{ fontSize: '14px', fontWeight: '600', color: '#991b1b' }}>Error</p>
-            <p style={{ fontSize: '12px', color: '#dc2626' }}>{error}</p>
+          <div style={{ backgroundColor: '#10141c', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', padding: '16px' }}>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#f87171', fontFamily: "'IBM Plex Mono', monospace", marginBottom: '4px' }}>Error</p>
+            <p style={{ fontSize: '12px', color: '#64748b', fontFamily: "'IBM Plex Mono', monospace" }}>{error}</p>
           </div>
         )}
 
         {summary && summary.portfolioTotals && (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
-            overflow: 'hidden',
-            marginBottom: '24px'
-          }}>
-            <div style={{
-              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-              padding: '20px 24px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <h3 style={{
-                fontSize: '20px',
-                fontWeight: 'bold',
-                color: '#111827'
-              }}>Daily P&L Summary</h3>
+          <div style={{ backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2535' }}>
+              <h3 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>Daily P&L Summary</h3>
             </div>
-
-            <div style={{
-              padding: '30px 24px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: '24px',
-              alignItems: 'center'
-            }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{
-                  fontSize: '28px',
-                  fontWeight: '700',
-                  color: '#111827',
-                  marginBottom: '4px',
-                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                }}>
-                  {formatCurrency(summary.portfolioTotals.totalValue)}
+            <div style={{ padding: '20px 18px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', alignItems: 'center' }}>
+              {[
+                { label: 'Current Value', value: formatCurrency(summary.portfolioTotals.totalValue), color: '#e2e8f0', sub: `${summary.portfolioTotals.assetsWithData} assets` },
+                { label: 'Total P&L', value: formatCurrency(summary.portfolioTotals.totalPnL), color: summary.portfolioTotals.totalPnL >= 0 ? '#34d399' : '#f87171', sub: `${((summary.portfolioTotals.totalPnL / (summary.portfolioTotals.totalValue - summary.portfolioTotals.totalPnL)) * 100).toFixed(2)}%` },
+                { label: 'Unrealized P&L', value: formatCurrency(summary.portfolioTotals.totalUnrealizedPnL), color: summary.portfolioTotals.totalUnrealizedPnL >= 0 ? '#34d399' : '#f87171', sub: null },
+                { label: 'Realized P&L', value: formatCurrency(summary.portfolioTotals.totalRealizedPnL), color: summary.portfolioTotals.totalRealizedPnL >= 0 ? '#34d399' : '#f87171', sub: null },
+              ].map(({ label, value, color, sub }) => (
+                <div key={label} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color, marginBottom: '6px', fontFamily: "'IBM Plex Mono', monospace" }}>{value}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b', backgroundColor: 'rgba(30,37,53,0.6)', padding: '2px 8px', borderRadius: '4px', display: 'inline-block', border: '1px solid #1e2535', fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>{label}</div>
+                  {sub && <div style={{ fontSize: '11px', color: '#4a5568', marginTop: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>{sub}</div>}
                 </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
-                  backgroundColor: '#f3f4f6',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  display: 'inline-block',
-                  border: '1px solid #e5e7eb'
-                }}>
-                  Current Value
-                </div>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
-                  {summary.portfolioTotals.assetsWithData} assets
-                </div>
-              </div>
-
-              <div style={{ textAlign: 'center' }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  marginBottom: '4px'
-                }}>
-                  <div style={{
-                    fontSize: '28px',
-                    fontWeight: '700',
-                    color: summary.portfolioTotals.totalPnL >= 0 ? '#166534' : '#dc2626',
-                    fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                  }}>
-                    {formatCurrency(summary.portfolioTotals.totalPnL)}
-                  </div>
-                  <div style={{
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    color: summary.portfolioTotals.totalPnL >= 0 ? '#166534' : '#dc2626',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px'
-                  }}>
-                    {summary.portfolioTotals.totalPnL >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                    {((summary.portfolioTotals.totalPnL / (summary.portfolioTotals.totalValue - summary.portfolioTotals.totalPnL)) * 100).toFixed(2)}%
-                  </div>
-                </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
-                  backgroundColor: '#f3f4f6',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  display: 'inline-block',
-                  border: '1px solid #e5e7eb'
-                }}>
-                  Total P&L
-                </div>
-              </div>
-
-              <div style={{ textAlign: 'center' }}>
-                <div style={{
-                  fontSize: '28px',
-                  fontWeight: '700',
-                  color: summary.portfolioTotals.totalUnrealizedPnL >= 0 ? '#166534' : '#dc2626',
-                  marginBottom: '4px',
-                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                }}>
-                  {formatCurrency(summary.portfolioTotals.totalUnrealizedPnL)}
-                </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
-                  backgroundColor: '#f3f4f6',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  display: 'inline-block',
-                  border: '1px solid #e5e7eb'
-                }}>
-                  Unrealized P&L
-                </div>
-              </div>
-
-              <div style={{ textAlign: 'center' }}>
-                <div style={{
-                  fontSize: '28px',
-                  fontWeight: '700',
-                  color: summary.portfolioTotals.totalRealizedPnL >= 0 ? '#166534' : '#dc2626',
-                  marginBottom: '4px',
-                  fontFamily: 'Futura, "Trebuchet MS", Arial, sans-serif'
-                }}>
-                  {formatCurrency(summary.portfolioTotals.totalRealizedPnL)}
-                </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
-                  backgroundColor: '#f3f4f6',
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  display: 'inline-block',
-                  border: '1px solid #e5e7eb'
-                }}>
-                  Realized P&L
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         )}
 
         {summary && assetsWithoutData.length > 0 && (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
-            padding: '24px',
-            marginBottom: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}>
+          <div style={{ backgroundColor: '#10141c', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '8px', padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p style={{ fontSize: '16px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+              <p style={{ fontSize: '13px', fontWeight: 700, color: '#fbbf24', fontFamily: "'IBM Plex Mono', monospace", marginBottom: '3px' }}>
                 {assetsWithoutData.length} assets need P&L calculation
               </p>
-              <p style={{ fontSize: '14px', color: '#6b7280' }}>Calculate historical P&L for complete performance view</p>
+              <p style={{ fontSize: '11px', color: '#4a5568', fontFamily: "'IBM Plex Mono', monospace" }}>Calculate historical P&L for complete performance view</p>
             </div>
             <button
               onClick={calculateMissingAssets}
               disabled={calculating}
               style={{
-                padding: '12px 24px',
-                backgroundColor: calculating ? '#9ca3af' : '#4f46e5',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
+                padding: '6px 14px',
+                backgroundColor: calculating ? 'rgba(100,116,139,0.1)' : 'rgba(251,191,36,0.12)',
+                color: calculating ? '#4a5568' : '#fbbf24',
+                border: `1px solid ${calculating ? '#1e2535' : 'rgba(251,191,36,0.3)'}`,
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontWeight: 700,
+                fontFamily: "'IBM Plex Mono', monospace",
                 cursor: calculating ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s',
-                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
               }}
-              onMouseEnter={(e) => !calculating && (e.currentTarget.style.backgroundColor = '#4338ca')}
-              onMouseLeave={(e) => !calculating && (e.currentTarget.style.backgroundColor = '#4f46e5')}
             >
               {calculating ? 'Calculating...' : 'Calculate Missing'}
             </button>
@@ -572,40 +439,24 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
         </div>
 
         {assetsWithData.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: selectedSymbol ? '1fr 1fr' : '1fr', gap: '24px', marginBottom: '24px' }}>
-            <div style={{
-              backgroundColor: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e5e7eb',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-                padding: '20px 24px',
-                borderBottom: '1px solid #e5e7eb'
-              }}>
-                <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: selectedSymbol ? '1fr 1fr' : '1fr', gap: '14px' }}>
+            <div style={{ backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+              <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2535' }}>
+                <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const, marginBottom: '2px' }}>
                   Assets with P&L Data
                 </h2>
-                <p style={{ fontSize: '14px', color: '#6b7280' }}>
+                <p style={{ fontSize: '11px', color: '#4a5568', fontFamily: "'IBM Plex Mono', monospace" }}>
                   {assetsWithData.length} of {summary?.totalSymbols} assets tracked
                 </p>
               </div>
 
               <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '500px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-                  <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Asset</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Type</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Status</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Shares</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Value</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Total P&L</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>P&L %</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Days</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Chart</th>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#10141c' }}>
+                  <tr style={{ borderBottom: '1px solid #1e2535' }}>
+                    {['Asset','Type','Status','Shares','Value','Total P&L','P&L %','Days','Chart'].map((h, i) => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: i === 0 ? 'left' : i >= 3 && i <= 7 ? 'right' : 'center', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em', background: '#10141c', whiteSpace: 'nowrap' as const }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -613,95 +464,65 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
                     <tr
                       key={asset.symbol}
                       style={{
-                        borderBottom: index === assetsWithData.length - 1 ? 'none' : '1px solid #f3f4f6',
-                        backgroundColor: selectedSymbol === asset.symbol ? '#eff6ff' : 'transparent'
+                        borderBottom: index === assetsWithData.length - 1 ? 'none' : '1px solid #131720',
+                        backgroundColor: selectedSymbol === asset.symbol ? 'rgba(59,130,246,0.08)' : 'transparent',
+                        cursor: 'pointer'
                       }}
+                      onClick={() => setSelectedSymbol(asset.symbol)}
                     >
-                      <td style={{ padding: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <img
                             src={getAssetIcon(asset.symbol, asset.assetInfo?.type)}
                             alt={asset.symbol}
-                            style={{ width: '36px', height: '36px', borderRadius: '8px' }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${asset.symbol}&size=36&background=667eea&color=fff&bold=true`;
-                            }}
+                            style={{ width: '28px', height: '28px', borderRadius: '6px' }}
+                            onError={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${asset.symbol}&size=28&background=667eea&color=fff&bold=true`; }}
                           />
-                          <div style={{
-                            fontSize: '15px',
-                            fontWeight: '600',
-                            color: '#1f2937'
-                          }}>
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: '#cbd5e1', fontFamily: "'IBM Plex Mono', monospace" }}>
                             {asset.symbol}
                           </div>
                         </div>
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'center' }}>
-                        <div style={{
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          color: asset.assetInfo?.type === 's' ? '#2563eb' : '#7c3aed',
-                          backgroundColor: asset.assetInfo?.type === 's' ? '#dbeafe' : '#f3e8ff',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          display: 'inline-block'
-                        }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: asset.assetInfo?.type === 's' ? '#60a5fa' : '#a78bfa', backgroundColor: asset.assetInfo?.type === 's' ? 'rgba(37,99,235,0.12)' : 'rgba(124,58,237,0.12)', padding: '3px 8px', borderRadius: '4px', display: 'inline-block', fontFamily: "'IBM Plex Mono', monospace", border: `1px solid ${asset.assetInfo?.type === 's' ? 'rgba(37,99,235,0.25)' : 'rgba(124,58,237,0.25)'}` }}>
                           {asset.assetInfo?.type === 's' ? 'Stock' : 'Crypto'}
                         </div>
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'center' }}>
-                        <div style={{
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          color: (asset.currentShares || 0) >= 0.0001 ? '#ffffff' : '#1f2937',
-                          backgroundColor: (asset.currentShares || 0) >= 0.0001 ? '#3b82f6' : '#e5e7eb',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          display: 'inline-block'
-                        }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: (asset.currentShares || 0) >= 0.0001 ? '#34d399' : '#64748b', backgroundColor: (asset.currentShares || 0) >= 0.0001 ? 'rgba(16,185,129,0.1)' : 'rgba(100,116,139,0.1)', padding: '3px 8px', borderRadius: '4px', display: 'inline-block', fontFamily: "'IBM Plex Mono', monospace", border: `1px solid ${(asset.currentShares || 0) >= 0.0001 ? 'rgba(16,185,129,0.25)' : 'rgba(100,116,139,0.2)'}` }}>
                           {(asset.currentShares || 0) >= 0.0001 ? 'Active' : 'Inactive'}
                         </div>
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'right', fontSize: '14px', color: '#374151' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: '12px', color: '#94a3b8', fontFamily: "'IBM Plex Mono', monospace" }}>
                         {asset.currentShares?.toFixed(4)}
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#1f2937' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: '#cbd5e1', fontFamily: "'IBM Plex Mono', monospace" }}>
                         {formatCurrency(asset.currentValue || 0)}
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: (asset.totalPnL || 0) >= 0 ? '#10b981' : '#ef4444' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: (asset.totalPnL || 0) >= 0 ? '#34d399' : '#f87171', fontFamily: "'IBM Plex Mono', monospace" }}>
                         {formatCurrency(asset.totalPnL || 0)}
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'right' }}>
-                        <div style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          backgroundColor: (asset.totalPnLPercent || 0) >= 0 ? '#d1fae5' : '#fee2e2',
-                          color: (asset.totalPnLPercent || 0) >= 0 ? '#065f46' : '#991b1b'
-                        }}>
-                          {(asset.totalPnLPercent || 0) >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", backgroundColor: (asset.totalPnLPercent || 0) >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: (asset.totalPnLPercent || 0) >= 0 ? '#34d399' : '#f87171', border: `1px solid ${(asset.totalPnLPercent || 0) >= 0 ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+                          {(asset.totalPnLPercent || 0) >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
                           {formatPercent(asset.totalPnLPercent || 0)}
                         </div>
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'center', fontSize: '13px', color: '#6b7280' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', fontSize: '12px', color: '#64748b', fontFamily: "'IBM Plex Mono', monospace" }}>
                         {asset.recordCount}
                       </td>
-                      <td style={{ padding: '16px', textAlign: 'center' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <button
-                          onClick={() => setSelectedSymbol(asset.symbol)}
-                          className={selectedSymbol === asset.symbol ? 'btn-primary' : ''}
+                          onClick={(e) => { e.stopPropagation(); setSelectedSymbol(asset.symbol); }}
                           style={{
-                            backgroundColor: selectedSymbol === asset.symbol ? undefined : '#f3f4f6',
-                            color: selectedSymbol === asset.symbol ? undefined : '#6b7280',
-                            border: 'none',
-                            padding: '8px 16px',
-                            borderRadius: '8px',
-                            fontSize: '13px',
-                            fontWeight: '500',
+                            backgroundColor: selectedSymbol === asset.symbol ? 'rgba(59,130,246,0.15)' : 'rgba(30,37,53,0.6)',
+                            color: selectedSymbol === asset.symbol ? '#60a5fa' : '#64748b',
+                            border: `1px solid ${selectedSymbol === asset.symbol ? 'rgba(59,130,246,0.35)' : '#1e2535'}`,
+                            padding: '4px 12px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            fontFamily: "'IBM Plex Mono', monospace",
                             cursor: 'pointer'
                           }}
                         >
@@ -717,118 +538,56 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
 
             {/* Trades Table */}
             {selectedSymbol && selectedSymbolTrades.length > 0 && (
-              <div style={{
-                backgroundColor: 'white',
-                borderRadius: '16px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-                border: '1px solid #e5e7eb',
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-                  padding: '20px 24px',
-                  borderBottom: '1px solid #e5e7eb',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px'
-                }}>
+              <div style={{ backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2535', display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <img
                     src={getAssetIcon(selectedSymbol, assetsWithData.find(a => a.symbol === selectedSymbol)?.assetInfo?.type)}
                     alt={selectedSymbol}
-                    style={{ width: '40px', height: '40px', borderRadius: '8px' }}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${selectedSymbol}&size=40&background=667eea&color=fff&bold=true`;
-                    }}
+                    style={{ width: '28px', height: '28px', borderRadius: '6px' }}
+                    onError={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${selectedSymbol}&size=28&background=667eea&color=fff&bold=true`; }}
                   />
                   <div>
-                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
+                    <h2 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
                       {selectedSymbol} Trades
                     </h2>
-                    <p style={{ fontSize: '14px', color: '#6b7280' }}>
+                    <p style={{ fontSize: '11px', color: '#4a5568', fontFamily: "'IBM Plex Mono', monospace" }}>
                       {selectedSymbolTrades.length} transactions
                     </p>
                   </div>
                 </div>
-
                 <div style={{ overflowY: 'auto', maxHeight: '500px' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-                      <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Date</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Action</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Source</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Quantity</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Running Total</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Price</th>
-                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', backgroundColor: '#f9fafb' }}>Total</th>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#10141c' }}>
+                      <tr style={{ borderBottom: '1px solid #1e2535' }}>
+                        {['Date','Action','Source','Quantity','Running Total','Price','Total'].map((h, i) => (
+                          <th key={h} style={{ padding: '8px 12px', textAlign: i === 0 || i === 1 || i === 2 ? 'left' : 'right', fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase' as const, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '0.08em', background: '#10141c', whiteSpace: 'nowrap' as const }}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
                       {selectedSymbolTrades.map((trade, index) => {
-                        // Calculate running total (since trades are sorted most recent first, we need to reverse calculate)
                         let runningTotal = 0;
                         for (let i = selectedSymbolTrades.length - 1; i >= index; i--) {
                           const t = selectedSymbolTrades[i];
-                          if (t.action === 'buy') {
-                            runningTotal += t.quantity;
-                          } else {
-                            runningTotal -= t.quantity;
-                          }
+                          runningTotal += t.action === 'buy' ? t.quantity : -t.quantity;
                         }
-
                         return (
-                        <tr
-                          key={index}
-                          style={{
-                            borderBottom: index === selectedSymbolTrades.length - 1 ? 'none' : '1px solid #f3f4f6'
-                          }}
-                        >
-                          <td style={{ padding: '12px 16px', fontSize: '13px', color: '#374151' }}>
-                            {new Date(trade.date).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                            <div style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              backgroundColor: trade.action === 'buy' ? '#d1fae5' : '#fee2e2',
-                              color: trade.action === 'buy' ? '#065f46' : '#991b1b'
-                            }}>
-                              <div style={{
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                backgroundColor: trade.action === 'buy' ? '#10b981' : '#ef4444'
-                              }} />
-                              {trade.action.toUpperCase()}
-                            </div>
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                            {getSourceBadge(trade.folder)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#111827' }}>
-                            {trade.quantity.toFixed(4)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: runningTotal >= 0 ? '#059669' : '#dc2626' }}>
-                            {runningTotal.toFixed(4)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', color: '#6b7280' }}>
-                            {formatCurrency(trade.price)}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-                            {formatCurrency(trade.total)}
-                          </td>
-                        </tr>
+                          <tr key={index} style={{ borderBottom: index === selectedSymbolTrades.length - 1 ? 'none' : '1px solid #131720' }}>
+                            <td style={{ padding: '9px 12px', fontSize: '11px', color: '#94a3b8', fontFamily: "'IBM Plex Mono', monospace" }}>
+                              {new Date(trade.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </td>
+                            <td style={{ padding: '9px 12px' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", backgroundColor: trade.action === 'buy' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: trade.action === 'buy' ? '#34d399' : '#f87171', border: `1px solid ${trade.action === 'buy' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: trade.action === 'buy' ? '#34d399' : '#f87171' }} />
+                                {trade.action.toUpperCase()}
+                              </div>
+                            </td>
+                            <td style={{ padding: '9px 12px' }}>{getSourceBadge(trade.folder)}</td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: '#cbd5e1', fontFamily: "'IBM Plex Mono', monospace" }}>{trade.quantity.toFixed(4)}</td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: runningTotal >= 0 ? '#34d399' : '#f87171', fontFamily: "'IBM Plex Mono', monospace" }}>{runningTotal.toFixed(4)}</td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontSize: '12px', color: '#64748b', fontFamily: "'IBM Plex Mono', monospace" }}>{formatCurrency(trade.price)}</td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: '#cbd5e1', fontFamily: "'IBM Plex Mono', monospace" }}>{formatCurrency(trade.total)}</td>
+                          </tr>
                         );
                       })}
                     </tbody>
@@ -840,34 +599,16 @@ const PortfolioPnLTracker: React.FC<PortfolioPnLTrackerProps> = ({ portfolioId }
         )}
 
         {assetsWithoutData.length > 0 && (
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e5e7eb',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              background: 'linear-gradient(to right, #f8fafc, #f1f5f9)',
-              padding: '20px 24px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#111827' }}>
+          <div style={{ backgroundColor: '#10141c', borderRadius: '8px', border: '1px solid #1e2535', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e2535' }}>
+              <h3 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
                 Assets Pending Calculation ({assetsWithoutData.length})
               </h3>
             </div>
-            <div style={{ padding: '24px' }}>
+            <div style={{ padding: '16px 18px' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {assetsWithoutData.map(asset => (
-                  <div key={asset.symbol} style={{
-                    padding: '8px 14px',
-                    borderRadius: '8px',
-                    backgroundColor: '#f3f4f6',
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    fontWeight: '600',
-                    border: '1px solid #e5e7eb'
-                  }}>
+                  <div key={asset.symbol} style={{ padding: '4px 10px', borderRadius: '4px', backgroundColor: 'rgba(100,116,139,0.08)', fontSize: '12px', color: '#64748b', fontWeight: 700, border: '1px solid rgba(100,116,139,0.2)', fontFamily: "'IBM Plex Mono', monospace" }}>
                     {asset.symbol}
                   </div>
                 ))}
